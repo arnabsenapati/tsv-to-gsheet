@@ -2,15 +2,44 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
-from decimal import Decimal, InvalidOperation
 import queue
+import re
 import threading
 import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tkinter import BOTH, END, LEFT, Tk, Text, filedialog, messagebox, StringVar
 from tkinter import ttk
 
 from openpyxl import load_workbook
+
+
+MONTH_ALIASES = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 
 
 def validate_tsv(tsv_path: Path) -> None:
@@ -40,6 +69,49 @@ def _find_qno_column(header_row: list[str]) -> int:
         if str(value).strip().lower() == "qno":
             return idx
     raise ValueError("Could not find 'Qno' column in Excel header.")
+
+
+def _match_column(header_row: list[str], keyword_groups: list[tuple[str, ...]], friendly_name: str) -> int:
+    normalized_headers = []
+    for idx, value in enumerate(header_row, start=1):
+        text = "" if value is None else str(value).lower()
+        normalized_headers.append((idx, text))
+
+    for keywords in keyword_groups:
+        for idx, text in normalized_headers:
+            if all(keyword in text for keyword in keywords):
+                return idx
+    raise ValueError(f"Unable to locate column for {friendly_name}. Please ensure the header contains {keyword_groups[0]}.")
+
+
+def _find_magazine_column(header_row: list[str]) -> int:
+    keyword_groups = [
+        ("magazine", "edition"),
+        ("magazine", "issue"),
+        ("magazine",),
+        ("edition",),
+    ]
+    return _match_column(header_row, keyword_groups, "Magazine Edition")
+
+
+def _find_question_set_column(header_row: list[str]) -> int:
+    keyword_groups = [
+        ("question", "set"),
+        ("question", "paper"),
+        ("set", "name"),
+        ("set",),
+    ]
+    return _match_column(header_row, keyword_groups, "Question Set")
+
+
+def _find_page_column(header_row: list[str]) -> int:
+    keyword_groups = [
+        ("page", "no"),
+        ("page", "number"),
+        ("page",),
+        ("pg",),
+    ]
+    return _match_column(header_row, keyword_groups, "Page Number")
 
 
 def _find_insert_row(worksheet, qno_column: int) -> int:
@@ -113,41 +185,260 @@ def convert_value_for_column(value: str, target_type: type | None, header_row: l
     return value
 
 
-def append_tsv_to_excel(tsv_path: Path, workbook_path: Path) -> str:
-    if not workbook_path.exists():
-        raise FileNotFoundError(f"Workbook not found: {workbook_path}")
+def _normalize_text(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", value.lower())
+    return " ".join(cleaned.split())
 
-    workbook = load_workbook(workbook_path)
-    sheet_name = workbook.sheetnames[0]
-    worksheet = workbook[sheet_name]
 
-    header_row = [cell.value for cell in next(worksheet.iter_rows(min_row=1, max_row=1))]
-    column_types = infer_column_types(worksheet, len(header_row))
-    qno_column = _find_qno_column(header_row)
-    insert_row = _find_insert_row(worksheet, qno_column)
+def _normalize_month_year(value: str) -> str:
+    lower = value.lower()
+    month = None
+    for alias, number in MONTH_ALIASES.items():
+        if alias in lower:
+            month = number
+            break
 
-    appended_rows = 0
+    year_match = re.search(r"(20\d{2}|19\d{2}|'\d{2})", lower)
+    year = None
+    if year_match:
+        token = year_match.group(0)
+        if token.startswith("'"):
+            year = 2000 + int(token.strip("'"))
+        else:
+            year = int(token)
+
+    if month and year:
+        return f"{year:04d}-{month:02d}"
+    if year and not month:
+        return str(year)
+    return _normalize_text(value)
+
+
+def normalize_magazine_edition(value: str) -> str:
+    if not value:
+        return ""
+    parts = value.split("|", 1)
+    magazine_name = parts[0].strip()
+    edition_part = parts[1].strip() if len(parts) > 1 else ""
+    normalized_mag_name = _normalize_text(magazine_name)
+    normalized_edition = _normalize_month_year(edition_part or magazine_name)
+    return f"{normalized_mag_name}|{normalized_edition}"
+
+
+def normalize_question_set(value: str) -> str:
+    return _normalize_text(value)
+
+
+def normalize_qno(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        try:
+            return str(int(round(value)))
+        except (TypeError, ValueError):
+            pass
+    text = str(value).strip()
+    if text.isdigit():
+        return str(int(text))
+    cleaned = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    return " ".join(cleaned.split())
+
+
+def normalize_page(value) -> str:
+    if value is None:
+        return ""
+    return _normalize_text(str(value))
+
+
+def read_tsv_rows(tsv_path: Path) -> list[list[str]]:
     with tsv_path.open("r", encoding="utf-8", newline="") as tsv_file:
         reader = csv.reader(tsv_file, delimiter="\t")
-        header_skipped = False
-        for row in reader:
-            if not header_skipped:
-                header_skipped = True
-                continue
-            for col_idx, value in enumerate(row, start=1):
-                target_type = column_types.get(col_idx)
-                converted = convert_value_for_column(value, target_type, header_row, col_idx)
-                worksheet.cell(row=insert_row, column=col_idx, value=converted)
-            insert_row += 1
-            appended_rows += 1
+        next(reader, None)  # Skip header
+        return [row for row in reader]
 
-    workbook.save(workbook_path)
-    return f"Appended {appended_rows} rows to '{sheet_name}'"
+
+def collect_existing_triplets(
+    worksheet, magazine_col: int, qno_col: int, page_col: int
+) -> dict[tuple[str, str, str], tuple[str, str, str]]:
+    triplets: dict[tuple[str, str, str], tuple[str, str, str]] = {}
+    for row_idx in range(2, worksheet.max_row + 1):
+        magazine_value = worksheet.cell(row=row_idx, column=magazine_col).value
+        if not magazine_value:
+            continue
+        qno_value = worksheet.cell(row=row_idx, column=qno_col).value
+        page_value = worksheet.cell(row=row_idx, column=page_col).value
+        normalized_magazine = normalize_magazine_edition(str(magazine_value))
+        normalized_qno = normalize_qno(qno_value)
+        normalized_page = normalize_page(page_value)
+        if normalized_qno and normalized_page:
+            key = (normalized_magazine, normalized_qno, normalized_page)
+            triplets.setdefault(
+                key,
+                (
+                    str(magazine_value),
+                    str(qno_value) if qno_value is not None else "",
+                    str(page_value) if page_value is not None else "",
+                ),
+            )
+    return triplets
+
+
+def extract_file_metadata(
+    rows: list[list[str]],
+    magazine_col: int,
+    question_set_col: int,
+    qno_col: int,
+    page_col: int,
+) -> tuple[str, list[tuple[str, str, str, str, str, str, str]]]:
+    magazine_identifier = None
+    row_signatures: list[tuple[str, str, str, str, str, str, str]] = []
+    seen_row_signatures: set[tuple[str, str, str]] = set()
+    for row in rows:
+        # Guard against short rows
+        required_columns = max(magazine_col, question_set_col, qno_col, page_col)
+        if len(row) < required_columns:
+            raise ValueError("TSV row does not contain all required columns.")
+        magazine_value = row[magazine_col - 1].strip()
+        if not magazine_value:
+            raise ValueError("Magazine edition must be provided for every row.")
+        normalized_magazine = normalize_magazine_edition(magazine_value)
+        if magazine_identifier is None:
+            magazine_identifier = normalized_magazine
+        elif magazine_identifier != normalized_magazine:
+            raise ValueError(
+                "All rows in the TSV must belong to the same magazine edition. "
+                "Please split files by edition before importing."
+            )
+
+        question_value = row[question_set_col - 1].strip()
+        if not question_value:
+            raise ValueError("Question set must be provided for every row.")
+
+        qno_value = row[qno_col - 1].strip()
+        if not qno_value:
+            raise ValueError("Question number must be provided for every row.")
+        normalized_qno = normalize_qno(qno_value)
+        if not normalized_qno:
+            raise ValueError(f"Unable to normalize question number '{qno_value}'.")
+
+        page_value = row[page_col - 1].strip()
+        if not page_value:
+            raise ValueError("Page number must be provided for every row.")
+        normalized_page = normalize_page(page_value)
+        if not normalized_page:
+            raise ValueError(f"Unable to normalize page number '{page_value}'.")
+
+        combo_signature = (magazine_identifier, normalized_qno, normalized_page)
+        if combo_signature in seen_row_signatures:
+            raise ValueError(
+                "Duplicate question/page detected within TSV for magazine edition "
+                f"'{magazine_value}', question number '{qno_value}', page '{page_value}'."
+            )
+        seen_row_signatures.add(combo_signature)
+        row_signatures.append(
+            (
+                normalized_magazine,
+                normalized_qno,
+                normalized_page,
+                magazine_value,
+                qno_value,
+                page_value,
+            )
+        )
+
+    if magazine_identifier is None:
+        raise ValueError("Unable to identify magazine edition in the TSV file.")
+
+    return magazine_identifier, row_signatures
+
+
+def append_rows_to_excel(
+    workbook_path: Path,
+    worksheet,
+    header_row: list[str],
+    column_types: dict[int, type],
+    rows: list[list[str]],
+    insert_row: int,
+) -> str:
+    appended_rows = 0
+    for row in rows:
+        for col_idx, value in enumerate(row, start=1):
+            target_type = column_types.get(col_idx)
+            converted = convert_value_for_column(value, target_type, header_row, col_idx)
+            worksheet.cell(row=insert_row, column=col_idx, value=converted)
+        insert_row += 1
+        appended_rows += 1
+
+    worksheet.parent.save(workbook_path)
+    return f"Appended {appended_rows} rows to '{worksheet.title}'"
 
 
 def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
-    validate_tsv(tsv_path)
-    status_message = append_tsv_to_excel(tsv_path, workbook_path)
+    try:
+        validate_tsv(tsv_path)
+        rows = read_tsv_rows(tsv_path)
+
+        if not workbook_path.exists():
+            raise FileNotFoundError(f"Workbook not found: {workbook_path}")
+
+        workbook = load_workbook(workbook_path)
+        sheet_name = workbook.sheetnames[0]
+        worksheet = workbook[sheet_name]
+
+        header_row = [cell.value for cell in next(worksheet.iter_rows(min_row=1, max_row=1))]
+        if not header_row:
+            raise ValueError("Worksheet header row is empty.")
+
+        qno_column = _find_qno_column(header_row)
+        magazine_col = _find_magazine_column(header_row)
+        question_set_col = _find_question_set_column(header_row)
+        page_col = _find_page_column(header_row)
+        insert_row = _find_insert_row(worksheet, qno_column)
+
+        column_types = infer_column_types(worksheet, len(header_row))
+        existing_triplets = collect_existing_triplets(worksheet, magazine_col, qno_column, page_col)
+
+        magazine_identifier, row_signatures = extract_file_metadata(
+            rows, magazine_col, question_set_col, qno_column, page_col
+        )
+
+        duplicates = []
+        for normalized_magazine, normalized_qno, normalized_page, original_mag, original_qno, original_page in row_signatures:
+            combo = (normalized_magazine, normalized_qno, normalized_page)
+            if combo in existing_triplets:
+                existing_mag, existing_qno, existing_page = existing_triplets[combo]
+                duplicates.append(
+                    (
+                        original_mag or existing_mag,
+                        original_qno,
+                        original_page,
+                        existing_qno,
+                        existing_page,
+                    )
+                )
+
+        if duplicates:
+            readable = "; ".join(
+                f"Magazine '{mag}' Question '{qno}' Page '{page}' already exists (Workbook has Qno '{ex_qno}', Page '{ex_page}')"
+                for mag, qno, page, ex_qno, ex_page in duplicates
+            )
+            raise ValueError(
+                "Duplicate questions detected: "
+                f"{readable}. Remove or update these entries before importing."
+            )
+
+        status_message = append_rows_to_excel(
+            workbook_path=workbook_path,
+            worksheet=worksheet,
+            header_row=header_row,
+            column_types=column_types,
+            rows=rows,
+            insert_row=insert_row,
+        )
+    except ValueError as exc:
+        tsv_path.unlink(missing_ok=True)
+        raise ValueError(f"{exc} (file removed due to validation failure)") from exc
+
     tsv_path.unlink()
     return status_message + " (file removed)"
 
@@ -165,6 +456,7 @@ class TSVWatcherApp:
         self.watch_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.file_rows: dict[str, str] = {}
+        self.file_errors: dict[str, str] = {}
 
         self._build_ui()
         self._schedule_queue_processing()
@@ -205,6 +497,7 @@ class TSVWatcherApp:
             self.tree.heading(col, text=col.title())
             self.tree.column(col, width=width, anchor="w")
         self.tree.pack(fill=BOTH, expand=True)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
 
         # Log output
         log_frame = ttk.LabelFrame(self.root, text="Log", padding=10)
@@ -252,6 +545,10 @@ class TSVWatcherApp:
         self._ensure_row(filename)
         iid = self.file_rows[filename]
         self.tree.item(iid, values=(filename, status, message))
+        if status.lower() == "error":
+            self.file_errors[filename] = message
+        else:
+            self.file_errors.pop(filename, None)
 
     def start_watching(self) -> None:
         if self.watch_thread and self.watch_thread.is_alive():
@@ -325,6 +622,17 @@ class TSVWatcherApp:
                 self.log(message)
 
         self._schedule_queue_processing()
+
+    def on_tree_select(self, event) -> None:
+        selected = self.tree.selection()
+        if not selected:
+            return
+        iid = selected[0]
+        filename, status, message = self.tree.item(iid, "values")
+        if status.lower() != "error":
+            return
+        detail = self.file_errors.get(filename, message)
+        messagebox.showerror("Validation Error", f"{filename}\n\n{detail}")
 
 
 if __name__ == "__main__":
