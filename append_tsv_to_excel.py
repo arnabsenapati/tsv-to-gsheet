@@ -451,6 +451,8 @@ class TSVWatcherApp:
 
         self.input_var = StringVar()
         self.output_var = StringVar()
+        self.row_count_var = StringVar(value="Total rows: N/A")
+        self.output_var.trace_add("write", lambda *_: self.update_row_count())
 
         self.event_queue: queue.Queue[tuple] = queue.Queue()
         self.watch_thread: threading.Thread | None = None
@@ -459,6 +461,7 @@ class TSVWatcherApp:
         self.file_errors: dict[str, str] = {}
 
         self._build_ui()
+        self.update_row_count()
         self._schedule_queue_processing()
 
     def _build_ui(self) -> None:
@@ -478,6 +481,7 @@ class TSVWatcherApp:
         out_entry = ttk.Entry(top_frame, textvariable=self.output_var, width=70)
         out_entry.grid(row=1, column=1, padx=5, pady=5)
         ttk.Button(top_frame, text="Browse...", command=self.select_output_file).grid(row=1, column=2, pady=5)
+        ttk.Label(top_frame, textvariable=self.row_count_var).grid(row=2, column=1, columnspan=2, sticky="w")
 
         # Controls
         control_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
@@ -505,6 +509,27 @@ class TSVWatcherApp:
         self.log_text = Text(log_frame, height=8)
         self.log_text.pack(fill=BOTH, expand=True)
 
+    def update_row_count(self) -> None:
+        workbook_path = Path(self.output_var.get())
+        if not workbook_path.is_file():
+            self.row_count_var.set("Total rows: N/A")
+            return
+
+        workbook = None
+        try:
+            workbook = load_workbook(workbook_path, read_only=True, data_only=True)
+            worksheet = workbook[workbook.sheetnames[0]]
+            row_count = worksheet.max_row or 0
+            self.row_count_var.set(f"Total rows: {row_count}")
+        except Exception as exc:
+            self.row_count_var.set("Total rows: Error")
+            # Surface errors in the log for troubleshooting while keeping the UI label simple.
+            if hasattr(self, "log_text"):
+                self.log(f"Unable to read workbook rows: {exc}")
+        finally:
+            if workbook is not None:
+                workbook.close()
+
     def log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
         self.log_text.insert(END, f"[{timestamp}] {message}\n")
@@ -523,6 +548,7 @@ class TSVWatcherApp:
         )
         if file_path:
             self.output_var.set(file_path)
+            self.update_row_count()
 
     def refresh_file_list(self) -> None:
         input_path = Path(self.input_var.get())
@@ -600,6 +626,7 @@ class TSVWatcherApp:
                 else:
                     self.event_queue.put(("status", tsv_file.name, "Completed", result_message))
                     self.event_queue.put(("log", f"Processed {tsv_file.name}: {result_message}"))
+                    self.event_queue.put(("rowcount",))
 
             time.sleep(poll_interval)
 
@@ -620,6 +647,8 @@ class TSVWatcherApp:
             elif event_type == "log":
                 _, message = event
                 self.log(message)
+            elif event_type == "rowcount":
+                self.update_row_count()
 
         self._schedule_queue_processing()
 
