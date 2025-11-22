@@ -11,11 +11,29 @@ import time
 from decimal import Decimal, InvalidOperation
 from itertools import repeat
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QPalette, QTextCursor
+from PySide6.QtCore import Qt, QMimeData, QTimer
+from PySide6.QtGui import QColor, QPalette, QDrag, QDragEnterEvent, QDropEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -304,6 +322,63 @@ def normalize_page(value) -> str:
         return ""
     return _normalize_text(str(value))
 
+
+class GroupingChapterListWidget(QListWidget):
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.setSelectionMode(QListWidget.SingleSelection)
+        self.setDragEnabled(True)
+
+    def startDrag(self, supportedActions) -> None:
+        item = self.currentItem()
+        if not item:
+            return
+        chapter = item.data(Qt.UserRole) or item.text()
+        mime = QMimeData()
+        mime.setText(chapter)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.MoveAction)
+
+
+class GroupListWidget(QListWidget):
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.setSelectionMode(QListWidget.SingleSelection)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        if not event.mimeData().hasText():
+            super().dropEvent(event)
+            return
+        chapter = event.mimeData().text().strip()
+        if not chapter:
+            return
+        position = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        target_item = self.itemAt(position)
+        if not target_item:
+            target_item = self.currentItem()
+        if not target_item:
+            return
+        group = target_item.data(Qt.UserRole) or target_item.text()
+        current_item = self.parent_window.group_list.currentItem()
+        source_group = current_item.data(Qt.UserRole) if current_item else None
+        self.parent_window.move_chapter_to_group(chapter, group, stay_on_group=source_group)
+        event.acceptProposedAction()
 
 def read_tsv_rows(tsv_path: Path) -> list[list[str]]:
     with tsv_path.open("r", encoding="utf-8", newline="") as tsv_file:
@@ -663,11 +738,11 @@ class TSVWatcherWindow(QMainWindow):
         grouping_layout.addWidget(grouping_card)
         grouping_card_layout = QHBoxLayout(grouping_card)
 
-        self.group_list = QListWidget()
+        self.group_list = GroupListWidget(self)
         self.group_list.itemSelectionChanged.connect(self.on_group_selected)
         grouping_card_layout.addWidget(self.group_list, 1)
 
-        self.group_chapter_list = QListWidget()
+        self.group_chapter_list = GroupingChapterListWidget(self)
         grouping_card_layout.addWidget(self.group_chapter_list, 2)
 
         group_controls = QVBoxLayout()
@@ -1005,9 +1080,10 @@ class TSVWatcherWindow(QMainWindow):
 
         chapters: dict[str, list[dict]] = {}
         for _, row in df.iterrows():
-            chapter_name = normalize(row.iloc[question_set_col - 1])
-            if not chapter_name:
+            raw_chapter_name = normalize(row.iloc[question_set_col - 1])
+            if not raw_chapter_name:
                 continue
+            chapter_name = self._match_chapter_group(raw_chapter_name)
             qno_value = normalize(row.iloc[qno_col - 1])
             page_value = normalize(row.iloc[page_col - 1])
             question_text = normalize(row.iloc[question_text_col - 1]) if question_text_col else ""
@@ -1176,18 +1252,14 @@ class TSVWatcherWindow(QMainWindow):
     def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
         if not hasattr(self, "chapter_list"):
             return
-        grouped_questions: dict[str, list[dict]] = {}
-        for chapter_name, question_items in (chapters or {}).items():
-            target_group = self._match_chapter_group(chapter_name)
-            grouped_questions.setdefault(target_group, []).extend(question_items)
-        self.chapter_questions = grouped_questions
+        self.chapter_questions = chapters or {}
         self.chapter_list.clear()
         self.question_table.setRowCount(0)
         self.question_text_view.clear()
-        if not grouped_questions:
+        if not self.chapter_questions:
             return
-        for chapter in sorted(grouped_questions.keys(), key=lambda value: value.lower()):
-            item = QListWidgetItem(f"{chapter} ({len(grouped_questions[chapter])} question(s))")
+        for chapter in sorted(self.chapter_questions.keys(), key=lambda value: value.lower()):
+            item = QListWidgetItem(f"{chapter} ({len(self.chapter_questions[chapter])} question(s))")
             item.setData(Qt.UserRole, chapter)
             self.chapter_list.addItem(item)
         if self.chapter_list.count() > 0:
@@ -1261,15 +1333,21 @@ class TSVWatcherWindow(QMainWindow):
         target_group = target_combo.currentText()
         if not chapter_name or not target_group or current_group == target_group:
             return
-        current_list = self.chapter_groups.get(current_group, [])
-        if chapter_name in current_list:
-            current_list.remove(chapter_name)
+        self.move_chapter_to_group(chapter_name, target_group)
+
+    def move_chapter_to_group(self, chapter_name: str, target_group: str, stay_on_group: str | None = None) -> None:
+        if not chapter_name or not target_group:
+            return
+        for group, values in self.chapter_groups.items():
+            if chapter_name in values:
+                values.remove(chapter_name)
+                break
         self.chapter_groups.setdefault(target_group, [])
         if chapter_name not in self.chapter_groups[target_group]:
             self.chapter_groups[target_group].append(chapter_name)
         self._save_chapter_grouping()
         self._refresh_grouping_ui()
-        self._select_group_in_ui(target_group)
+        self._select_group_in_ui(stay_on_group or target_group)
         self.on_group_selected()
 
     def on_chapter_selected(self) -> None:
