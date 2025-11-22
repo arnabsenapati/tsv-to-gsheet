@@ -1,17 +1,40 @@
 from __future__ import annotations
 
 import csv
+import sys
 import datetime as dt
 import queue
 import re
 import threading
 import time
 from decimal import Decimal, InvalidOperation
+from itertools import repeat
 from pathlib import Path
-from tkinter import BOTH, END, LEFT, Tk, Text, filedialog, messagebox, StringVar
-from tkinter import ttk
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor, QPalette, QTextCursor
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from openpyxl import load_workbook
+import pandas as pd
 
 
 MONTH_ALIASES = {
@@ -114,19 +137,21 @@ def _find_page_column(header_row: list[str]) -> int:
     return _match_column(header_row, keyword_groups, "Page Number")
 
 
-def _find_insert_row(worksheet, qno_column: int) -> int:
-    last_row_with_qno = 1
+def _find_insert_row(worksheet) -> int:
+    """Locate the next empty row by scanning for the last row that contains any value."""
+
+    def _has_value(value) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        return True
+
     for row_idx in range(worksheet.max_row, 1, -1):
-        cell_value = worksheet.cell(row=row_idx, column=qno_column).value
-        if cell_value is None:
-            continue
-        if isinstance(cell_value, int):
-            last_row_with_qno = row_idx
-            break
-        if isinstance(cell_value, str) and cell_value.strip().isdigit():
-            last_row_with_qno = row_idx
-            break
-    return last_row_with_qno + 1
+        for cell in worksheet[row_idx]:
+            if _has_value(cell.value):
+                return row_idx + 1
+    return 2
 
 
 def infer_column_types(worksheet, num_columns: int) -> dict[int, type]:
@@ -393,7 +418,7 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
         magazine_col = _find_magazine_column(header_row)
         question_set_col = _find_question_set_column(header_row)
         page_col = _find_page_column(header_row)
-        insert_row = _find_insert_row(worksheet, qno_column)
+        insert_row = _find_insert_row(worksheet)
 
         column_types = infer_column_types(worksheet, len(header_row))
         existing_triplets = collect_existing_triplets(worksheet, magazine_col, qno_column, page_col)
@@ -443,115 +468,495 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
     return status_message + " (file removed)"
 
 
-class TSVWatcherApp:
-    def __init__(self, root: Tk) -> None:
-        self.root = root
-        root.title("TSV to Excel Watcher")
-        root.geometry("900x600")
-
-        self.input_var = StringVar()
-        self.output_var = StringVar()
-        self.row_count_var = StringVar(value="Total rows: N/A")
-        self.output_var.trace_add("write", lambda *_: self.update_row_count())
+class TSVWatcherWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("TSV to Excel Watcher")
+        self.resize(1200, 820)
 
         self.event_queue: queue.Queue[tuple] = queue.Queue()
         self.watch_thread: threading.Thread | None = None
         self.stop_event = threading.Event()
-        self.file_rows: dict[str, str] = {}
+        self.file_rows: dict[str, int] = {}
         self.file_errors: dict[str, str] = {}
+        self.metrics_request_id = 0
 
         self._build_ui()
+        self._setup_timer()
         self.update_row_count()
-        self._schedule_queue_processing()
 
     def _build_ui(self) -> None:
-        top_frame = ttk.Frame(self.root, padding=10)
-        top_frame.pack(fill=BOTH)
+        self._apply_palette()
+        central = QWidget()
+        self.setCentralWidget(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(18, 18, 18, 18)
+        root_layout.setSpacing(14)
 
-        # Input folder selection
-        input_label = ttk.Label(top_frame, text="Input folder:")
-        input_label.grid(row=0, column=0, sticky="w")
-        input_entry = ttk.Entry(top_frame, textvariable=self.input_var, width=70)
-        input_entry.grid(row=0, column=1, padx=5)
-        ttk.Button(top_frame, text="Browse...", command=self.select_input_folder).grid(row=0, column=2)
+        top_card = self._create_card()
+        top_layout = QVBoxLayout(top_card)
+        top_layout.setSpacing(10)
 
-        # Output workbook selection
-        out_label = ttk.Label(top_frame, text="Workbook:")
-        out_label.grid(row=1, column=0, sticky="w", pady=5)
-        out_entry = ttk.Entry(top_frame, textvariable=self.output_var, width=70)
-        out_entry.grid(row=1, column=1, padx=5, pady=5)
-        ttk.Button(top_frame, text="Browse...", command=self.select_output_file).grid(row=1, column=2, pady=5)
-        ttk.Label(top_frame, textvariable=self.row_count_var).grid(row=2, column=1, columnspan=2, sticky="w")
+        self.input_edit = QLineEdit()
+        self.input_edit.editingFinished.connect(self.refresh_file_list)
+        input_row = QHBoxLayout()
+        input_row.addWidget(self._create_label("Input folder"))
+        input_row.addWidget(self.input_edit)
+        browse_input = QPushButton("Browse?")
+        browse_input.clicked.connect(self.select_input_folder)
+        input_row.addWidget(browse_input)
+        top_layout.addLayout(input_row)
 
-        # Controls
-        control_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
-        control_frame.pack(fill=BOTH)
-        ttk.Button(control_frame, text="Refresh Files", command=self.refresh_file_list).pack(side=LEFT)
-        self.start_button = ttk.Button(control_frame, text="Start Watching", command=self.start_watching)
-        self.start_button.pack(side=LEFT, padx=5)
-        ttk.Button(control_frame, text="Stop Watching", command=self.stop_watching).pack(side=LEFT)
+        self.output_edit = QLineEdit()
+        self.output_edit.editingFinished.connect(self.update_row_count)
+        output_row = QHBoxLayout()
+        output_row.addWidget(self._create_label("Workbook"))
+        output_row.addWidget(self.output_edit)
+        browse_output = QPushButton("Browse?")
+        browse_output.clicked.connect(self.select_output_file)
+        output_row.addWidget(browse_output)
+        top_layout.addLayout(output_row)
 
-        # File status table
-        tree_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
-        tree_frame.pack(fill=BOTH, expand=True)
+        info_row = QHBoxLayout()
+        self.row_count_label = QLabel("Total rows: N/A")
+        self.row_count_label.setObjectName("headerLabel")
+        self.mag_summary_label = QLabel("Magazines: N/A")
+        self.mag_summary_label.setObjectName("infoLabel")
+        self.mag_missing_label = QLabel("Missing ranges: N/A")
+        self.mag_missing_label.setObjectName("infoLabel")
+        info_row.addWidget(self.row_count_label)
+        info_row.addStretch()
+        info_row.addWidget(self.mag_summary_label)
+        info_row.addWidget(self.mag_missing_label)
+        top_layout.addLayout(info_row)
+        root_layout.addWidget(top_card)
 
-        columns = ("file", "status", "message")
-        self.tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=10)
-        for col, width in zip(columns, (300, 150, 400)):
-            self.tree.heading(col, text=col.title())
-            self.tree.column(col, width=width, anchor="w")
-        self.tree.pack(fill=BOTH, expand=True)
-        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        control_card = self._create_card()
+        control_layout = QHBoxLayout(control_card)
+        self.refresh_button = QPushButton("Refresh Files")
+        self.refresh_button.clicked.connect(self.refresh_file_list)
+        self.start_button = QPushButton("Start Watching")
+        self.start_button.clicked.connect(self.start_watching)
+        self.stop_button = QPushButton("Stop Watching")
+        self.stop_button.clicked.connect(self.stop_watching)
+        control_layout.addWidget(self.refresh_button)
+        control_layout.addWidget(self.start_button)
+        control_layout.addWidget(self.stop_button)
+        control_layout.addStretch()
+        root_layout.addWidget(control_card)
 
-        # Log output
-        log_frame = ttk.LabelFrame(self.root, text="Log", padding=10)
-        log_frame.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
-        self.log_text = Text(log_frame, height=8)
-        self.log_text.pack(fill=BOTH, expand=True)
+        splitter = QSplitter(Qt.Vertical)
+        root_layout.addWidget(splitter, 1)
+
+        status_card = self._create_card()
+        status_layout = QVBoxLayout(status_card)
+        status_layout.addWidget(self._create_label("File Status"))
+        self.file_table = QTableWidget(0, 3)
+        self.file_table.setHorizontalHeaderLabels(["File", "Status", "Message"])
+        self.file_table.horizontalHeader().setStretchLastSection(True)
+        self.file_table.verticalHeader().setVisible(False)
+        self.file_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.file_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.file_table.cellDoubleClicked.connect(self.on_file_double_clicked)
+        status_layout.addWidget(self.file_table)
+        splitter.addWidget(status_card)
+
+        mag_card = self._create_card()
+        mag_layout = QVBoxLayout(mag_card)
+        mag_layout.addWidget(self._create_label("Magazine Editions"))
+        mag_split = QSplitter(Qt.Horizontal)
+        mag_layout.addWidget(mag_split, 1)
+
+        self.mag_tree = QTreeWidget()
+        self.mag_tree.setColumnCount(3)
+        self.mag_tree.setHeaderLabels(["Magazine", "Edition", "Missing Ranges"])
+        self.mag_tree.setRootIsDecorated(False)
+        self.mag_tree.itemSelectionChanged.connect(self.on_magazine_select)
+        mag_split.addWidget(self.mag_tree)
+
+        detail_widget = QWidget()
+        detail_layout = QVBoxLayout(detail_widget)
+        self.question_label = QLabel("Select a workbook to display magazine editions.")
+        self.question_label.setObjectName("infoLabel")
+        detail_layout.addWidget(self.question_label)
+        self.question_list = QListWidget()
+        detail_layout.addWidget(self.question_list)
+        mag_split.addWidget(detail_widget)
+        splitter.addWidget(mag_card)
+
+        self.log_toggle = QPushButton("Show Log")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.toggled.connect(self.toggle_log_visibility)
+        root_layout.addWidget(self.log_toggle, 0, alignment=Qt.AlignLeft)
+
+        self.log_card = self._create_card()
+        log_layout = QVBoxLayout(self.log_card)
+        log_layout.addWidget(self._create_label("Log"))
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setObjectName("logView")
+        log_layout.addWidget(self.log_view)
+        root_layout.addWidget(self.log_card, 0)
+        self.log_card.setVisible(False)
+
+    def _apply_palette(self) -> None:
+        palette = QPalette()
+        palette.setColor(QPalette.Window, QColor("#f4f5f9"))
+        palette.setColor(QPalette.Base, QColor("#ffffff"))
+        palette.setColor(QPalette.Text, QColor("#0f172a"))
+        palette.setColor(QPalette.Button, QColor("#2563eb"))
+        palette.setColor(QPalette.ButtonText, QColor("#ffffff"))
+        self.setPalette(palette)
+        self.setStyleSheet(
+            """
+            QWidget#card {
+                background-color: #ffffff;
+                border-radius: 14px;
+                padding: 12px;
+            }
+            QPushButton {
+                background-color: #2563eb;
+                color: #ffffff;
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+            QPushButton:disabled {
+                background-color: #94a3b8;
+            }
+            QLabel#headerLabel {
+                font-weight: 600;
+                color: #0f172a;
+            }
+            QLabel#infoLabel {
+                color: #475569;
+            }
+            QTreeWidget, QTableWidget, QListWidget {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background-color: #ffffff;
+                color: #0f172a;
+                alternate-background-color: #f8fafc;
+            }
+            QTreeWidget::item:selected, QTableWidget::item:selected, QListWidget::item:selected {
+                background-color: #d0e2ff;
+                color: #0f172a;
+            }
+            QTextEdit#logView {
+                background-color: #0f172a;
+                color: #e2e8f0;
+                border-radius: 8px;
+                padding: 8px;
+                font-family: Consolas, 'Courier New', monospace;
+            }
+            """
+        )
+
+    def _create_card(self) -> QWidget:
+        card = QWidget()
+        card.setObjectName("card")
+        return card
+
+    def _create_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("headerLabel")
+        return label
+
+    def toggle_log_visibility(self, checked: bool) -> None:
+        self.log_card.setVisible(checked)
+        self.log_toggle.setText("Hide Log" if checked else "Show Log")
+
+    def _setup_timer(self) -> None:
+        self.queue_timer = QTimer(self)
+        self.queue_timer.setInterval(200)
+        self.queue_timer.timeout.connect(self._process_queue)
+        self.queue_timer.start()
 
     def update_row_count(self) -> None:
-        workbook_path = Path(self.output_var.get())
+        workbook_path = Path(self.output_edit.text().strip())
         if not workbook_path.is_file():
-            self.row_count_var.set("Total rows: N/A")
+            self.row_count_label.setText("Total rows: N/A")
+            self._set_magazine_summary("Magazines: N/A", "Missing ranges: N/A")
+            self._populate_magazine_tree([])
+            self._populate_question_sets([])
+            self.question_label.setText("Select a workbook to display magazine editions.")
             return
 
-        workbook = None
+        self.row_count_label.setText("Total rows: Loading...")
+        self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
+        self._populate_magazine_tree([])
+        self._populate_question_sets([])
+        self.question_label.setText("Loading editions...")
+        self.metrics_request_id += 1
+        request_id = self.metrics_request_id
+
+        def worker(path: Path, req_id: int) -> None:
+            try:
+                # Pandas is used here to keep the UI responsive while gathering workbook metrics.
+                df = pd.read_excel(path, sheet_name=0, dtype=object)
+                row_count = self._compute_row_count_from_df(df)
+                magazine_details, warnings = self._collect_magazine_details(df)
+                self.event_queue.put(("metrics", req_id, row_count, magazine_details, warnings))
+            except Exception as exc:
+                self.event_queue.put(("metrics_error", req_id, str(exc)))
+
+        threading.Thread(target=worker, args=(workbook_path, request_id), daemon=True).start()
+
+    def _set_magazine_summary(self, primary: str, secondary: str) -> None:
+        self.mag_summary_label.setText(primary)
+        self.mag_missing_label.setText(secondary)
+
+    def _collect_magazine_details(self, df: pd.DataFrame) -> tuple[list[dict], list[str]]:
+        warnings: list[str] = []
+        if df.empty:
+            return [], warnings
+
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
         try:
-            workbook = load_workbook(workbook_path, read_only=True, data_only=True)
-            worksheet = workbook[workbook.sheetnames[0]]
-            row_count = worksheet.max_row or 0
-            self.row_count_var.set(f"Total rows: {row_count}")
-        except Exception as exc:
-            self.row_count_var.set("Total rows: Error")
-            # Surface errors in the log for troubleshooting while keeping the UI label simple.
-            if hasattr(self, "log_text"):
-                self.log(f"Unable to read workbook rows: {exc}")
-        finally:
-            if workbook is not None:
-                workbook.close()
+            magazine_col = _find_magazine_column(header_row)
+        except ValueError:
+            warnings.append("Unable to determine magazine column for summary display.")
+            return [], warnings
+
+        question_set_col = None
+        try:
+            question_set_col = _find_question_set_column(header_row)
+        except ValueError:
+            warnings.append("Unable to determine question set column; question sets will not be listed.")
+
+        coverage: dict[str, dict[str, object]] = {}
+        magazine_series = df.iloc[:, magazine_col - 1]
+        question_series = (
+            df.iloc[:, question_set_col - 1] if question_set_col is not None else repeat(None, len(df))
+        )
+        for magazine_value, question_value in zip(magazine_series, question_series):
+            if pd.isna(magazine_value):
+                continue
+            text = str(magazine_value).strip()
+            if not text:
+                continue
+            display_parts = [part.strip() for part in text.split("|", 1)]
+            display_name = display_parts[0] or "Unknown"
+            display_edition = display_parts[1] if len(display_parts) > 1 else ""
+            normalized = normalize_magazine_edition(text)
+            norm_parts = normalized.split("|", 1)
+            norm_name = norm_parts[0]
+            norm_edition = norm_parts[1] if len(norm_parts) > 1 else ""
+            entry = coverage.setdefault(
+                norm_name,
+                {
+                    "display_name": display_name,
+                    "editions": {},
+                    "normalized_editions": set(),
+                },
+            )
+            edition_label = display_edition or "(unspecified)"
+            edition_entry = entry["editions"].setdefault(
+                norm_edition,
+                {
+                    "display": edition_label,
+                    "question_sets": set(),
+                },
+            )
+            if question_set_col is not None and not pd.isna(question_value):
+                q_text = str(question_value).strip()
+                if q_text:
+                    edition_entry["question_sets"].add(q_text)
+            entry["normalized_editions"].add(norm_edition)
+
+        if not coverage:
+            return [], warnings
+
+        details: list[dict] = []
+        for norm_name in sorted(coverage.keys(), key=lambda key: str(coverage[key]["display_name"]).lower()):
+            data = coverage[norm_name]
+            edition_items = []
+            for norm_edition, edition_data in sorted(
+                data["editions"].items(),
+                key=lambda item: self._edition_sort_key(item[0], item[1]["display"]),
+            ):
+                question_sets = sorted(edition_data["question_sets"], key=lambda value: value.lower())
+                edition_items.append(
+                    {
+                        "display": edition_data["display"],
+                        "normalized": norm_edition,
+                        "question_sets": question_sets,
+                    }
+                )
+            missing_ranges = self._compute_missing_ranges(data["normalized_editions"])
+            details.append(
+                {
+                    "display_name": data["display_name"],
+                    "missing_ranges": missing_ranges,
+                    "editions": edition_items,
+                }
+            )
+        return details, warnings
+
+    def _compute_row_count_from_df(self, df: pd.DataFrame) -> int:
+        def row_has_value(row) -> bool:
+            for value in row:
+                if isinstance(value, str):
+                    if value.strip():
+                        return True
+                    continue
+                if pd.isna(value):
+                    continue
+                return True
+            return False
+
+        for idx in range(len(df) - 1, -1, -1):
+            if row_has_value(df.iloc[idx]):
+                return idx + 2  # DataFrame row index is zero-based, Excel rows start at 2 after header.
+        return 1
+
+    def _compute_missing_ranges(self, normalized_editions: set[str]) -> list[str]:
+        monthly_tokens = sorted(
+            {
+                token
+                for token in normalized_editions
+                if re.fullmatch(r"\d{4}-\d{2}", token)
+            }
+        )
+        if len(monthly_tokens) < 2:
+            return []
+
+        months = [dt.date(int(token[:4]), int(token[5:7]), 1) for token in monthly_tokens]
+        present_keys = set(monthly_tokens)
+        missing_ranges: list[str] = []
+        current = months[0]
+        last = months[-1]
+        missing_start: dt.date | None = None
+
+        while current <= last:
+            key = current.strftime("%Y-%m")
+            if key not in present_keys:
+                if missing_start is None:
+                    missing_start = current
+            else:
+                if missing_start is not None:
+                    end = self._previous_month(current)
+                    missing_ranges.append(self._format_range(missing_start, end))
+                    missing_start = None
+            current = self._add_month(current)
+
+        if missing_start is not None:
+            missing_ranges.append(self._format_range(missing_start, last))
+        return missing_ranges
+
+    def _add_month(self, date_value: dt.date) -> dt.date:
+        if date_value.month == 12:
+            return dt.date(date_value.year + 1, 1, 1)
+        return dt.date(date_value.year, date_value.month + 1, 1)
+
+    def _previous_month(self, date_value: dt.date) -> dt.date:
+        if date_value.month == 1:
+            return dt.date(date_value.year - 1, 12, 1)
+        return dt.date(date_value.year, date_value.month - 1, 1)
+
+    def _format_range(self, start: dt.date, end: dt.date) -> str:
+        if start == end:
+            return start.strftime("%b %Y")
+        return f"{start.strftime('%b %Y')} - {end.strftime('%b %Y')}"
+
+    def _parse_normalized_month(self, normalized: str) -> dt.date | None:
+        if normalized and re.fullmatch(r"\d{4}-\d{2}", normalized):
+            return dt.date(int(normalized[:4]), int(normalized[5:7]), 1)
+        return None
+
+    def _edition_sort_key(self, normalized: str, display_label: str) -> tuple:
+        parsed = self._parse_normalized_month(normalized)
+        if parsed:
+            return (0, -parsed.toordinal(), display_label.lower())
+        return (1, display_label.lower(), "")
+
+    def _populate_magazine_tree(self, details: list[dict]) -> None:
+        if not hasattr(self, "mag_tree"):
+            return
+        self.mag_tree.clear()
+        if not details:
+            return
+
+        for entry in details:
+            missing_text = ", ".join(entry["missing_ranges"]) if entry["missing_ranges"] else "None"
+            parent = QTreeWidgetItem([entry["display_name"], "", missing_text])
+            parent.setData(0, Qt.UserRole, {"type": "magazine", "display_name": entry["display_name"]})
+            self.mag_tree.addTopLevelItem(parent)
+            for edition in entry["editions"]:
+                edition_label = edition["display"] or "(unspecified)"
+                question_sets = edition["question_sets"]
+                edition_value = (
+                    f"{edition_label} ({len(question_sets)} set(s))" if question_sets else edition_label
+                )
+                child = QTreeWidgetItem(["", edition_value, ""])
+                data = {
+                    "type": "edition",
+                    "display_name": entry["display_name"],
+                    "edition_label": edition_label,
+                    "question_sets": question_sets,
+                }
+                child.setData(0, Qt.UserRole, data)
+                parent.addChild(child)
+        self.mag_tree.expandAll()
+
+    def _populate_question_sets(self, question_sets: list[str] | None) -> None:
+        if not hasattr(self, "question_list"):
+            return
+        self.question_list.clear()
+        if not question_sets:
+            return
+        for name in question_sets:
+            QListWidgetItem(name, self.question_list)
+
+    def on_magazine_select(self) -> None:
+        selected = self.mag_tree.selectedItems()
+        if not selected:
+            self.question_label.setText("Select an edition to view question sets.")
+            self._populate_question_sets([])
+            return
+        item = selected[0]
+        data = item.data(0, Qt.UserRole)
+        if not isinstance(data, dict) or data.get("type") != "edition":
+            self.question_label.setText("Select an edition to view question sets.")
+            self._populate_question_sets([])
+            return
+
+        question_sets = data.get("question_sets", [])
+        label = f"{data.get('display_name', 'Magazine')} - {data.get('edition_label', 'Edition')}"
+        if question_sets:
+            self.question_label.setText(f"{label} ({len(question_sets)} set(s))")
+            self._populate_question_sets(question_sets)
+        else:
+            self.question_label.setText(f"{label} (no question sets)")
+            self._populate_question_sets([])
 
     def log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
-        self.log_text.insert(END, f"[{timestamp}] {message}\n")
-        self.log_text.see(END)
+        self.log_view.append(f"[{timestamp}] {message}")
+        self.log_view.moveCursor(QTextCursor.End)
 
     def select_input_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Select Input Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
         if folder:
-            self.input_var.set(folder)
+            self.input_edit.setText(folder)
             self.refresh_file_list()
 
     def select_output_file(self) -> None:
-        file_path = filedialog.askopenfilename(
-            title="Select Excel Workbook",
-            filetypes=[("Excel files", "*.xlsx")],
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Excel Workbook",
+            "",
+            "Excel files (*.xlsx)",
         )
         if file_path:
-            self.output_var.set(file_path)
+            self.output_edit.setText(file_path)
             self.update_row_count()
 
     def refresh_file_list(self) -> None:
-        input_path = Path(self.input_var.get())
+        input_path = Path(self.input_edit.text().strip())
         if not input_path.exists():
             self.log("Input folder does not exist.")
             return
@@ -561,34 +966,57 @@ class TSVWatcherApp:
             self._ensure_row(tsv_file.name)
         self.log(f"Found {len(tsv_files)} TSV file(s) in input folder.")
 
-    def _ensure_row(self, filename: str) -> None:
-        if filename in self.file_rows:
-            return
-        iid = self.tree.insert("", END, values=(filename, "Pending", "Awaiting processing"))
-        self.file_rows[filename] = iid
+    def _ensure_row(self, filename: str) -> int:
+        row = self.file_rows.get(filename)
+        if row is not None:
+            return row
+        row = self.file_table.rowCount()
+        self.file_table.insertRow(row)
+        self.file_table.setItem(row, 0, QTableWidgetItem(filename))
+        self.file_table.setItem(row, 1, QTableWidgetItem("Pending"))
+        self.file_table.setItem(row, 2, QTableWidgetItem("Awaiting processing"))
+        self.file_rows[filename] = row
+        return row
 
     def update_file_status(self, filename: str, status: str, message: str) -> None:
-        self._ensure_row(filename)
-        iid = self.file_rows[filename]
-        self.tree.item(iid, values=(filename, status, message))
+        row = self._ensure_row(filename)
+        for col, value in enumerate((filename, status, message)):
+            item = self.file_table.item(row, col)
+            if item is None:
+                item = QTableWidgetItem(value)
+                self.file_table.setItem(row, col, item)
+            else:
+                item.setText(value)
         if status.lower() == "error":
             self.file_errors[filename] = message
         else:
             self.file_errors.pop(filename, None)
 
+    def on_file_double_clicked(self, row: int, column: int) -> None:  # noqa: ARG002
+        filename_item = self.file_table.item(row, 0)
+        status_item = self.file_table.item(row, 1)
+        message_item = self.file_table.item(row, 2)
+        if not filename_item or not status_item:
+            return
+        if status_item.text().lower() != "error":
+            return
+        filename = filename_item.text()
+        detail = self.file_errors.get(filename, message_item.text() if message_item else "")
+        QMessageBox.critical(self, "Validation Error", f"{filename}\n\n{detail}")
+
     def start_watching(self) -> None:
         if self.watch_thread and self.watch_thread.is_alive():
-            messagebox.showinfo("Watcher", "Watcher is already running.")
+            QMessageBox.information(self, "Watcher", "Watcher is already running.")
             return
 
-        input_path = Path(self.input_var.get())
-        workbook_path = Path(self.output_var.get())
+        input_path = Path(self.input_edit.text().strip())
+        workbook_path = Path(self.output_edit.text().strip())
 
         if not input_path.is_dir():
-            messagebox.showerror("Invalid Input", "Please select a valid input folder.")
+            QMessageBox.critical(self, "Invalid Input", "Please select a valid input folder.")
             return
         if not workbook_path.is_file():
-            messagebox.showerror("Invalid Workbook", "Please select an existing Excel workbook.")
+            QMessageBox.critical(self, "Invalid Workbook", "Please select an existing Excel workbook.")
             return
 
         self.stop_event.clear()
@@ -596,14 +1024,14 @@ class TSVWatcherApp:
             target=self._watch_loop, args=(input_path, workbook_path), daemon=True
         )
         self.watch_thread.start()
-        self.start_button.config(state="disabled")
+        self.start_button.setEnabled(False)
         self.log("Started watching for TSV files.")
 
     def stop_watching(self) -> None:
         self.stop_event.set()
         if self.watch_thread and self.watch_thread.is_alive():
             self.watch_thread.join(timeout=0.1)
-        self.start_button.config(state="normal")
+        self.start_button.setEnabled(True)
         self.log("Stopped watching.")
 
     def _watch_loop(self, input_dir: Path, workbook_path: Path) -> None:
@@ -630,9 +1058,6 @@ class TSVWatcherApp:
 
             time.sleep(poll_interval)
 
-    def _schedule_queue_processing(self) -> None:
-        self.root.after(200, self._process_queue)
-
     def _process_queue(self) -> None:
         while True:
             try:
@@ -647,30 +1072,51 @@ class TSVWatcherApp:
             elif event_type == "log":
                 _, message = event
                 self.log(message)
+            elif event_type == "metrics":
+                _, req_id, row_count, details, warnings = event
+                if req_id != self.metrics_request_id:
+                    continue
+                self.row_count_label.setText(f"Total rows: {row_count}")
+                total_editions = sum(len(entry["editions"]) for entry in details)
+                self._set_magazine_summary(
+                    f"Magazines loaded: {len(details)}",
+                    f"Tracked editions: {total_editions}",
+                )
+                self._populate_magazine_tree(details)
+                self._populate_question_sets([])
+                missing_qset_warning = next(
+                    (msg for msg in warnings if "question set" in msg.lower()), None
+                )
+                if missing_qset_warning:
+                    label_message = missing_qset_warning
+                elif details:
+                    label_message = "Select an edition to view question sets."
+                else:
+                    label_message = warnings[0] if warnings else "No magazine editions found."
+                self.question_label.setText(label_message)
+                for warning in warnings:
+                    self.log(warning)
+            elif event_type == "metrics_error":
+                _, req_id, error_message = event
+                if req_id != self.metrics_request_id:
+                    continue
+                self.row_count_label.setText("Total rows: Error")
+                self._set_magazine_summary("Magazines: Error", "Missing ranges: Error")
+                self._populate_magazine_tree([])
+                self._populate_question_sets([])
+                self.question_label.setText("Unable to load editions.")
+                self.log(f"Unable to read workbook rows: {error_message}")
             elif event_type == "rowcount":
                 self.update_row_count()
+        # Timer will trigger this method again; no manual reschedule needed.
 
-        self._schedule_queue_processing()
-
-    def on_tree_select(self, event) -> None:
-        selected = self.tree.selection()
-        if not selected:
-            return
-        iid = selected[0]
-        filename, status, message = self.tree.item(iid, "values")
-        if status.lower() != "error":
-            return
-        detail = self.file_errors.get(filename, message)
-        messagebox.showerror("Validation Error", f"{filename}\n\n{detail}")
+    def closeEvent(self, event) -> None:
+        self.stop_watching()
+        super().closeEvent(event)
 
 
 if __name__ == "__main__":
-    root = Tk()
-    app = TSVWatcherApp(root)
-
-    def on_close() -> None:
-        app.stop_watching()
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", on_close)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    window = TSVWatcherWindow()
+    window.show()
+    sys.exit(app.exec())
