@@ -735,29 +735,82 @@ class TSVWatcherWindow(QMainWindow):
 
         magazine_tab = QWidget()
         magazine_tab_layout = QVBoxLayout(magazine_tab)
-        mag_card = self._create_card()
-        magazine_tab_layout.addWidget(mag_card)
-        mag_layout = QVBoxLayout(mag_card)
-        mag_layout.addWidget(self._create_label("Magazine Editions"))
+        
+        # Top summary card
+        mag_summary_card = self._create_card()
+        mag_summary_layout = QHBoxLayout(mag_summary_card)
+        self.mag_total_editions_label = QLabel("Total Editions: 0")
+        self.mag_total_editions_label.setObjectName("headerLabel")
+        self.mag_total_sets_label = QLabel("Question Sets: 0")
+        self.mag_total_sets_label.setObjectName("infoLabel")
+        mag_summary_layout.addWidget(self.mag_total_editions_label)
+        mag_summary_layout.addStretch()
+        mag_summary_layout.addWidget(self.mag_total_sets_label)
+        magazine_tab_layout.addWidget(mag_summary_card)
+        
         mag_split = QSplitter(Qt.Horizontal)
-        mag_layout.addWidget(mag_split, 1)
-
+        magazine_tab_layout.addWidget(mag_split, 1)
+        
+        # Left side - Magazine tree with search
+        mag_tree_card = self._create_card()
+        mag_tree_layout = QVBoxLayout(mag_tree_card)
+        mag_tree_layout.addWidget(self._create_label("Magazine Editions"))
+        
+        # Search box for magazine tree
+        mag_search_layout = QHBoxLayout()
+        mag_search_layout.addWidget(QLabel("Search:"))
+        self.mag_tree_search = QLineEdit()
+        self.mag_tree_search.setPlaceholderText("Filter magazines or editions...")
+        self.mag_tree_search.textChanged.connect(self.on_mag_tree_search_changed)
+        mag_search_layout.addWidget(self.mag_tree_search)
+        clear_mag_search_btn = QPushButton("Clear")
+        clear_mag_search_btn.setMaximumWidth(80)
+        clear_mag_search_btn.clicked.connect(lambda: self.mag_tree_search.clear())
+        mag_search_layout.addWidget(clear_mag_search_btn)
+        mag_tree_layout.addLayout(mag_search_layout)
+        
         self.mag_tree = QTreeWidget()
         self.mag_tree.setColumnCount(3)
         self.mag_tree.setHeaderLabels(["Magazine", "Edition", "Missing Ranges"])
         self.mag_tree.setRootIsDecorated(False)
+        self.mag_tree.setAlternatingRowColors(True)
         self.mag_tree.itemSelectionChanged.connect(self.on_magazine_select)
+        self.mag_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.mag_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        mag_split.addWidget(self.mag_tree)
+        self.mag_tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        mag_tree_layout.addWidget(self.mag_tree)
+        mag_split.addWidget(mag_tree_card)
 
-        detail_widget = QWidget()
-        detail_layout = QVBoxLayout(detail_widget)
-        self.question_label = QLabel("Select a workbook to display magazine editions.")
+        # Right side - Question sets detail
+        detail_card = self._create_card()
+        detail_layout = QVBoxLayout(detail_card)
+        detail_layout.addWidget(self._create_label("Question Sets"))
+        self.question_label = QLabel("Select an edition to view question sets")
         self.question_label.setObjectName("infoLabel")
+        self.question_label.setStyleSheet(
+            "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
+        )
         detail_layout.addWidget(self.question_label)
         self.question_list = QListWidget()
+        self.question_list.setAlternatingRowColors(True)
+        self.question_list.setStyleSheet(
+            """
+            QListWidget {
+                font-size: 13px;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #e2e8f0;
+            }
+            QListWidget::item:hover {
+                background-color: #f8fafc;
+            }
+            """
+        )
         detail_layout.addWidget(self.question_list)
-        mag_split.addWidget(detail_widget)
+        mag_split.addWidget(detail_card)
+        
+        mag_split.setSizes([500, 400])
         qa_tabs.addTab(magazine_tab, "Magazine Editions")
 
         questions_tab = QWidget()
@@ -1073,12 +1126,19 @@ class TSVWatcherWindow(QMainWindow):
         workbook_path = data.get("workbook_path", "")
         if workbook_path:
             self.output_edit.setText(workbook_path)
+        input_folder = data.get("input_folder", "")
+        if input_folder:
+            self.input_edit.setText(input_folder)
 
     def _save_last_selection(self) -> None:
         path_text = self.output_edit.text().strip()
+        input_folder = self.input_edit.text().strip()
         if not path_text:
             return
-        payload = {"workbook_path": path_text}
+        payload = {
+            "workbook_path": path_text,
+            "input_folder": input_folder if input_folder else "",
+        }
         LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _load_canonical_chapters(self, grouping_file: Path) -> list[str]:
@@ -1268,6 +1328,8 @@ class TSVWatcherWindow(QMainWindow):
             self.question_set_search.clear()
         if hasattr(self, "magazine_search"):
             self.magazine_search.clear()
+        if hasattr(self, "mag_tree_search"):
+            self.mag_tree_search.clear()
 
     def _detect_magazine_name(self, details: list[dict]) -> str:
         """Detect magazine name from magazine details."""
@@ -1562,10 +1624,22 @@ class TSVWatcherWindow(QMainWindow):
         if not hasattr(self, "mag_tree"):
             return
         self.mag_tree.clear()
+        
+        # Calculate statistics
+        total_editions = 0
+        total_sets = 0
+        
         if not details:
+            if hasattr(self, "mag_total_editions_label"):
+                self.mag_total_editions_label.setText("Total Editions: 0")
+            if hasattr(self, "mag_total_sets_label"):
+                self.mag_total_sets_label.setText("Question Sets: 0")
             return
 
         for entry in details:
+            total_editions += len(entry.get("editions", []))
+            for edition in entry.get("editions", []):
+                total_sets += len(edition.get("question_sets", []))
             missing_text = ", ".join(entry["missing_ranges"]) if entry["missing_ranges"] else "None"
             parent = QTreeWidgetItem([entry["display_name"], "", missing_text])
             parent.setData(0, Qt.UserRole, {"type": "magazine", "display_name": entry["display_name"]})
@@ -1584,8 +1658,27 @@ class TSVWatcherWindow(QMainWindow):
                     "question_sets": question_sets,
                 }
                 child.setData(0, Qt.UserRole, data)
+                
+                # Color code editions based on question set count
+                if len(question_sets) == 0:
+                    child.setForeground(2, QColor("#94a3b8"))  # Gray for no sets
+                elif len(question_sets) < 5:
+                    # Yellow background for editions with less than 5 sets
+                    child.setBackground(0, QColor("#fef9c3"))
+                    child.setBackground(1, QColor("#fef9c3"))
+                    child.setBackground(2, QColor("#fef9c3"))
+                elif len(question_sets) >= 5:
+                    child.setForeground(1, QColor("#10b981"))  # Green for many sets
+                
                 parent.addChild(child)
+        
         self.mag_tree.expandAll()
+        
+        # Update summary statistics
+        if hasattr(self, "mag_total_editions_label"):
+            self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
+        if hasattr(self, "mag_total_sets_label"):
+            self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
 
     def _populate_question_sets(self, question_sets: list[str] | None) -> None:
         if not hasattr(self, "question_list"):
@@ -1593,8 +1686,10 @@ class TSVWatcherWindow(QMainWindow):
         self.question_list.clear()
         if not question_sets:
             return
-        for name in question_sets:
-            QListWidgetItem(name, self.question_list)
+        for idx, name in enumerate(question_sets, 1):
+            item = QListWidgetItem(f"📝 {name}")
+            item.setData(Qt.UserRole, name)
+            self.question_list.addItem(item)
 
     def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
         if not hasattr(self, "chapter_table"):
@@ -1658,10 +1753,18 @@ class TSVWatcherWindow(QMainWindow):
         
         self.question_table.setRowCount(len(filtered))
         for row, question in enumerate(filtered):
-            self.question_table.setItem(row, 0, QTableWidgetItem(question.get("qno", "")))
-            self.question_table.setItem(row, 1, QTableWidgetItem(question.get("page", "")))
-            self.question_table.setItem(row, 2, QTableWidgetItem(question.get("question_set_name", "")))
-            self.question_table.setItem(row, 3, QTableWidgetItem(question.get("magazine", "")))
+            qno_item = QTableWidgetItem(question.get("qno", ""))
+            page_item = QTableWidgetItem(question.get("page", ""))
+            question_set_item = QTableWidgetItem(question.get("question_set_name", ""))
+            magazine_item = QTableWidgetItem(question.get("magazine", ""))
+            
+            # Highlight magazine column with light blue background
+            magazine_item.setBackground(QColor("#dbeafe"))
+            
+            self.question_table.setItem(row, 0, qno_item)
+            self.question_table.setItem(row, 1, page_item)
+            self.question_table.setItem(row, 2, question_set_item)
+            self.question_table.setItem(row, 3, magazine_item)
         self.question_table.resizeColumnsToContents()
         if self.question_table.rowCount() > 0:
             self.question_table.selectRow(0)
@@ -1686,26 +1789,63 @@ class TSVWatcherWindow(QMainWindow):
             self.magazine_search.clear()
         self._apply_question_search()
 
+    def on_mag_tree_search_changed(self, text: str) -> None:
+        """Filter magazine tree based on search text."""
+        search_term = text.strip().lower()
+        
+        if not hasattr(self, "mag_tree"):
+            return
+        
+        # Show all if search is empty
+        if not search_term:
+            for i in range(self.mag_tree.topLevelItemCount()):
+                parent = self.mag_tree.topLevelItem(i)
+                parent.setHidden(False)
+                for j in range(parent.childCount()):
+                    parent.child(j).setHidden(False)
+            self.mag_tree.expandAll()
+            return
+        
+        # Filter tree items
+        for i in range(self.mag_tree.topLevelItemCount()):
+            parent = self.mag_tree.topLevelItem(i)
+            parent_text = parent.text(0).lower()
+            parent_matches = search_term in parent_text
+            
+            visible_children = 0
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                child_text = f"{child.text(0)} {child.text(1)}".lower()
+                child_matches = search_term in child_text
+                
+                child.setHidden(not (parent_matches or child_matches))
+                if parent_matches or child_matches:
+                    visible_children += 1
+            
+            parent.setHidden(visible_children == 0)
+            if visible_children > 0:
+                parent.setExpanded(True)
+    
     def on_magazine_select(self) -> None:
         selected = self.mag_tree.selectedItems()
         if not selected:
-            self.question_label.setText("Select an edition to view question sets.")
+            self.question_label.setText("Select an edition to view question sets")
             self._populate_question_sets([])
             return
         item = selected[0]
         data = item.data(0, Qt.UserRole)
         if not isinstance(data, dict) or data.get("type") != "edition":
-            self.question_label.setText("Select an edition to view question sets.")
+            self.question_label.setText("Select an edition to view question sets")
             self._populate_question_sets([])
             return
 
         question_sets = data.get("question_sets", [])
         label = f"{data.get('display_name', 'Magazine')} - {data.get('edition_label', 'Edition')}"
         if question_sets:
-            self.question_label.setText(f"{label} ({len(question_sets)} set(s))")
+            self.question_label.setText(f"✓ {label} • {len(question_sets)} question set(s)")
             self._populate_question_sets(question_sets)
         else:
-            self.question_label.setText(f"{label} (no question sets)")
+            self.question_label.setText(f"⚠ {label} • No question sets found")
             self._populate_question_sets([])
 
     def on_group_selected(self) -> None:
@@ -2095,6 +2235,7 @@ class TSVWatcherWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
         if folder:
             self.input_edit.setText(folder)
+            self._save_last_selection()
             self.refresh_file_list()
 
     def select_output_file(self) -> None:
