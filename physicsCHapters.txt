@@ -1,0 +1,23 @@
+4C) PHYSICS CHAPTER LIST
+-------------------------
+
+- Units & Measurement
+- Kinematics
+- Laws of Motion
+- Work/Energy/Power
+- Rotation
+- Gravitation
+- Properties of Matter & Fluids
+- Oscillations & Waves
+- Thermodynamics
+- Kinetic Theory
+- Electrostatics
+- Current Electricity
+- Magnetism
+- EMI & AC
+- EM Waves
+- Optics
+- Dual Nature
+- Atoms & Nuclei
+- Electronic Devices
+- Communication

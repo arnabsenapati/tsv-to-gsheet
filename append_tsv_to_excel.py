@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 import datetime as dt
 import queue
@@ -14,6 +15,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -26,6 +28,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
@@ -35,6 +38,10 @@ from PySide6.QtWidgets import (
 
 from openpyxl import load_workbook
 import pandas as pd
+
+BASE_DIR = Path(__file__).resolve().parent
+PHYSICS_CHAPTER_FILE = BASE_DIR / "physicsCHapters.txt"
+PHYSICS_GROUPING_FILE = BASE_DIR / "PhysicsChapterGrouping.json"
 
 
 MONTH_ALIASES = {
@@ -127,6 +134,15 @@ def _find_question_set_column(header_row: list[str]) -> int:
     return _match_column(header_row, keyword_groups, "Question Set")
 
 
+def _find_high_level_chapter_column(header_row: list[str]) -> int:
+    keyword_groups = [
+        ("high", "level", "chapter"),
+        ("high", "level"),
+        ("chapter",),
+    ]
+    return _match_column(header_row, keyword_groups, "High Level Chapter")
+
+
 def _find_page_column(header_row: list[str]) -> int:
     keyword_groups = [
         ("page", "no"),
@@ -135,6 +151,20 @@ def _find_page_column(header_row: list[str]) -> int:
         ("pg",),
     ]
     return _match_column(header_row, keyword_groups, "Page Number")
+
+
+def _find_question_text_column(header_row: list[str]) -> int:
+    for idx, value in enumerate(header_row, start=1):
+        if value is None:
+            continue
+        text = str(value).strip().lower()
+        if not text:
+            continue
+        if "question" in text and not any(
+            keyword in text for keyword in ("set", "qno", "number", "no", "id")
+        ):
+            return idx
+    raise ValueError("Unable to locate column containing question text.")
 
 
 def _find_insert_row(worksheet) -> int:
@@ -480,6 +510,10 @@ class TSVWatcherWindow(QMainWindow):
         self.file_rows: dict[str, int] = {}
         self.file_errors: dict[str, str] = {}
         self.metrics_request_id = 0
+        self.chapter_questions: dict[str, list[dict[str, str]]] = {}
+        self.current_questions: list[dict[str, str]] = []
+        self.canonical_chapters = self._load_canonical_chapters()
+        self.chapter_groups = self._load_chapter_grouping()
 
         self._build_ui()
         self._setup_timer()
@@ -561,7 +595,14 @@ class TSVWatcherWindow(QMainWindow):
         status_layout.addWidget(self.file_table)
         splitter.addWidget(status_card)
 
+        tab_widget = QTabWidget()
+        splitter.addWidget(tab_widget)
+
+        # Magazine tab
+        mag_tab = QWidget()
+        mag_tab_layout = QVBoxLayout(mag_tab)
         mag_card = self._create_card()
+        mag_tab_layout.addWidget(mag_card)
         mag_layout = QVBoxLayout(mag_card)
         mag_layout.addWidget(self._create_label("Magazine Editions"))
         mag_split = QSplitter(Qt.Horizontal)
@@ -582,7 +623,63 @@ class TSVWatcherWindow(QMainWindow):
         self.question_list = QListWidget()
         detail_layout.addWidget(self.question_list)
         mag_split.addWidget(detail_widget)
-        splitter.addWidget(mag_card)
+        tab_widget.addTab(mag_tab, "Magazine Editions")
+
+        # Question analysis tab
+        analysis_tab = QWidget()
+        analysis_layout = QVBoxLayout(analysis_tab)
+        analysis_split = QSplitter(Qt.Horizontal)
+        analysis_layout.addWidget(analysis_split, 1)
+
+        chapter_card = self._create_card()
+        chapter_layout = QVBoxLayout(chapter_card)
+        chapter_layout.addWidget(self._create_label("Chapters"))
+        self.chapter_list = QListWidget()
+        self.chapter_list.itemSelectionChanged.connect(self.on_chapter_selected)
+        chapter_layout.addWidget(self.chapter_list)
+        analysis_split.addWidget(chapter_card)
+
+        question_card = self._create_card()
+        question_layout = QVBoxLayout(question_card)
+        question_layout.addWidget(self._create_label("Questions"))
+        self.question_table = QTableWidget(0, 4)
+        self.question_table.setHorizontalHeaderLabels(["Question No", "Page", "Chapter", "Magazine"])
+        self.question_table.horizontalHeader().setStretchLastSection(True)
+        self.question_table.verticalHeader().setVisible(False)
+        self.question_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.question_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.question_table.itemSelectionChanged.connect(self.on_question_selected)
+        question_layout.addWidget(self.question_table)
+        question_layout.addWidget(self._create_label("Question Text"))
+        self.question_text_view = QTextEdit()
+        self.question_text_view.setReadOnly(True)
+        question_layout.addWidget(self.question_text_view)
+        analysis_split.addWidget(question_card)
+        tab_widget.addTab(analysis_tab, "Question Analysis")
+        # Chapter grouping tab
+        grouping_tab = QWidget()
+        grouping_layout = QVBoxLayout(grouping_tab)
+        grouping_card = self._create_card()
+        grouping_layout.addWidget(grouping_card)
+        grouping_card_layout = QHBoxLayout(grouping_card)
+
+        self.group_list = QListWidget()
+        self.group_list.itemSelectionChanged.connect(self.on_group_selected)
+        grouping_card_layout.addWidget(self.group_list, 1)
+
+        self.group_chapter_list = QListWidget()
+        grouping_card_layout.addWidget(self.group_chapter_list, 2)
+
+        group_controls = QVBoxLayout()
+        group_controls.addWidget(self._create_label("Move chapter to group"))
+        self.move_target_combo = QComboBox()
+        group_controls.addWidget(self.move_target_combo)
+        move_button = QPushButton("Move Chapter")
+        move_button.clicked.connect(self.move_selected_chapter)
+        group_controls.addWidget(move_button)
+        group_controls.addStretch()
+        grouping_card_layout.addLayout(group_controls)
+        tab_widget.addTab(grouping_tab, "Chapter Grouping")
 
         self.log_toggle = QPushButton("Show Log")
         self.log_toggle.setCheckable(True)
@@ -598,6 +695,7 @@ class TSVWatcherWindow(QMainWindow):
         log_layout.addWidget(self.log_view)
         root_layout.addWidget(self.log_card, 0)
         self.log_card.setVisible(False)
+        self._refresh_grouping_ui()
 
     def _apply_palette(self) -> None:
         palette = QPalette()
@@ -669,6 +767,81 @@ class TSVWatcherWindow(QMainWindow):
         self.log_card.setVisible(checked)
         self.log_toggle.setText("Hide Log" if checked else "Show Log")
 
+    def _load_canonical_chapters(self) -> list[str]:
+        if not PHYSICS_CHAPTER_FILE.exists():
+            return []
+        chapters: list[str] = []
+        for line in PHYSICS_CHAPTER_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or not line.startswith("-"):
+                continue
+            chapter = line.lstrip("-").strip()
+            if chapter:
+                chapters.append(chapter)
+        return chapters
+
+    def _load_chapter_grouping(self) -> dict[str, list[str]]:
+        if PHYSICS_GROUPING_FILE.exists():
+            try:
+                data = json.loads(PHYSICS_GROUPING_FILE.read_text(encoding="utf-8"))
+                groups = data.get("groups", {})
+            except json.JSONDecodeError:
+                groups = {}
+        else:
+            groups = {}
+        for group in self.canonical_chapters:
+            groups.setdefault(group, [])
+        groups.setdefault("Others", [])
+        # Remove duplicates while preserving order
+        for key, values in list(groups.items()):
+            seen = set()
+            unique = []
+            for value in values:
+                if value not in seen:
+                    unique.append(value)
+                    seen.add(value)
+            groups[key] = unique
+        return groups
+
+    def _save_chapter_grouping(self) -> None:
+        data = {
+            "canonical_order": self.canonical_chapters,
+            "groups": self.chapter_groups,
+        }
+        PHYSICS_GROUPING_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def _ordered_groups(self) -> list[str]:
+        order = list(self.canonical_chapters)
+        if "Others" not in order:
+            order.append("Others")
+        return order
+
+    def _refresh_grouping_ui(self) -> None:
+        if not hasattr(self, "group_list"):
+            return
+        self.group_list.blockSignals(True)
+        self.group_list.clear()
+        for group in self._ordered_groups():
+            chapters = self.chapter_groups.get(group, [])
+            item = QListWidgetItem(f"{group} ({len(chapters)})")
+            item.setData(Qt.UserRole, group)
+            self.group_list.addItem(item)
+        self.group_list.blockSignals(False)
+        if hasattr(self, "move_target_combo"):
+            self.move_target_combo.clear()
+            self.move_target_combo.addItems(self._ordered_groups())
+        if hasattr(self, "group_chapter_list"):
+            self.group_chapter_list.clear()
+
+    def _select_group_in_ui(self, group: str) -> None:
+        if not hasattr(self, "group_list"):
+            return
+        for row in range(self.group_list.count()):
+            item = self.group_list.item(row)
+            if (item.data(Qt.UserRole) or item.text()).startswith(group):
+                self.group_list.setCurrentRow(row)
+                break
+
     def _setup_timer(self) -> None:
         self.queue_timer = QTimer(self)
         self.queue_timer.setInterval(200)
@@ -699,7 +872,9 @@ class TSVWatcherWindow(QMainWindow):
                 df = pd.read_excel(path, sheet_name=0, dtype=object)
                 row_count = self._compute_row_count_from_df(df)
                 magazine_details, warnings = self._collect_magazine_details(df)
-                self.event_queue.put(("metrics", req_id, row_count, magazine_details, warnings))
+                chapter_data, qa_warnings = self._collect_question_analysis_data(df)
+                warnings.extend(qa_warnings)
+                self.event_queue.put(("metrics", req_id, row_count, magazine_details, warnings, chapter_data))
             except Exception as exc:
                 self.event_queue.put(("metrics_error", req_id, str(exc)))
 
@@ -795,6 +970,93 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
         return details, warnings
+
+    def _collect_question_analysis_data(self, df: pd.DataFrame) -> tuple[dict[str, list[dict]], list[str]]:
+        warnings: list[str] = []
+        if df.empty:
+            return {}, warnings
+
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+        try:
+            question_set_col = _find_high_level_chapter_column(header_row)
+            qno_col = _find_qno_column(header_row)
+            page_col = _find_page_column(header_row)
+        except ValueError as exc:
+            warnings.append(f"Question analysis unavailable: {exc}")
+            return {}, warnings
+
+        question_text_col = None
+        try:
+            question_text_col = _find_question_text_column(header_row)
+        except ValueError as exc:
+            warnings.append(str(exc))
+
+        magazine_col = None
+        try:
+            magazine_col = _find_magazine_column(header_row)
+        except ValueError as exc:
+            warnings.append(str(exc))
+
+        def normalize(value) -> str:
+            if pd.isna(value):
+                return ""
+            text = str(value).strip()
+            return text
+
+        chapters: dict[str, list[dict]] = {}
+        for _, row in df.iterrows():
+            chapter_name = normalize(row.iloc[question_set_col - 1])
+            if not chapter_name:
+                continue
+            qno_value = normalize(row.iloc[qno_col - 1])
+            page_value = normalize(row.iloc[page_col - 1])
+            question_text = normalize(row.iloc[question_text_col - 1]) if question_text_col else ""
+            magazine_value = normalize(row.iloc[magazine_col - 1]) if magazine_col else ""
+
+            chapters.setdefault(chapter_name, []).append(
+                {
+                    "chapter": chapter_name,
+                    "qno": qno_value,
+                    "page": page_value,
+                    "magazine": magazine_value,
+                    "text": question_text,
+                }
+            )
+
+        return chapters, warnings
+
+    def _normalize_label(self, label: str) -> str:
+        return re.sub(r"\s+", " ", label.strip().lower())
+
+    def _auto_assign_chapters(self, chapters: list[str]) -> None:
+        changed = False
+        existing = {
+            self._normalize_label(ch)
+            for values in self.chapter_groups.values()
+            for ch in values
+        }
+        for chapter in chapters:
+            normalized = self._normalize_label(chapter)
+            if not normalized or normalized in existing:
+                continue
+            target = self._match_chapter_group(chapter)
+            self.chapter_groups.setdefault(target, []).append(chapter)
+            existing.add(normalized)
+            changed = True
+        if changed:
+            self._save_chapter_grouping()
+            self._refresh_grouping_ui()
+
+    def _match_chapter_group(self, chapter: str) -> str:
+        normalized = self._normalize_label(chapter)
+        for group in self.canonical_chapters:
+            if normalized == self._normalize_label(group):
+                return group
+        for group in self.canonical_chapters:
+            norm_group = self._normalize_label(group)
+            if norm_group in normalized or normalized in norm_group:
+                return group
+        return "Others"
 
     def _compute_row_count_from_df(self, df: pd.DataFrame) -> int:
         def row_has_value(row) -> bool:
@@ -911,6 +1173,42 @@ class TSVWatcherWindow(QMainWindow):
         for name in question_sets:
             QListWidgetItem(name, self.question_list)
 
+    def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
+        if not hasattr(self, "chapter_list"):
+            return
+        grouped_questions: dict[str, list[dict]] = {}
+        for chapter_name, question_items in (chapters or {}).items():
+            target_group = self._match_chapter_group(chapter_name)
+            grouped_questions.setdefault(target_group, []).extend(question_items)
+        self.chapter_questions = grouped_questions
+        self.chapter_list.clear()
+        self.question_table.setRowCount(0)
+        self.question_text_view.clear()
+        if not grouped_questions:
+            return
+        for chapter in sorted(grouped_questions.keys(), key=lambda value: value.lower()):
+            item = QListWidgetItem(f"{chapter} ({len(grouped_questions[chapter])} question(s))")
+            item.setData(Qt.UserRole, chapter)
+            self.chapter_list.addItem(item)
+        if self.chapter_list.count() > 0:
+            self.chapter_list.setCurrentRow(0)
+
+    def _populate_question_table(self, questions: list[dict]) -> None:
+        if not hasattr(self, "question_table"):
+            return
+        self.current_questions = questions or []
+        self.question_table.setRowCount(0)
+        self.question_text_view.clear()
+        if not questions:
+            return
+        self.question_table.setRowCount(len(questions))
+        for row, question in enumerate(questions):
+            self.question_table.setItem(row, 0, QTableWidgetItem(question.get("qno", "")))
+            self.question_table.setItem(row, 1, QTableWidgetItem(question.get("page", "")))
+            self.question_table.setItem(row, 2, QTableWidgetItem(question.get("chapter", "")))
+            self.question_table.setItem(row, 3, QTableWidgetItem(question.get("magazine", "")))
+        self.question_table.selectRow(0)
+
     def on_magazine_select(self) -> None:
         selected = self.mag_tree.selectedItems()
         if not selected:
@@ -932,6 +1230,75 @@ class TSVWatcherWindow(QMainWindow):
         else:
             self.question_label.setText(f"{label} (no question sets)")
             self._populate_question_sets([])
+
+    def on_group_selected(self) -> None:
+        if not hasattr(self, "group_list"):
+            return
+        item = self.group_list.currentItem()
+        self.group_chapter_list.clear()
+        if not item:
+            return
+        group = item.data(Qt.UserRole) or item.text()
+        for chapter in sorted(self.chapter_groups.get(group, []), key=lambda value: value.lower()):
+            chapter_item = QListWidgetItem(chapter)
+            chapter_item.setData(Qt.UserRole, chapter)
+            self.group_chapter_list.addItem(chapter_item)
+
+    def move_selected_chapter(self) -> None:
+        group_item = getattr(self, "group_list", None)
+        chapter_list = getattr(self, "group_chapter_list", None)
+        target_combo = getattr(self, "move_target_combo", None)
+        if (
+            not group_item
+            or not chapter_list
+            or not target_combo
+            or not group_item.currentItem()
+            or not chapter_list.currentItem()
+        ):
+            return
+        current_group = group_item.currentItem().data(Qt.UserRole)
+        chapter_name = chapter_list.currentItem().data(Qt.UserRole)
+        target_group = target_combo.currentText()
+        if not chapter_name or not target_group or current_group == target_group:
+            return
+        current_list = self.chapter_groups.get(current_group, [])
+        if chapter_name in current_list:
+            current_list.remove(chapter_name)
+        self.chapter_groups.setdefault(target_group, [])
+        if chapter_name not in self.chapter_groups[target_group]:
+            self.chapter_groups[target_group].append(chapter_name)
+        self._save_chapter_grouping()
+        self._refresh_grouping_ui()
+        self._select_group_in_ui(target_group)
+        self.on_group_selected()
+
+    def on_chapter_selected(self) -> None:
+        if not hasattr(self, "chapter_list"):
+            return
+        item = self.chapter_list.currentItem()
+        if not item:
+            self._populate_question_table([])
+            return
+        chapter_key = item.data(Qt.UserRole) or item.text()
+        questions = self.chapter_questions.get(chapter_key, [])
+        self._populate_question_table(questions)
+
+    def on_question_selected(self) -> None:
+        if not hasattr(self, "question_table"):
+            return
+        selection_model = self.question_table.selectionModel()
+        if selection_model is None:
+            self.question_text_view.clear()
+            return
+        selected_rows = selection_model.selectedRows()
+        if not selected_rows:
+            self.question_text_view.clear()
+            return
+        row = selected_rows[0].row()
+        if 0 <= row < len(self.current_questions):
+            self.question_text_view.setPlainText(self.current_questions[row].get("text", ""))
+        else:
+            self.question_text_view.clear()
 
     def log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
@@ -1073,7 +1440,7 @@ class TSVWatcherWindow(QMainWindow):
                 _, message = event
                 self.log(message)
             elif event_type == "metrics":
-                _, req_id, row_count, details, warnings = event
+                _, req_id, row_count, details, warnings, chapter_data = event
                 if req_id != self.metrics_request_id:
                     continue
                 self.row_count_label.setText(f"Total rows: {row_count}")
@@ -1094,6 +1461,9 @@ class TSVWatcherWindow(QMainWindow):
                 else:
                     label_message = warnings[0] if warnings else "No magazine editions found."
                 self.question_label.setText(label_message)
+                self._auto_assign_chapters(list(chapter_data.keys()))
+                self._populate_chapter_list(chapter_data)
+                self._refresh_grouping_ui()
                 for warning in warnings:
                     self.log(warning)
             elif event_type == "metrics_error":
@@ -1104,6 +1474,8 @@ class TSVWatcherWindow(QMainWindow):
                 self._set_magazine_summary("Magazines: Error", "Missing ranges: Error")
                 self._populate_magazine_tree([])
                 self._populate_question_sets([])
+                self._populate_chapter_list({})
+                self._refresh_grouping_ui()
                 self.question_label.setText("Unable to load editions.")
                 self.log(f"Unable to read workbook rows: {error_message}")
             elif event_type == "rowcount":
