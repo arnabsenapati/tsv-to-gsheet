@@ -44,7 +44,16 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 PHYSICS_CHAPTER_FILE = BASE_DIR / "physicsCHapters.txt"
 PHYSICS_GROUPING_FILE = BASE_DIR / "PhysicsChapterGrouping.json"
+CHEMISTRY_GROUPING_FILE = BASE_DIR / "ChemistryChapterGrouping.json"
+MATHEMATICS_GROUPING_FILE = BASE_DIR / "MathematicsChapterGrouping.json"
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
+
+# Magazine name to grouping file mapping
+MAGAZINE_GROUPING_MAP = {
+    "chemistry today": CHEMISTRY_GROUPING_FILE,
+    "physics for you": PHYSICS_GROUPING_FILE,
+    "mathematics today": MATHEMATICS_GROUPING_FILE,
+}
 
 
 MONTH_ALIASES = {
@@ -660,9 +669,10 @@ class TSVWatcherWindow(QMainWindow):
         self.all_questions: list[dict[str, str]] = []  # Unfiltered questions
         self.question_set_search_term: str = ""
         self.magazine_search_term: str = ""
-        self.canonical_chapters = self._load_canonical_chapters()
+        self.current_magazine_name: str = ""  # Track current magazine for grouping
+        self.canonical_chapters: list[str] = []
         self.chapter_lookup: dict[str, str] = {}
-        self.chapter_groups = self._load_chapter_grouping()
+        self.chapter_groups: dict[str, list[str]] = {}
         self.current_workbook_path: Path | None = None
         self.high_level_column_index: int | None = None
 
@@ -981,23 +991,21 @@ class TSVWatcherWindow(QMainWindow):
         payload = {"workbook_path": path_text}
         LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    def _load_canonical_chapters(self) -> list[str]:
-        if not PHYSICS_CHAPTER_FILE.exists():
+    def _load_canonical_chapters(self, grouping_file: Path) -> list[str]:
+        """Load canonical chapters from the grouping JSON file."""
+        if not grouping_file.exists():
             return []
-        chapters: list[str] = []
-        for line in PHYSICS_CHAPTER_FILE.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or not line.startswith("-"):
-                continue
-            chapter = line.lstrip("-").strip()
-            if chapter:
-                chapters.append(chapter)
-        return chapters
+        try:
+            data = json.loads(grouping_file.read_text(encoding="utf-8"))
+            return data.get("canonical_order", [])
+        except json.JSONDecodeError:
+            return []
 
-    def _load_chapter_grouping(self) -> dict[str, list[str]]:
-        if PHYSICS_GROUPING_FILE.exists():
+    def _load_chapter_grouping(self, grouping_file: Path) -> dict[str, list[str]]:
+        """Load chapter grouping from the specified JSON file."""
+        if grouping_file.exists():
             try:
-                data = json.loads(PHYSICS_GROUPING_FILE.read_text(encoding="utf-8"))
+                data = json.loads(grouping_file.read_text(encoding="utf-8"))
                 groups = data.get("groups", {})
             except json.JSONDecodeError:
                 groups = {}
@@ -1018,12 +1026,25 @@ class TSVWatcherWindow(QMainWindow):
         self._rebuild_chapter_lookup(groups)
         return groups
 
+    def _reload_grouping_for_magazine(self, magazine_name: str) -> None:
+        """Reload chapter grouping based on magazine name."""
+        if magazine_name == self.current_magazine_name:
+            return  # Already loaded
+        
+        grouping_file = MAGAZINE_GROUPING_MAP.get(magazine_name, PHYSICS_GROUPING_FILE)
+        self.current_magazine_name = magazine_name
+        self.canonical_chapters = self._load_canonical_chapters(grouping_file)
+        self.chapter_groups = self._load_chapter_grouping(grouping_file)
+        self.log(f"Loaded chapter grouping for: {magazine_name or 'default (Physics)'}")
+
     def _save_chapter_grouping(self) -> None:
+        """Save chapter grouping to the appropriate file based on current magazine."""
         data = {
             "canonical_order": self.canonical_chapters,
             "groups": self.chapter_groups,
         }
-        PHYSICS_GROUPING_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        grouping_file = MAGAZINE_GROUPING_MAP.get(self.current_magazine_name, PHYSICS_GROUPING_FILE)
+        grouping_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
         self._rebuild_chapter_lookup(self.chapter_groups)
 
     def _ordered_groups(self) -> list[str]:
@@ -1126,6 +1147,19 @@ class TSVWatcherWindow(QMainWindow):
     def _set_magazine_summary(self, primary: str, secondary: str) -> None:
         self.mag_summary_label.setText(primary)
         self.mag_missing_label.setText(secondary)
+
+    def _detect_magazine_name(self, details: list[dict]) -> str:
+        """Detect magazine name from magazine details."""
+        if not details:
+            return ""
+        # Get the first magazine's display name and normalize it
+        display_name = details[0].get("display_name", "")
+        normalized = self._normalize_label(display_name)
+        # Check against known magazines
+        for magazine_key in MAGAZINE_GROUPING_MAP.keys():
+            if magazine_key in normalized:
+                return magazine_key
+        return ""
 
     def _collect_magazine_details(self, df: pd.DataFrame) -> tuple[list[dict], list[str]]:
         warnings: list[str] = []
@@ -1816,6 +1850,11 @@ class TSVWatcherWindow(QMainWindow):
                 if req_id != self.metrics_request_id:
                     continue
                 self.high_level_column_index = question_col
+                
+                # Detect and load appropriate chapter grouping
+                detected_magazine = self._detect_magazine_name(details)
+                self._reload_grouping_for_magazine(detected_magazine)
+                
                 self.row_count_label.setText(f"Total rows: {row_count}")
                 total_editions = sum(len(entry["editions"]) for entry in details)
                 self._set_magazine_summary(
