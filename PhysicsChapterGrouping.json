@@ -36,7 +36,8 @@
       "Units and Measurements - Vernier caliper, least count, measurement reading",
       "Units and Measurements/Vectors",
       "Units and Measurements / Properties of Liquids",
-      "Vectors/Units and Measurements"
+      "Vectors/Units and Measurements",
+      "Vectors"
     ],
     "Kinematics": [
       "Kinematics",
@@ -49,7 +50,11 @@
       "Relative Motion",
       "Relative Motion / Kinematics",
       "Vectors (Kinematics)",
-      "Vectors and 3D Geometry"
+      "Vectors and 3D Geometry",
+      "Circular Motion",
+      "Gravitation, Kinematics",
+      "Vectors and Kinematics",
+      "Work, Energy and Power / Kinematics"
     ],
     "Laws of Motion": [
       "Collisions",
@@ -74,7 +79,19 @@
       "Mechanics",
       "Mechanics \u2013 Pulleys",
       "Momentum and Impulse",
-      "Pulleys and Constraints"
+      "Pulleys and Constraints",
+      "Dual Nature of Radiation and Matter",
+      "Electromagnetic Induction and Alternating Currents - Faraday\u2019s law, mutual induction, transformers",
+      "Fluids",
+      "Gravitation, Laws of Motion",
+      "Oscillations and Waves - Simple pendulum, measurement, propagation of errors",
+      "Pressure in Fluids",
+      "Properties of Liquids/Rotational Motion",
+      "Properties of Solids and Liquids - Elasticity, Young\u2019s modulus, strain energy",
+      "Properties of Solids and Liquids - Viscosity, terminal velocity, Stokes\u2019 law",
+      "Properties of Solids and Liquids / Fluid Mechanics",
+      "Properties of Solids and Liquids/Current Electricity",
+      "Vectors and Mathematics for Physics"
     ],
     "Work/Energy/Power": [
       "Work and Energy",
@@ -86,7 +103,8 @@
       "Work, Energy and Power (Theory)",
       "Work, Energy and Power - Work-energy theorem, potential and kinetic energy, collisions",
       "Work, Energy and Power/Laws of Motion",
-      "Work/Energy/Power"
+      "Work/Energy/Power",
+      "Work, Energy and Power/Rotational Motion"
     ],
     "Rotation": [
       "Centre of Mass and Rotational Motion",
@@ -157,7 +175,9 @@
       "Waves and Sound - SHM, waves, Doppler effect",
       "Waves and Sound - SHM, waves, resonance",
       "Waves, Sound",
-      "Waves/Oscillations"
+      "Waves/Oscillations",
+      "Optics/Waves",
+      "Oscillations and Waves - Simple pendulum, time period, percentage error"
     ],
     "Thermodynamics": [
       "Heat Transfer / Thermal Conductivity",
@@ -203,7 +223,8 @@
       "Electrostatics \u2013 Capacitors and Energy",
       "Electrostatics \u2013 Energy Stored in Capacitor",
       "Electrostatics / Capacitance",
-      "Electrostatics / Radiation Pressure"
+      "Electrostatics / Radiation Pressure",
+      "Gauss's Law / Electrostatics"
     ],
     "Current Electricity": [
       "Achievers Section \u2013 Potentiometer",
@@ -258,7 +279,13 @@
       "Moving Coil Galvanometer",
       "Semiconductors - Diode Applications",
       "Superconductivity",
-      "Achievers Section \u2013 Circuits"
+      "Achievers Section \u2013 Circuits",
+      "Current Electricity \u2013 Capacitor Charging and Transients",
+      "Current Electricity \u2013 Circuit Analysis",
+      "Current Electricity \u2013 Wheatstone Bridge",
+      "Current Electricity/AC Circuits",
+      "Electronic Devic",
+      "Magnetism/Current Electricity"
     ],
     "Magnetism": [
       "Ampere\u2019s Law",
@@ -314,7 +341,9 @@
       "Torque on Current Loop",
       "Torque on Magnetic Dipole",
       "Force on Current-Carrying Conductor",
-      "Gyromagnetic Ratio"
+      "Gyromagnetic Ratio",
+      "Magnetism Matching",
+      "Mixed Concepts (Electricity, Magnetism, Electromagnetic Induction, Optics, Modern Physics, etc.)"
     ],
     "EMI & AC": [
       "AC Circuits",
@@ -341,7 +370,8 @@
       "EM Waves",
       "Electromagnetic Waves",
       "Electromagnetic Waves - Displacement current, properties of EM waves",
-      "Atoms and Nuclei/Electromagnetic Waves"
+      "Atoms and Nuclei/Electromagnetic Waves",
+      "Nuclei"
     ],
     "Optics": [
       "Optical Fiber",
@@ -363,7 +393,8 @@
       "Waves & Optics",
       "Waves / Optics",
       "Waves and Optics",
-      "Waves/Optics"
+      "Waves/Optics",
+      "Wave Optics"
     ],
     "Dual Nature": [
       "Dual Nature",
@@ -405,7 +436,8 @@
       "Electronics Devices",
       "Semiconductors",
       "Semiconductors - Diode Applications",
-      "Semiconductors and Electronic Devices"
+      "Semiconductors and Electronic Devices",
+      "Semiconductors - PN junctions, diodes, biasing, characteristics"
     ],
     "Communication": [
       "Communication Systems",
@@ -416,7 +448,11 @@
       "\\vec{P} - \\vec{Q}",
       "x",
       "x\u2080",
-      "Others"
+      "Others",
+      "Magnetic Torque",
+      "Magnetic Torque Equilibrium",
+      "Rigid Body Dynamics",
+      "Vectors - Basic vector algebra, scalar and vector product"
     ]
   }
 }
