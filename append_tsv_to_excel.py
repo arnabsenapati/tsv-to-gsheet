@@ -44,6 +44,7 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 PHYSICS_CHAPTER_FILE = BASE_DIR / "physicsCHapters.txt"
 PHYSICS_GROUPING_FILE = BASE_DIR / "PhysicsChapterGrouping.json"
+LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
 
 
 MONTH_ALIASES = {
@@ -143,6 +144,16 @@ def _find_high_level_chapter_column(header_row: list[str]) -> int:
         ("chapter",),
     ]
     return _match_column(header_row, keyword_groups, "High Level Chapter")
+
+
+def _find_question_set_name_column(header_row: list[str]) -> int:
+    for idx, value in enumerate(header_row, start=1):
+        if value is None:
+            continue
+        text = str(value).strip().lower()
+        if text == "name of question set":
+            return idx
+    raise ValueError("Unable to locate 'Name of Question set' column.")
 
 
 def _find_page_column(header_row: list[str]) -> int:
@@ -653,6 +664,7 @@ class TSVWatcherWindow(QMainWindow):
         self.high_level_column_index: int | None = None
 
         self._build_ui()
+        self._load_last_selection()
         self._setup_timer()
         self.update_row_count()
 
@@ -758,9 +770,9 @@ class TSVWatcherWindow(QMainWindow):
         self.question_table.itemSelectionChanged.connect(self.on_question_selected)
         question_splitter = QSplitter(Qt.Vertical)
         question_splitter.addWidget(self.question_table)
-        question_layout.addWidget(self._create_label("Question Text"))
         self.question_text_view = QTextEdit()
         self.question_text_view.setReadOnly(True)
+        self.question_text_view.setAcceptRichText(True)
         question_splitter.addWidget(self.question_text_view)
         question_splitter.setStretchFactor(0, 3)
         question_splitter.setStretchFactor(1, 1)
@@ -924,6 +936,24 @@ class TSVWatcherWindow(QMainWindow):
         self.log_card.setVisible(checked)
         self.log_toggle.setText("Hide Log" if checked else "Show Log")
 
+    def _load_last_selection(self) -> None:
+        if not LAST_SELECTION_FILE.exists():
+            return
+        try:
+            data = json.loads(LAST_SELECTION_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+        workbook_path = data.get("workbook_path", "")
+        if workbook_path:
+            self.output_edit.setText(workbook_path)
+
+    def _save_last_selection(self) -> None:
+        path_text = self.output_edit.text().strip()
+        if not path_text:
+            return
+        payload = {"workbook_path": path_text}
+        LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
     def _load_canonical_chapters(self) -> list[str]:
         if not PHYSICS_CHAPTER_FILE.exists():
             return []
@@ -1032,6 +1062,7 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         self.current_workbook_path = workbook_path
+        self._save_last_selection()
         self.row_count_label.setText("Total rows: Loading...")
         self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
         self._populate_magazine_tree([])
@@ -1178,6 +1209,12 @@ class TSVWatcherWindow(QMainWindow):
         except ValueError as exc:
             warnings.append(str(exc))
 
+        question_set_name_col = None
+        try:
+            question_set_name_col = _find_question_set_name_column(header_row)
+        except ValueError as exc:
+            warnings.append(str(exc))
+
         magazine_col = None
         try:
             magazine_col = _find_magazine_column(header_row)
@@ -1202,12 +1239,14 @@ class TSVWatcherWindow(QMainWindow):
             qno_value = normalize(values[qno_col - 1])
             page_value = normalize(values[page_col - 1])
             question_text = normalize(values[question_text_col - 1]) if question_text_col else ""
+            question_set_name = normalize(values[question_set_name_col - 1]) if question_set_name_col else raw_chapter_name
             magazine_value = normalize(values[magazine_col - 1]) if magazine_col else ""
 
             chapters.setdefault(chapter_name, []).append(
                 {
                     "group": chapter_name,
                     "question_set": raw_chapter_name,
+                    "question_set_name": question_set_name,
                     "qno": qno_value,
                     "page": page_value,
                     "magazine": magazine_value,
@@ -1413,7 +1452,7 @@ class TSVWatcherWindow(QMainWindow):
         for row, question in enumerate(questions):
             self.question_table.setItem(row, 0, QTableWidgetItem(question.get("qno", "")))
             self.question_table.setItem(row, 1, QTableWidgetItem(question.get("page", "")))
-            self.question_table.setItem(row, 2, QTableWidgetItem(question.get("question_set", "")))
+            self.question_table.setItem(row, 2, QTableWidgetItem(question.get("question_set_name", "")))
             self.question_table.setItem(row, 3, QTableWidgetItem(question.get("magazine", "")))
         self.question_table.resizeColumnsToContents()
         self.question_table.selectRow(0)
@@ -1543,7 +1582,16 @@ class TSVWatcherWindow(QMainWindow):
             return
         row = selected_rows[0].row()
         if 0 <= row < len(self.current_questions):
-            self.question_text_view.setPlainText(self.current_questions[row].get("text", ""))
+            question = self.current_questions[row]
+            html = (
+                f"<b>Qno:</b> {question.get('qno','')} &nbsp;&nbsp;"
+                f"<b>Page No:</b> {question.get('page','')} &nbsp;&nbsp;"
+                f"<b>Question Set:</b> {question.get('question_set_name','')} &nbsp;&nbsp;"
+                f"<b>Magazine Edition:</b> {question.get('magazine','')}<br/>"
+                "<hr/>"
+                f"{question.get('text','').replace(chr(10), '<br/>')}"
+            )
+            self.question_text_view.setHtml(html)
         else:
             self.question_text_view.clear()
 
@@ -1567,6 +1615,7 @@ class TSVWatcherWindow(QMainWindow):
         )
         if file_path:
             self.output_edit.setText(file_path)
+            self._save_last_selection()
             self.update_row_count()
 
     def refresh_file_list(self) -> None:
