@@ -417,6 +417,48 @@ class QuestionTableWidget(QTableWidget):
         drag.exec(Qt.MoveAction)
 
 
+class QuestionTreeWidget(QTreeWidget):
+    MIME_TYPE = "application/x-question-row"
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.setColumnCount(4)
+        self.setHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setAlternatingRowColors(True)
+        self.itemSelectionChanged.connect(self.parent_window.on_question_selected)
+        self.header().setStretchLastSection(True)
+
+    def startDrag(self, supportedActions) -> None:
+        current = self.currentItem()
+        if not current:
+            return
+        # Only allow dragging leaf items (actual questions)
+        if current.childCount() > 0:
+            return
+        question_data = current.data(0, Qt.UserRole)
+        if not question_data:
+            return
+        payload = json.dumps(
+            {
+                "row_number": question_data.get("row_number"),
+                "qno": question_data.get("qno"),
+                "question_set": question_data.get("question_set"),
+                "group": question_data.get("group"),
+            }
+        )
+        mime = QMimeData()
+        mime.setData(self.MIME_TYPE, payload.encode("utf-8"))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.MoveAction)
+
+
 class ChapterTableWidget(QTableWidget):
     def __init__(self, parent_window):
         super().__init__(0, 2)
@@ -569,9 +611,19 @@ def append_rows_to_excel(
     column_types: dict[int, type],
     rows: list[list[str]],
     insert_row: int,
-) -> str:
+    page_col: int,
+) -> tuple[str, str]:
+    """Append rows to Excel and return (status_message, page_range)."""
     appended_rows = 0
+    page_numbers = []
+    
     for row in rows:
+        # Extract page number for tracking
+        if page_col - 1 < len(row):
+            page_value = row[page_col - 1].strip()
+            if page_value:
+                page_numbers.append(page_value)
+        
         for col_idx, value in enumerate(row, start=1):
             target_type = column_types.get(col_idx)
             converted = convert_value_for_column(value, target_type, header_row, col_idx)
@@ -580,7 +632,41 @@ def append_rows_to_excel(
         appended_rows += 1
 
     worksheet.parent.save(workbook_path)
-    return f"Appended {appended_rows} rows to '{worksheet.title}'"
+    
+    # Calculate page range
+    page_range = "N/A"
+    if page_numbers:
+        try:
+            # Try to extract numeric values for range
+            numeric_pages = []
+            for page in page_numbers:
+                # Extract first number from page string
+                match = re.search(r'\d+', page)
+                if match:
+                    numeric_pages.append(int(match.group()))
+            
+            if numeric_pages:
+                min_page = min(numeric_pages)
+                max_page = max(numeric_pages)
+                if min_page == max_page:
+                    page_range = str(min_page)
+                else:
+                    page_range = f"{min_page}-{max_page}"
+            else:
+                # If no numeric pages, just use first and last
+                if len(page_numbers) == 1:
+                    page_range = page_numbers[0]
+                else:
+                    page_range = f"{page_numbers[0]}-{page_numbers[-1]}"
+        except Exception:
+            # Fallback to simple first-last format
+            if len(page_numbers) == 1:
+                page_range = page_numbers[0]
+            else:
+                page_range = f"{page_numbers[0]}-{page_numbers[-1]}"
+    
+    status_msg = f"Appended {appended_rows} rows to '{worksheet.title}'"
+    return status_msg, page_range
 
 
 def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
@@ -637,14 +723,19 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
                 f"{readable}. Remove or update these entries before importing."
             )
 
-        status_message = append_rows_to_excel(
+        status_message, page_range = append_rows_to_excel(
             workbook_path=workbook_path,
             worksheet=worksheet,
             header_row=header_row,
             column_types=column_types,
             rows=rows,
             insert_row=insert_row,
+            page_col=page_col,
         )
+        
+        # Add page range to status message
+        status_message = f"{status_message}, Pages: {page_range}"
+        
     except ValueError as exc:
         tsv_path.unlink(missing_ok=True)
         raise ValueError(f"{exc} (file removed due to validation failure)") from exc
@@ -869,14 +960,9 @@ class TSVWatcherWindow(QMainWindow):
         list_control_layout.addStretch()
         question_layout.addLayout(list_control_layout)
         
-        self.question_table = QuestionTableWidget(self)
-        self.question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
-        self.question_table.horizontalHeader().setStretchLastSection(True)
-        self.question_table.verticalHeader().setVisible(False)
-        self.question_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.question_table.itemSelectionChanged.connect(self.on_question_selected)
+        self.question_tree = QuestionTreeWidget(self)
         question_splitter = QSplitter(Qt.Vertical)
-        question_splitter.addWidget(self.question_table)
+        question_splitter.addWidget(self.question_tree)
         self.question_text_view = QTextEdit()
         self.question_text_view.setReadOnly(True)
         self.question_text_view.setAcceptRichText(True)
@@ -1503,6 +1589,45 @@ class TSVWatcherWindow(QMainWindow):
 
     def _normalize_label(self, label: str) -> str:
         return re.sub(r"\s+", " ", label.strip().lower())
+    
+    def _extract_group_key(self, question_set_name: str) -> str:
+        """Extract a group key from question set name for similarity grouping.
+        
+        Methodology:
+        1. Normalize the name (lowercase, remove extra spaces)
+        2. Extract significant tokens (ignore common words, years, numbers at end)
+        3. Return first 2-3 significant words as group key
+        
+        Examples:
+        - 'JEE Main 2023 Paper 1' -> 'jee main'
+        - 'NEET-2024' -> 'neet'
+        - 'Physics Olympiad 2023' -> 'physics olympiad'
+        """
+        if not question_set_name:
+            return "ungrouped"
+        
+        # Normalize
+        normalized = self._normalize_label(question_set_name)
+        
+        # Split into tokens
+        tokens = normalized.split()
+        
+        # Remove common suffix patterns (years, paper numbers, etc.)
+        significant_tokens = []
+        for token in tokens:
+            # Skip years (4 digits), paper numbers, common words
+            if re.match(r'^(\d{4}|\d+|paper|set|part|section|test|exam)$', token):
+                continue
+            significant_tokens.append(token)
+            # Take first 2-3 significant words
+            if len(significant_tokens) >= 3:
+                break
+        
+        if not significant_tokens:
+            # If all tokens were filtered, use first 2 tokens
+            return ' '.join(tokens[:2]) if len(tokens) >= 2 else normalized
+        
+        return ' '.join(significant_tokens)
 
     def _auto_assign_chapters(self, chapters: list[str]) -> None:
         changed = False
@@ -1696,7 +1821,8 @@ class TSVWatcherWindow(QMainWindow):
             return
         self.chapter_questions = chapters or {}
         self.chapter_table.setRowCount(0)
-        self.question_table.setRowCount(0)
+        if hasattr(self, "question_tree"):
+            self.question_tree.clear()
         self.question_text_view.clear()
         if not self.chapter_questions:
             return
@@ -1718,13 +1844,13 @@ class TSVWatcherWindow(QMainWindow):
             self.chapter_table.selectRow(0)
 
     def _populate_question_table(self, questions: list[dict]) -> None:
-        if not hasattr(self, "question_table"):
+        if not hasattr(self, "question_tree"):
             return
         self.all_questions = questions or []
         self._apply_question_search()
 
     def _apply_question_search(self) -> None:
-        """Apply normalized search terms and update the question table."""
+        """Apply normalized search terms and update the question tree."""
         filtered = self.all_questions
         
         # Apply Question Set search (normalized)
@@ -1743,31 +1869,53 @@ class TSVWatcherWindow(QMainWindow):
                 if normalized_search in self._normalize_label(q.get("magazine", ""))
             ]
         
-        # Update table
+        # Update tree with grouping
         self.current_questions = filtered
-        self.question_table.setRowCount(0)
+        self.question_tree.clear()
         self.question_text_view.clear()
         
         if not filtered:
             return
         
-        self.question_table.setRowCount(len(filtered))
-        for row, question in enumerate(filtered):
-            qno_item = QTableWidgetItem(question.get("qno", ""))
-            page_item = QTableWidgetItem(question.get("page", ""))
-            question_set_item = QTableWidgetItem(question.get("question_set_name", ""))
-            magazine_item = QTableWidgetItem(question.get("magazine", ""))
+        # Group questions by similar question set names
+        groups = {}
+        for question in filtered:
+            question_set_name = question.get("question_set_name", "Unknown")
+            group_key = self._extract_group_key(question_set_name)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(question)
+        
+        # Sort groups by number of questions (descending) then by name
+        sorted_groups = sorted(groups.items(), key=lambda x: (-len(x[1]), x[0]))
+        
+        # Build tree structure
+        for group_key, group_questions in sorted_groups:
+            # Create group node
+            group_item = QTreeWidgetItem(self.question_tree)
+            # Format group label with question count
+            display_name = group_key.title()
+            group_item.setText(0, f"{display_name} ({len(group_questions)} questions)")
+            group_item.setForeground(0, QColor("#1e40af"))  # Blue for group headers
+            group_item.setExpanded(False)  # Collapsed by default
             
-            # Highlight magazine column with light blue background
-            magazine_item.setBackground(QColor("#dbeafe"))
-            
-            self.question_table.setItem(row, 0, qno_item)
-            self.question_table.setItem(row, 1, page_item)
-            self.question_table.setItem(row, 2, question_set_item)
-            self.question_table.setItem(row, 3, magazine_item)
-        self.question_table.resizeColumnsToContents()
-        if self.question_table.rowCount() > 0:
-            self.question_table.selectRow(0)
+            # Add questions as children
+            for question in group_questions:
+                child = QTreeWidgetItem(group_item)
+                child.setText(0, question.get("qno", ""))
+                child.setText(1, question.get("page", ""))
+                child.setText(2, question.get("question_set_name", ""))
+                child.setText(3, question.get("magazine", ""))
+                
+                # Highlight magazine column with light blue background
+                child.setBackground(3, QColor("#dbeafe"))
+                
+                # Store full question data for selection
+                child.setData(0, Qt.UserRole, question)
+        
+        self.question_tree.resizeColumnToContents(0)
+        self.question_tree.resizeColumnToContents(1)
+        self.question_tree.resizeColumnToContents(2)
 
     def on_question_set_search_changed(self, text: str) -> None:
         """Handle Question Set search box text change."""
@@ -1939,19 +2087,24 @@ class TSVWatcherWindow(QMainWindow):
         self._populate_question_table(questions)
 
     def on_question_selected(self) -> None:
-        if not hasattr(self, "question_table"):
+        if not hasattr(self, "question_tree"):
             return
-        selection_model = self.question_table.selectionModel()
-        if selection_model is None:
+        selected_items = self.question_tree.selectedItems()
+        if not selected_items:
             self.question_text_view.clear()
             return
-        selected_rows = selection_model.selectedRows()
-        if not selected_rows:
+        
+        # Get the first selected item
+        item = selected_items[0]
+        
+        # Skip if it's a group header (has children)
+        if item.childCount() > 0:
             self.question_text_view.clear()
             return
-        row = selected_rows[0].row()
-        if 0 <= row < len(self.current_questions):
-            question = self.current_questions[row]
+        
+        # Get question data from UserRole
+        question = item.data(0, Qt.UserRole)
+        if question:
             html = (
                 f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
                 f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{question.get('qno','')}</span> &nbsp;&nbsp;"
@@ -2090,7 +2243,7 @@ class TSVWatcherWindow(QMainWindow):
         self.log(f"Deleted question list: {list_name}")
     
     def add_selected_to_list(self) -> None:
-        """Add selected questions from question table to a list."""
+        """Add selected questions from question tree to a list."""
         from PySide6.QtWidgets import QInputDialog
         
         if not self.question_lists:
@@ -2104,9 +2257,21 @@ class TSVWatcherWindow(QMainWindow):
                 self.create_new_question_list()
             return
         
-        selected_rows = self.question_table.selectionModel().selectedRows()
-        if not selected_rows:
+        selected_items = self.question_tree.selectedItems()
+        if not selected_items:
             QMessageBox.information(self, "No Selection", "Please select questions to add.")
+            return
+        
+        # Filter out group headers, only get leaf items (questions)
+        selected_questions = []
+        for item in selected_items:
+            if item.childCount() == 0:  # Leaf node
+                question_data = item.data(0, Qt.UserRole)
+                if question_data:
+                    selected_questions.append(question_data)
+        
+        if not selected_questions:
+            QMessageBox.information(self, "No Questions", "Please select actual questions, not group headers.")
             return
         
         # Select list
@@ -2119,14 +2284,11 @@ class TSVWatcherWindow(QMainWindow):
         
         # Add selected questions
         added_count = 0
-        for index in selected_rows:
-            row = index.row()
-            if 0 <= row < len(self.current_questions):
-                question = self.current_questions[row]
-                # Check for duplicates based on row_number
-                if not any(q.get("row_number") == question.get("row_number") for q in self.question_lists[list_name]):
-                    self.question_lists[list_name].append(question.copy())
-                    added_count += 1
+        for question in selected_questions:
+            # Check for duplicates based on row_number
+            if not any(q.get("row_number") == question.get("row_number") for q in self.question_lists[list_name]):
+                self.question_lists[list_name].append(question.copy())
+                added_count += 1
         
         self._save_question_list(list_name)
         self._load_saved_question_lists()
