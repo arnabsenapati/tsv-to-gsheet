@@ -657,6 +657,9 @@ class TSVWatcherWindow(QMainWindow):
         self.metrics_request_id = 0
         self.chapter_questions: dict[str, list[dict[str, str]]] = {}
         self.current_questions: list[dict[str, str]] = []
+        self.all_questions: list[dict[str, str]] = []  # Unfiltered questions
+        self.question_set_search_term: str = ""
+        self.magazine_search_term: str = ""
         self.canonical_chapters = self._load_canonical_chapters()
         self.chapter_lookup: dict[str, str] = {}
         self.chapter_groups = self._load_chapter_grouping()
@@ -763,6 +766,30 @@ class TSVWatcherWindow(QMainWindow):
         question_card = self._create_card()
         question_layout = QVBoxLayout(question_card)
         question_layout.addWidget(self._create_label("Questions"))
+        
+        # Add search controls
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        
+        search_layout.addWidget(QLabel("Question Set:"))
+        self.question_set_search = QLineEdit()
+        self.question_set_search.setPlaceholderText("Type to search...")
+        self.question_set_search.textChanged.connect(self.on_question_set_search_changed)
+        search_layout.addWidget(self.question_set_search)
+        
+        search_layout.addWidget(QLabel("Magazine:"))
+        self.magazine_search = QLineEdit()
+        self.magazine_search.setPlaceholderText("Type to search...")
+        self.magazine_search.textChanged.connect(self.on_magazine_search_changed)
+        search_layout.addWidget(self.magazine_search)
+        
+        clear_search_btn = QPushButton("Clear Search")
+        clear_search_btn.clicked.connect(self.clear_question_search)
+        search_layout.addWidget(clear_search_btn)
+        search_layout.addStretch()
+        
+        question_layout.addLayout(search_layout)
+        
         self.question_table = QuestionTableWidget(self)
         self.question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
         self.question_table.horizontalHeader().setStretchLastSection(True)
@@ -1443,19 +1470,66 @@ class TSVWatcherWindow(QMainWindow):
     def _populate_question_table(self, questions: list[dict]) -> None:
         if not hasattr(self, "question_table"):
             return
-        self.current_questions = questions or []
+        self.all_questions = questions or []
+        self._apply_question_search()
+
+    def _apply_question_search(self) -> None:
+        """Apply normalized search terms and update the question table."""
+        filtered = self.all_questions
+        
+        # Apply Question Set search (normalized)
+        if self.question_set_search_term:
+            normalized_search = self._normalize_label(self.question_set_search_term)
+            filtered = [
+                q for q in filtered
+                if normalized_search in self._normalize_label(q.get("question_set_name", ""))
+            ]
+        
+        # Apply Magazine search (normalized)
+        if self.magazine_search_term:
+            normalized_search = self._normalize_label(self.magazine_search_term)
+            filtered = [
+                q for q in filtered
+                if normalized_search in self._normalize_label(q.get("magazine", ""))
+            ]
+        
+        # Update table
+        self.current_questions = filtered
         self.question_table.setRowCount(0)
         self.question_text_view.clear()
-        if not questions:
+        
+        if not filtered:
             return
-        self.question_table.setRowCount(len(questions))
-        for row, question in enumerate(questions):
+        
+        self.question_table.setRowCount(len(filtered))
+        for row, question in enumerate(filtered):
             self.question_table.setItem(row, 0, QTableWidgetItem(question.get("qno", "")))
             self.question_table.setItem(row, 1, QTableWidgetItem(question.get("page", "")))
             self.question_table.setItem(row, 2, QTableWidgetItem(question.get("question_set_name", "")))
             self.question_table.setItem(row, 3, QTableWidgetItem(question.get("magazine", "")))
         self.question_table.resizeColumnsToContents()
-        self.question_table.selectRow(0)
+        if self.question_table.rowCount() > 0:
+            self.question_table.selectRow(0)
+
+    def on_question_set_search_changed(self, text: str) -> None:
+        """Handle Question Set search box text change."""
+        self.question_set_search_term = text.strip()
+        self._apply_question_search()
+
+    def on_magazine_search_changed(self, text: str) -> None:
+        """Handle Magazine search box text change."""
+        self.magazine_search_term = text.strip()
+        self._apply_question_search()
+
+    def clear_question_search(self) -> None:
+        """Clear all search terms."""
+        self.question_set_search_term = ""
+        self.magazine_search_term = ""
+        if hasattr(self, "question_set_search"):
+            self.question_set_search.clear()
+        if hasattr(self, "magazine_search"):
+            self.magazine_search.clear()
+        self._apply_question_search()
 
     def on_magazine_select(self) -> None:
         selected = self.mag_tree.selectedItems()
@@ -1584,12 +1658,14 @@ class TSVWatcherWindow(QMainWindow):
         if 0 <= row < len(self.current_questions):
             question = self.current_questions[row]
             html = (
-                f"<b>Qno:</b> {question.get('qno','')} &nbsp;&nbsp;"
-                f"<b>Page No:</b> {question.get('page','')} &nbsp;&nbsp;"
-                f"<b>Question Set:</b> {question.get('question_set_name','')} &nbsp;&nbsp;"
-                f"<b>Magazine Edition:</b> {question.get('magazine','')}<br/>"
-                "<hr/>"
-                f"{question.get('text','').replace(chr(10), '<br/>')}"
+                f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
+                f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{question.get('qno','')}</span> &nbsp;&nbsp;"
+                f"<span style='color: #60a5fa; font-weight: bold;'>Page No:</span> <span style='color: #cbd5e1;'>{question.get('page','')}</span> &nbsp;&nbsp;"
+                f"<span style='color: #60a5fa; font-weight: bold;'>Question Set:</span> <span style='color: #cbd5e1;'>{question.get('question_set_name','')}</span> &nbsp;&nbsp;"
+                f"<span style='color: #60a5fa; font-weight: bold;'>Magazine Edition:</span> <span style='color: #cbd5e1;'>{question.get('magazine','')}</span><br/>"
+                f"<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'/>"
+                f"<div style='color: #e2e8f0; line-height: 1.7; font-size: 14px;'>{question.get('text','').replace(chr(10), '<br/>')}</div>"
+                f"</div>"
             )
             self.question_text_view.setHtml(html)
         else:
