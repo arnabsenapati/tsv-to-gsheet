@@ -160,7 +160,7 @@ def _find_question_set_name_column(header_row: list[str]) -> int:
         if value is None:
             continue
         text = str(value).strip().lower()
-        if text == "name of question set":
+        if text == "name of question set" or text == "name of the question set":
             return idx
     raise ValueError("Unable to locate 'Name of Question set' column.")
 
@@ -679,7 +679,8 @@ class TSVWatcherWindow(QMainWindow):
         self._build_ui()
         self._load_last_selection()
         self._setup_timer()
-        self.update_row_count()
+        # Delay initial load to ensure UI is ready and timer is running
+        QTimer.singleShot(100, self.update_row_count)
 
     def _build_ui(self) -> None:
         self._apply_palette()
@@ -1100,21 +1101,21 @@ class TSVWatcherWindow(QMainWindow):
     def update_row_count(self) -> None:
         workbook_path = Path(self.output_edit.text().strip())
         if not workbook_path.is_file():
+            self._clear_all_question_data()
             self.row_count_label.setText("Total rows: N/A")
             self._set_magazine_summary("Magazines: N/A", "Missing ranges: N/A")
-            self._populate_magazine_tree([])
-            self._populate_question_sets([])
             self.question_label.setText("Select a workbook to display magazine editions.")
             self.current_workbook_path = None
             self.high_level_column_index = None
             return
 
+        # Clear all existing data before loading new workbook
+        self._clear_all_question_data()
+        
         self.current_workbook_path = workbook_path
         self._save_last_selection()
         self.row_count_label.setText("Total rows: Loading...")
         self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
-        self._populate_magazine_tree([])
-        self._populate_question_sets([])
         self.question_label.setText("Loading editions...")
         self.metrics_request_id += 1
         request_id = self.metrics_request_id
@@ -1125,6 +1126,16 @@ class TSVWatcherWindow(QMainWindow):
                 df = pd.read_excel(path, sheet_name=0, dtype=object)
                 row_count = self._compute_row_count_from_df(df)
                 magazine_details, warnings = self._collect_magazine_details(df)
+                
+                # Detect magazine and load appropriate grouping BEFORE analyzing questions
+                detected_magazine = self._detect_magazine_name(magazine_details)
+                if detected_magazine != self.current_magazine_name:
+                    grouping_file = MAGAZINE_GROUPING_MAP.get(detected_magazine, PHYSICS_GROUPING_FILE)
+                    self.current_magazine_name = detected_magazine
+                    self.canonical_chapters = self._load_canonical_chapters(grouping_file)
+                    self.chapter_groups = self._load_chapter_grouping(grouping_file)
+                
+                # Now analyze questions with proper grouping loaded
                 chapter_data, qa_warnings, question_col, raw_chapter_inputs = self._collect_question_analysis_data(df)
                 warnings.extend(qa_warnings)
                 self.event_queue.put(
@@ -1137,6 +1148,7 @@ class TSVWatcherWindow(QMainWindow):
                         chapter_data,
                         question_col,
                         raw_chapter_inputs,
+                        detected_magazine,  # Pass magazine name to queue for logging
                     )
                 )
             except Exception as exc:
@@ -1147,6 +1159,26 @@ class TSVWatcherWindow(QMainWindow):
     def _set_magazine_summary(self, primary: str, secondary: str) -> None:
         self.mag_summary_label.setText(primary)
         self.mag_missing_label.setText(secondary)
+
+    def _clear_all_question_data(self) -> None:
+        """Clear all question analysis data and UI elements."""
+        # Clear data structures
+        self.chapter_questions.clear()
+        self.current_questions.clear()
+        self.all_questions.clear()
+        self.question_set_search_term = ""
+        self.magazine_search_term = ""
+        
+        # Clear UI elements
+        self._populate_magazine_tree([])
+        self._populate_question_sets([])
+        self._populate_chapter_list({})
+        
+        # Clear search boxes
+        if hasattr(self, "question_set_search"):
+            self.question_set_search.clear()
+        if hasattr(self, "magazine_search"):
+            self.magazine_search.clear()
 
     def _detect_magazine_name(self, details: list[dict]) -> str:
         """Detect magazine name from magazine details."""
@@ -1846,14 +1878,14 @@ class TSVWatcherWindow(QMainWindow):
                 _, message = event
                 self.log(message)
             elif event_type == "metrics":
-                _, req_id, row_count, details, warnings, chapter_data, question_col, raw_chapter_inputs = event
+                _, req_id, row_count, details, warnings, chapter_data, question_col, raw_chapter_inputs, detected_magazine = event
                 if req_id != self.metrics_request_id:
                     continue
                 self.high_level_column_index = question_col
                 
-                # Detect and load appropriate chapter grouping
-                detected_magazine = self._detect_magazine_name(details)
-                self._reload_grouping_for_magazine(detected_magazine)
+                # Magazine grouping already loaded in worker thread, just log it
+                if detected_magazine:
+                    self.log(f"Loaded chapter grouping for: {detected_magazine or 'default (Physics)'}")
                 
                 self.row_count_label.setText(f"Total rows: {row_count}")
                 total_editions = sum(len(entry["editions"]) for entry in details)
