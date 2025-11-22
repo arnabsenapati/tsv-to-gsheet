@@ -588,6 +588,7 @@ class TSVWatcherWindow(QMainWindow):
         self.chapter_questions: dict[str, list[dict[str, str]]] = {}
         self.current_questions: list[dict[str, str]] = []
         self.canonical_chapters = self._load_canonical_chapters()
+        self.chapter_lookup: dict[str, str] = {}
         self.chapter_groups = self._load_chapter_grouping()
 
         self._build_ui()
@@ -876,6 +877,7 @@ class TSVWatcherWindow(QMainWindow):
                     unique.append(value)
                     seen.add(value)
             groups[key] = unique
+        self._rebuild_chapter_lookup(groups)
         return groups
 
     def _save_chapter_grouping(self) -> None:
@@ -884,12 +886,25 @@ class TSVWatcherWindow(QMainWindow):
             "groups": self.chapter_groups,
         }
         PHYSICS_GROUPING_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self._rebuild_chapter_lookup(self.chapter_groups)
 
     def _ordered_groups(self) -> list[str]:
         order = list(self.canonical_chapters)
         if "Others" not in order:
             order.append("Others")
         return order
+
+    def _rebuild_chapter_lookup(self, groups: dict[str, list[str]]) -> None:
+        lookup: dict[str, str] = {}
+        for group, values in groups.items():
+            norm_group = self._normalize_label(group)
+            if norm_group:
+                lookup[norm_group] = group
+            for value in values:
+                norm_value = self._normalize_label(value)
+                if norm_value and norm_value not in lookup:
+                    lookup[norm_value] = group
+        self.chapter_lookup = lookup
 
     def _refresh_grouping_ui(self) -> None:
         if not hasattr(self, "group_list"):
@@ -1125,8 +1140,17 @@ class TSVWatcherWindow(QMainWindow):
 
     def _match_chapter_group(self, chapter: str) -> str:
         normalized = self._normalize_label(chapter)
+        if not normalized:
+            return "Others"
+        direct = self.chapter_lookup.get(normalized)
+        if direct:
+            return direct
+        for norm_value, group in self.chapter_lookup.items():
+            if norm_value in normalized or normalized in norm_value:
+                return group
         for group in self.canonical_chapters:
-            if normalized == self._normalize_label(group):
+            norm_group = self._normalize_label(group)
+            if normalized == norm_group:
                 return group
         for group in self.canonical_chapters:
             norm_group = self._normalize_label(group)
