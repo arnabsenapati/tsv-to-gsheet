@@ -47,6 +47,7 @@ PHYSICS_GROUPING_FILE = BASE_DIR / "PhysicsChapterGrouping.json"
 CHEMISTRY_GROUPING_FILE = BASE_DIR / "ChemistryChapterGrouping.json"
 MATHEMATICS_GROUPING_FILE = BASE_DIR / "MathematicsChapterGrouping.json"
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
+QUESTION_LIST_DIR = BASE_DIR / "QuestionList"
 
 # Magazine name to grouping file mapping
 MAGAZINE_GROUPING_MAP = {
@@ -675,6 +676,12 @@ class TSVWatcherWindow(QMainWindow):
         self.chapter_groups: dict[str, list[str]] = {}
         self.current_workbook_path: Path | None = None
         self.high_level_column_index: int | None = None
+        self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
+        self.current_list_name: str | None = None
+        self.current_list_questions: list[dict] = []  # Questions in currently selected list
+
+        # Ensure QuestionList directory exists
+        QUESTION_LIST_DIR.mkdir(exist_ok=True)
 
         self._build_ui()
         self._load_last_selection()
@@ -801,10 +808,19 @@ class TSVWatcherWindow(QMainWindow):
         
         question_layout.addLayout(search_layout)
         
+        # Add question list controls
+        list_control_layout = QHBoxLayout()
+        add_to_list_btn = QPushButton("Add Selected to List")
+        add_to_list_btn.clicked.connect(self.add_selected_to_list)
+        list_control_layout.addWidget(add_to_list_btn)
+        list_control_layout.addStretch()
+        question_layout.addLayout(list_control_layout)
+        
         self.question_table = QuestionTableWidget(self)
         self.question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
         self.question_table.horizontalHeader().setStretchLastSection(True)
         self.question_table.verticalHeader().setVisible(False)
+        self.question_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.question_table.itemSelectionChanged.connect(self.on_question_selected)
         question_splitter = QSplitter(Qt.Vertical)
         question_splitter.addWidget(self.question_table)
@@ -842,6 +858,78 @@ class TSVWatcherWindow(QMainWindow):
         group_controls.addStretch()
         grouping_card_layout.addLayout(group_controls)
         qa_tabs.addTab(grouping_tab, "Chapter Grouping")
+        
+        # Question Lists Tab
+        lists_tab = QWidget()
+        lists_tab_layout = QVBoxLayout(lists_tab)
+        lists_card = self._create_card()
+        lists_tab_layout.addWidget(lists_card)
+        lists_card_layout = QVBoxLayout(lists_card)
+        
+        lists_header_layout = QHBoxLayout()
+        lists_card_layout.addWidget(self._create_label("Custom Lists"))
+        lists_header_layout.addStretch()
+        lists_card_layout.addLayout(lists_header_layout)
+        
+        lists_split = QSplitter(Qt.Horizontal)
+        lists_card_layout.addWidget(lists_split, 1)
+        
+        # Left side - list of saved lists
+        saved_lists_card = self._create_card()
+        saved_lists_layout = QVBoxLayout(saved_lists_card)
+        saved_lists_layout.addWidget(self._create_label("Saved Lists"))
+        
+        list_controls_layout = QHBoxLayout()
+        new_list_btn = QPushButton("New List")
+        new_list_btn.clicked.connect(self.create_new_question_list)
+        rename_list_btn = QPushButton("Rename")
+        rename_list_btn.clicked.connect(self.rename_question_list)
+        delete_list_btn = QPushButton("Delete")
+        delete_list_btn.clicked.connect(self.delete_question_list)
+        list_controls_layout.addWidget(new_list_btn)
+        list_controls_layout.addWidget(rename_list_btn)
+        list_controls_layout.addWidget(delete_list_btn)
+        saved_lists_layout.addLayout(list_controls_layout)
+        
+        self.saved_lists_widget = QListWidget()
+        self.saved_lists_widget.itemSelectionChanged.connect(self.on_saved_list_selected)
+        saved_lists_layout.addWidget(self.saved_lists_widget)
+        lists_split.addWidget(saved_lists_card)
+        
+        # Right side - questions in selected list
+        list_questions_card = self._create_card()
+        list_questions_layout = QVBoxLayout(list_questions_card)
+        self.list_name_label = QLabel("Select a list to view questions")
+        self.list_name_label.setObjectName("headerLabel")
+        list_questions_layout.addWidget(self.list_name_label)
+        
+        remove_from_list_btn = QPushButton("Remove Selected from List")
+        remove_from_list_btn.clicked.connect(self.remove_selected_from_list)
+        list_questions_layout.addWidget(remove_from_list_btn)
+        
+        list_question_splitter = QSplitter(Qt.Vertical)
+        self.list_question_table = QTableWidget(0, 4)
+        self.list_question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
+        self.list_question_table.horizontalHeader().setStretchLastSection(True)
+        self.list_question_table.verticalHeader().setVisible(False)
+        self.list_question_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list_question_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.list_question_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.list_question_table.itemSelectionChanged.connect(self.on_list_question_selected)
+        list_question_splitter.addWidget(self.list_question_table)
+        
+        self.list_question_text_view = QTextEdit()
+        self.list_question_text_view.setReadOnly(True)
+        self.list_question_text_view.setAcceptRichText(True)
+        list_question_splitter.addWidget(self.list_question_text_view)
+        list_question_splitter.setStretchFactor(0, 3)
+        list_question_splitter.setStretchFactor(1, 1)
+        list_question_splitter.setSizes([400, 120])
+        
+        list_questions_layout.addWidget(list_question_splitter)
+        lists_split.addWidget(list_questions_card)
+        
+        qa_tabs.addTab(lists_tab, "Custom Lists")
         tab_widget.addTab(qa_tab, "Question Analysis")
 
         import_tab = QWidget()
@@ -903,6 +991,7 @@ class TSVWatcherWindow(QMainWindow):
         root_layout.addWidget(self.log_card, 0)
         self.log_card.setVisible(False)
         self._refresh_grouping_ui()
+        self._load_saved_question_lists()
 
     def _apply_palette(self) -> None:
         palette = QPalette()
@@ -1736,6 +1825,266 @@ class TSVWatcherWindow(QMainWindow):
             self.question_text_view.setHtml(html)
         else:
             self.question_text_view.clear()
+
+    def _load_saved_question_lists(self) -> None:
+        """Load all saved question lists from QuestionList folder."""
+        if not hasattr(self, "saved_lists_widget"):
+            return
+        
+        self.saved_lists_widget.clear()
+        self.question_lists.clear()
+        
+        if not QUESTION_LIST_DIR.exists():
+            return
+        
+        for json_file in sorted(QUESTION_LIST_DIR.glob("*.json")):
+            try:
+                data = json.loads(json_file.read_text(encoding="utf-8"))
+                list_name = data.get("name", json_file.stem)
+                questions = data.get("questions", [])
+                self.question_lists[list_name] = questions
+                
+                item = QListWidgetItem(f"{list_name} ({len(questions)})")
+                item.setData(Qt.UserRole, list_name)
+                self.saved_lists_widget.addItem(item)
+            except Exception as exc:
+                self.log(f"Error loading list {json_file.name}: {exc}")
+    
+    def _save_question_list(self, list_name: str) -> None:
+        """Save a question list to file."""
+        if list_name not in self.question_lists:
+            return
+        
+        safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in list_name)
+        file_path = QUESTION_LIST_DIR / f"{safe_name}.json"
+        
+        data = {
+            "name": list_name,
+            "questions": self.question_lists[list_name],
+        }
+        
+        try:
+            file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self.log(f"Saved question list: {list_name}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Error", f"Failed to save list: {exc}")
+    
+    def create_new_question_list(self) -> None:
+        """Create a new question list."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        list_name, ok = QInputDialog.getText(self, "New Question List", "Enter list name:")
+        if not ok or not list_name.strip():
+            return
+        
+        list_name = list_name.strip()
+        if list_name in self.question_lists:
+            QMessageBox.warning(self, "Duplicate Name", f"A list named '{list_name}' already exists.")
+            return
+        
+        self.question_lists[list_name] = []
+        self._save_question_list(list_name)
+        self._load_saved_question_lists()
+        self.log(f"Created new question list: {list_name}")
+    
+    def rename_question_list(self) -> None:
+        """Rename selected question list."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        current_item = self.saved_lists_widget.currentItem()
+        if not current_item:
+            QMessageBox.information(self, "No Selection", "Please select a list to rename.")
+            return
+        
+        old_name = current_item.data(Qt.UserRole)
+        new_name, ok = QInputDialog.getText(self, "Rename List", "Enter new name:", text=old_name)
+        if not ok or not new_name.strip():
+            return
+        
+        new_name = new_name.strip()
+        if new_name == old_name:
+            return
+        
+        if new_name in self.question_lists:
+            QMessageBox.warning(self, "Duplicate Name", f"A list named '{new_name}' already exists.")
+            return
+        
+        # Delete old file
+        safe_old_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in old_name)
+        old_file = QUESTION_LIST_DIR / f"{safe_old_name}.json"
+        old_file.unlink(missing_ok=True)
+        
+        # Update data structure
+        self.question_lists[new_name] = self.question_lists.pop(old_name)
+        self._save_question_list(new_name)
+        self._load_saved_question_lists()
+        self.log(f"Renamed list from '{old_name}' to '{new_name}'")
+    
+    def delete_question_list(self) -> None:
+        """Delete selected question list."""
+        current_item = self.saved_lists_widget.currentItem()
+        if not current_item:
+            QMessageBox.information(self, "No Selection", "Please select a list to delete.")
+            return
+        
+        list_name = current_item.data(Qt.UserRole)
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete the list '{list_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Delete file
+        safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in list_name)
+        file_path = QUESTION_LIST_DIR / f"{safe_name}.json"
+        file_path.unlink(missing_ok=True)
+        
+        # Update data structure
+        del self.question_lists[list_name]
+        self._load_saved_question_lists()
+        self.list_question_table.setRowCount(0)
+        self.list_name_label.setText("Select a list to view questions")
+        self.log(f"Deleted question list: {list_name}")
+    
+    def add_selected_to_list(self) -> None:
+        """Add selected questions from question table to a list."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        if not self.question_lists:
+            reply = QMessageBox.question(
+                self,
+                "No Lists",
+                "No question lists exist. Create a new list?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                self.create_new_question_list()
+            return
+        
+        selected_rows = self.question_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "No Selection", "Please select questions to add.")
+            return
+        
+        # Select list
+        list_names = sorted(self.question_lists.keys())
+        list_name, ok = QInputDialog.getItem(
+            self, "Select List", "Choose a list to add questions to:", list_names, 0, False
+        )
+        if not ok or not list_name:
+            return
+        
+        # Add selected questions
+        added_count = 0
+        for index in selected_rows:
+            row = index.row()
+            if 0 <= row < len(self.current_questions):
+                question = self.current_questions[row]
+                # Check for duplicates based on row_number
+                if not any(q.get("row_number") == question.get("row_number") for q in self.question_lists[list_name]):
+                    self.question_lists[list_name].append(question.copy())
+                    added_count += 1
+        
+        self._save_question_list(list_name)
+        self._load_saved_question_lists()
+        self.log(f"Added {added_count} question(s) to list '{list_name}'")
+        QMessageBox.information(self, "Success", f"Added {added_count} question(s) to '{list_name}'.")
+    
+    def remove_selected_from_list(self) -> None:
+        """Remove selected questions from current list."""
+        if not self.current_list_name:
+            return
+        
+        selected_rows = self.list_question_table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.information(self, "No Selection", "Please select questions to remove.")
+            return
+        
+        # Sort in reverse to avoid index issues
+        rows_to_remove = sorted([index.row() for index in selected_rows], reverse=True)
+        
+        for row in rows_to_remove:
+            if 0 <= row < len(self.question_lists[self.current_list_name]):
+                del self.question_lists[self.current_list_name][row]
+        
+        self._save_question_list(self.current_list_name)
+        self._load_saved_question_lists()
+        self._populate_list_question_table(self.current_list_name)
+        self.log(f"Removed {len(rows_to_remove)} question(s) from '{self.current_list_name}'")
+    
+    def on_saved_list_selected(self) -> None:
+        """Handle selection of a saved question list."""
+        current_item = self.saved_lists_widget.currentItem()
+        if not current_item:
+            self.list_question_table.setRowCount(0)
+            self.list_name_label.setText("Select a list to view questions")
+            self.current_list_name = None
+            return
+        
+        list_name = current_item.data(Qt.UserRole)
+        self.current_list_name = list_name
+        self._populate_list_question_table(list_name)
+    
+    def _populate_list_question_table(self, list_name: str) -> None:
+        """Populate the list question table with questions from the selected list."""
+        if list_name not in self.question_lists:
+            return
+        
+        questions = self.question_lists[list_name]
+        self.current_list_questions = questions
+        self.list_name_label.setText(f"{list_name} ({len(questions)} questions)")
+        
+        self.list_question_table.setRowCount(0)
+        self.list_question_text_view.clear()
+        if not questions:
+            return
+        
+        self.list_question_table.setRowCount(len(questions))
+        for row, question in enumerate(questions):
+            qno_item = QTableWidgetItem(str(question.get("qno", "")))
+            page_item = QTableWidgetItem(str(question.get("page", "")))
+            question_set_item = QTableWidgetItem(str(question.get("question_set", "")))
+            magazine_item = QTableWidgetItem(str(question.get("magazine", "")))
+            
+            self.list_question_table.setItem(row, 0, qno_item)
+            self.list_question_table.setItem(row, 1, page_item)
+            self.list_question_table.setItem(row, 2, question_set_item)
+            self.list_question_table.setItem(row, 3, magazine_item)
+        
+        self.list_question_table.resizeColumnsToContents()
+    
+    def on_list_question_selected(self) -> None:
+        """Handle selection of a question in the list question table."""
+        if not hasattr(self, "list_question_table"):
+            return
+        selection_model = self.list_question_table.selectionModel()
+        if selection_model is None:
+            self.list_question_text_view.clear()
+            return
+        selected_rows = selection_model.selectedRows()
+        if not selected_rows:
+            self.list_question_text_view.clear()
+            return
+        row = selected_rows[0].row()
+        if 0 <= row < len(self.current_list_questions):
+            question = self.current_list_questions[row]
+            html_parts = [
+                '<div style="background-color: #0f172a; color: #e2e8f0; padding: 12px; font-family: Arial, sans-serif;">',
+                f'<p><span style="color: #60a5fa; font-weight: bold;">Question No:</span> <span style="color: #cbd5e1;">{question.get("qno", "N/A")}</span></p>',
+                f'<p><span style="color: #60a5fa; font-weight: bold;">Page:</span> <span style="color: #cbd5e1;">{question.get("page", "N/A")}</span></p>',
+                f'<p><span style="color: #60a5fa; font-weight: bold;">Question Set:</span> <span style="color: #cbd5e1;">{question.get("question_set", "N/A")}</span></p>',
+                f'<p><span style="color: #60a5fa; font-weight: bold;">Magazine:</span> <span style="color: #cbd5e1;">{question.get("magazine", "N/A")}</span></p>',
+                f'<p><span style="color: #60a5fa; font-weight: bold;">Chapter:</span> <span style="color: #cbd5e1;">{question.get("group", "N/A")}</span></p>',
+                '<hr style="border: 1px solid #475569;">',
+                f'<div style="color: #e2e8f0; line-height: 1.6;">{question.get("question_text", "No question text available")}</div>',
+                '</div>',
+            ]
+            self.list_question_text_view.setHtml("".join(html_parts))
+        else:
+            self.list_question_text_view.clear()
 
     def log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
