@@ -106,6 +106,7 @@ class TSVWatcherWindow(QMainWindow):
         self.chapter_lookup: dict[str, str] = {}
         self.chapter_groups: dict[str, list[str]] = {}
         self.current_workbook_path: Path | None = None
+        self.workbook_df: pd.DataFrame | None = None  # Cached DataFrame
         self.high_level_column_index: int | None = None
         self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
         self.current_list_name: str | None = None
@@ -244,7 +245,7 @@ class TSVWatcherWindow(QMainWindow):
         mag_tree_layout.addWidget(self.mag_tree)
         mag_split.addWidget(mag_tree_card)
 
-        # Right side - Question sets detail
+        # Right side - Question sets detail with tree
         detail_card = self._create_card()
         detail_layout = QVBoxLayout(detail_card)
         detail_layout.addWidget(self._create_label("Question Sets"))
@@ -254,23 +255,27 @@ class TSVWatcherWindow(QMainWindow):
             "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
         )
         detail_layout.addWidget(self.question_label)
-        self.question_list = QListWidget()
-        self.question_list.setAlternatingRowColors(True)
-        self.question_list.setStyleSheet(
+        
+        # Use QTreeWidget instead of QListWidget for expandable question sets
+        self.question_sets_tree = QTreeWidget()
+        self.question_sets_tree.setHeaderLabels(["Question Set / Question", "Qno", "Page"])
+        self.question_sets_tree.setAlternatingRowColors(True)
+        self.question_sets_tree.setColumnWidth(0, 400)
+        self.question_sets_tree.setStyleSheet(
             """
-            QListWidget {
+            QTreeWidget {
                 font-size: 13px;
             }
-            QListWidget::item {
-                padding: 8px;
+            QTreeWidget::item {
+                padding: 6px;
                 border-bottom: 1px solid #e2e8f0;
             }
-            QListWidget::item:hover {
+            QTreeWidget::item:hover {
                 background-color: #f8fafc;
             }
             """
         )
-        detail_layout.addWidget(self.question_list)
+        detail_layout.addWidget(self.question_sets_tree)
         mag_split.addWidget(detail_card)
         
         mag_split.setSizes([500, 400])
@@ -874,6 +879,10 @@ class TSVWatcherWindow(QMainWindow):
             try:
                 # Pandas is used here to keep the UI responsive while gathering workbook metrics.
                 df = pd.read_excel(path, sheet_name=0, dtype=object)
+                
+                # Cache the DataFrame for reuse throughout the application
+                self.workbook_df = df
+                
                 row_count = self._compute_row_count_from_df(df)
                 magazine_details, warnings = self._collect_magazine_details(df)
                 
@@ -910,9 +919,15 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_summary_label.setText(primary)
         self.mag_missing_label.setText(secondary)
 
+    def _invalidate_workbook_cache(self) -> None:
+        """Invalidate the workbook cache and reload data."""
+        self.workbook_df = None
+        self.update_row_count()
+    
     def _clear_all_question_data(self) -> None:
         """Clear all question analysis data and UI elements."""
         # Clear data structures
+        self.workbook_df = None  # Clear cached DataFrame
         self.chapter_questions.clear()
         self.current_questions.clear()
         self.all_questions.clear()
@@ -1320,16 +1335,93 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "mag_total_sets_label"):
             self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
 
-    def _populate_question_sets(self, question_sets: list[str] | None) -> None:
-        if not hasattr(self, "question_list"):
+    def _populate_question_sets(self, question_sets: list[str] | None, magazine_name: str = "", edition_label: str = "") -> None:
+        """Populate question sets tree with questions as children."""
+        if not hasattr(self, "question_sets_tree"):
             return
-        self.question_list.clear()
-        if not question_sets:
+        self.question_sets_tree.clear()
+        if not question_sets or self.workbook_df is None:
             return
-        for idx, name in enumerate(question_sets, 1):
-            item = QListWidgetItem(f"📝 {name}")
-            item.setData(Qt.UserRole, name)
-            self.question_list.addItem(item)
+        
+        # Use cached DataFrame for much better performance
+        try:
+            df = self.workbook_df
+            self.log(f"Using cached DataFrame ({len(df)} rows) to populate question sets")
+            header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+            
+            # Find required columns
+            try:
+                qno_col = _find_qno_column(header_row)
+                page_col = _find_page_column(header_row)
+                question_set_col = _find_question_set_column(header_row)
+                magazine_col = _find_magazine_column(header_row)
+            except ValueError:
+                # If columns not found, just show question sets without children
+                for name in question_sets:
+                    parent_item = QTreeWidgetItem([f"📝 {name}", "", ""])
+                    self.question_sets_tree.addTopLevelItem(parent_item)
+                return
+            
+            # Collect questions by question set for this specific magazine edition
+            questions_by_set: dict[str, list[dict]] = {}
+            normalized_target = normalize_magazine_edition(f"{magazine_name}|{edition_label}")
+            
+            # Use pandas vectorized operations for better performance
+            magazine_series = df.iloc[:, magazine_col - 1]
+            question_set_series = df.iloc[:, question_set_col - 1]
+            qno_series = df.iloc[:, qno_col - 1]
+            page_series = df.iloc[:, page_col - 1]
+            
+            for idx, (mag_value, qset_value, qno_value, page_value) in enumerate(zip(
+                magazine_series, question_set_series, qno_series, page_series
+            )):
+                # Skip if magazine value is missing
+                if pd.isna(mag_value):
+                    continue
+                
+                # Check if magazine matches
+                normalized_mag = normalize_magazine_edition(str(mag_value))
+                if normalized_mag != normalized_target:
+                    continue
+                
+                # Get question set
+                if pd.isna(qset_value):
+                    continue
+                    
+                qset_name = str(qset_value).strip()
+                if qset_name not in question_sets:
+                    continue
+                
+                # Get question details
+                qno_str = str(qno_value).strip() if not pd.isna(qno_value) else ""
+                page_str = str(page_value).strip() if not pd.isna(page_value) else ""
+                
+                questions_by_set.setdefault(qset_name, []).append({
+                    "qno": qno_str,
+                    "page": page_str,
+                    "row": idx + 2  # DataFrame is 0-based, Excel rows start at 2
+                })
+            
+            # Create tree items
+            for qset_name in question_sets:
+                questions = questions_by_set.get(qset_name, [])
+                parent_item = QTreeWidgetItem([f"📝 {qset_name}", "", f"({len(questions)} questions)"])
+                parent_item.setData(0, Qt.UserRole, {"type": "question_set", "name": qset_name})
+                
+                # Add questions as children
+                for q in questions:
+                    child_item = QTreeWidgetItem([f"  Q{q['qno']}", q['qno'], q['page']])
+                    child_item.setData(0, Qt.UserRole, {"type": "question", "qno": q['qno'], "page": q['page'], "row": q['row']})
+                    parent_item.addChild(child_item)
+                
+                self.question_sets_tree.addTopLevelItem(parent_item)
+                
+        except Exception as e:
+            self.log(f"Error loading questions for question sets: {e}")
+            # Fallback to simple list
+            for name in question_sets:
+                parent_item = QTreeWidgetItem([f"📝 {name}", "", ""])
+                self.question_sets_tree.addTopLevelItem(parent_item)
 
     def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
         if not hasattr(self, "chapter_table"):
@@ -1605,10 +1697,13 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         question_sets = data.get("question_sets", [])
-        label = f"{data.get('display_name', 'Magazine')} - {data.get('edition_label', 'Edition')}"
+        magazine_name = data.get("display_name", "")
+        edition_label = data.get("edition_label", "")
+        label = f"{magazine_name} - {edition_label}"
+        
         if question_sets:
             self.question_label.setText(f"✓ {label} • {len(question_sets)} question set(s)")
-            self._populate_question_sets(question_sets)
+            self._populate_question_sets(question_sets, magazine_name, edition_label)
         else:
             self.question_label.setText(f"⚠ {label} • No question sets found")
             self._populate_question_sets([])
