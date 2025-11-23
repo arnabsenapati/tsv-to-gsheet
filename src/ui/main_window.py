@@ -256,11 +256,15 @@ class TSVWatcherWindow(QMainWindow):
         )
         detail_layout.addWidget(self.question_label)
         
+        # Use QSplitter to add question text view
+        mag_question_splitter = QSplitter(Qt.Vertical)
+        
         # Use QTreeWidget instead of QListWidget for expandable question sets
         self.question_sets_tree = QTreeWidget()
         self.question_sets_tree.setHeaderLabels(["Question Set / Question", "Qno", "Page"])
         self.question_sets_tree.setAlternatingRowColors(True)
         self.question_sets_tree.setColumnWidth(0, 400)
+        self.question_sets_tree.itemSelectionChanged.connect(self.on_mag_question_selected)
         self.question_sets_tree.setStyleSheet(
             """
             QTreeWidget {
@@ -275,7 +279,19 @@ class TSVWatcherWindow(QMainWindow):
             }
             """
         )
-        detail_layout.addWidget(self.question_sets_tree)
+        mag_question_splitter.addWidget(self.question_sets_tree)
+        
+        # Question text view for magazine editions
+        self.mag_question_text_view = QTextEdit()
+        self.mag_question_text_view.setReadOnly(True)
+        self.mag_question_text_view.setAcceptRichText(True)
+        mag_question_splitter.addWidget(self.mag_question_text_view)
+        
+        mag_question_splitter.setStretchFactor(0, 3)
+        mag_question_splitter.setStretchFactor(1, 1)
+        mag_question_splitter.setSizes([400, 120])
+        
+        detail_layout.addWidget(mag_question_splitter)
         mag_split.addWidget(detail_card)
         
         mag_split.setSizes([500, 400])
@@ -1828,6 +1844,80 @@ class TSVWatcherWindow(QMainWindow):
                 f"</div>"
             )
             self.question_text_view.setHtml(html)
+    
+    def on_mag_question_selected(self) -> None:
+        """Handle question selection in Magazine Editions tab."""
+        if not hasattr(self, "question_sets_tree"):
+            return
+        selected_items = self.question_sets_tree.selectedItems()
+        if not selected_items:
+            self.mag_question_text_view.clear()
+            return
+        
+        # Get the first selected item
+        item = selected_items[0]
+        
+        # Skip if it's a parent item (question set)
+        data = item.data(0, Qt.UserRole)
+        if not data or data.get("type") != "question":
+            self.mag_question_text_view.clear()
+            return
+        
+        # Get question details from the tree item data
+        qno = data.get("qno", "")
+        page = data.get("page", "")
+        row_num = data.get("row", 0)
+        
+        # Get full question data from cached DataFrame
+        if self.workbook_df is not None and row_num > 0:
+            try:
+                # Row number is 1-based Excel row, DataFrame is 0-based
+                df_row_idx = row_num - 2  # Subtract 2 (1 for header, 1 for 0-based)
+                
+                if 0 <= df_row_idx < len(self.workbook_df):
+                    row_data = self.workbook_df.iloc[df_row_idx]
+                    
+                    # Get column names
+                    header_row = [None if pd.isna(col) else str(col) for col in self.workbook_df.columns]
+                    
+                    # Find columns
+                    try:
+                        question_text_col = _find_question_text_column(header_row)
+                        question_text = str(row_data.iloc[question_text_col - 1]) if not pd.isna(row_data.iloc[question_text_col - 1]) else ""
+                    except ValueError:
+                        question_text = ""
+                    
+                    try:
+                        question_set_name_col = _find_question_set_name_column(header_row)
+                        question_set_name = str(row_data.iloc[question_set_name_col - 1]) if not pd.isna(row_data.iloc[question_set_name_col - 1]) else ""
+                    except ValueError:
+                        question_set_name = ""
+                    
+                    try:
+                        magazine_col = _find_magazine_column(header_row)
+                        magazine = str(row_data.iloc[magazine_col - 1]) if not pd.isna(row_data.iloc[magazine_col - 1]) else ""
+                    except ValueError:
+                        magazine = ""
+                    
+                    # Display question details in same format as Question List tab
+                    html = (
+                        f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
+                        f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{qno}</span> &nbsp;&nbsp;"
+                        f"<span style='color: #60a5fa; font-weight: bold;'>Page No:</span> <span style='color: #cbd5e1;'>{page}</span> &nbsp;&nbsp;"
+                        f"<span style='color: #60a5fa; font-weight: bold;'>Question Set:</span> <span style='color: #cbd5e1;'>{question_set_name}</span> &nbsp;&nbsp;"
+                        f"<span style='color: #60a5fa; font-weight: bold;'>Magazine Edition:</span> <span style='color: #cbd5e1;'>{magazine}</span><br/>"
+                        f"<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'/>"
+                        f"<div style='color: #e2e8f0; line-height: 1.7; font-size: 14px;'>{question_text.replace(chr(10), '<br/>')}</div>"
+                        f"</div>"
+                    )
+                    self.mag_question_text_view.setHtml(html)
+                else:
+                    self.mag_question_text_view.clear()
+            except Exception as e:
+                self.log(f"Error loading question text: {e}")
+                self.mag_question_text_view.clear()
+        else:
+            self.mag_question_text_view.clear()
 
     def _on_tag_badge_clicked(self, tag: str) -> None:
         """Handle tag badge click - add to filter list."""
