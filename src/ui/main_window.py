@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -111,6 +112,10 @@ class TSVWatcherWindow(QMainWindow):
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
         self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
+        
+        # JEE Main Papers analysis
+        self.jee_papers_df: pd.DataFrame | None = None
+        self.jee_papers_file: Path | None = None
         
         # Predefined color palette for tags (20 colors)
         self.available_tag_colors = [
@@ -492,6 +497,105 @@ class TSVWatcherWindow(QMainWindow):
 
         tab_widget.addTab(import_tab, "Data Import")
 
+        # ============================================================================
+        # JEE Main Papers Tab
+        # ============================================================================
+        jee_tab = QWidget()
+        jee_layout = QVBoxLayout(jee_tab)
+        jee_layout.setSpacing(8)  # Reduce spacing
+        jee_layout.setContentsMargins(10, 10, 10, 10)  # Reduce margins
+        
+        # Compact controls in single row
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(10)
+        
+        # File selection
+        file_label = QLabel("File:")
+        file_label.setMaximumWidth(35)
+        controls_layout.addWidget(file_label)
+        
+        self.jee_file_edit = QLineEdit()
+        self.jee_file_edit.setReadOnly(True)
+        self.jee_file_edit.setMaximumHeight(26)
+        controls_layout.addWidget(self.jee_file_edit, 1)  # Stretch factor 1
+        
+        browse_jee_btn = QPushButton("Browse…")
+        browse_jee_btn.setMaximumHeight(26)
+        browse_jee_btn.setMaximumWidth(75)
+        browse_jee_btn.clicked.connect(self.select_jee_papers_file)
+        controls_layout.addWidget(browse_jee_btn)
+        
+        # Spacer
+        controls_layout.addSpacing(20)
+        
+        # Subject dropdown
+        subject_label = QLabel("Subject:")
+        subject_label.setMaximumWidth(50)
+        controls_layout.addWidget(subject_label)
+        
+        self.jee_subject_combo = QComboBox()
+        self.jee_subject_combo.setMinimumWidth(180)
+        self.jee_subject_combo.setMaximumWidth(250)
+        self.jee_subject_combo.setMaximumHeight(26)
+        self.jee_subject_combo.currentTextChanged.connect(self.update_jee_tables)
+        controls_layout.addWidget(self.jee_subject_combo)
+        
+        jee_layout.addLayout(controls_layout)
+        
+        # Split view: Chapters table on left, Questions table on right
+        jee_splitter = QSplitter(Qt.Horizontal)
+        
+        # Left side - Chapters table
+        chapters_widget = QWidget()
+        chapters_layout = QVBoxLayout(chapters_widget)
+        chapters_layout.setContentsMargins(0, 0, 0, 0)
+        chapters_layout.setSpacing(4)
+        
+        chapters_header = QLabel("Chapters (by Question Count)")
+        chapters_header.setStyleSheet("font-weight: bold; padding: 4px;")
+        chapters_layout.addWidget(chapters_header)
+        
+        self.jee_chapters_table = QTableWidget(0, 2)
+        self.jee_chapters_table.setHorizontalHeaderLabels(["Chapter", "Count"])
+        self.jee_chapters_table.horizontalHeader().setStretchLastSection(False)
+        self.jee_chapters_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.jee_chapters_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.jee_chapters_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.jee_chapters_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.jee_chapters_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.jee_chapters_table.setAlternatingRowColors(True)
+        self.jee_chapters_table.itemSelectionChanged.connect(self.on_jee_chapter_selected)
+        chapters_layout.addWidget(self.jee_chapters_table)
+        
+        jee_splitter.addWidget(chapters_widget)
+        
+        # Right side - Questions table
+        questions_widget = QWidget()
+        questions_layout = QVBoxLayout(questions_widget)
+        questions_layout.setContentsMargins(0, 0, 0, 0)
+        questions_layout.setSpacing(4)
+        
+        self.jee_questions_label = QLabel("Select a chapter to view questions")
+        self.jee_questions_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        questions_layout.addWidget(self.jee_questions_label)
+        
+        self.jee_questions_table = QTableWidget(0, 0)
+        self.jee_questions_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.jee_questions_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.jee_questions_table.setAlternatingRowColors(True)
+        self.jee_questions_table.horizontalHeader().setStretchLastSection(True)
+        questions_layout.addWidget(self.jee_questions_table)
+        
+        jee_splitter.addWidget(questions_widget)
+        
+        jee_splitter.setStretchFactor(0, 1)
+        jee_splitter.setStretchFactor(1, 2)
+        jee_splitter.setSizes([300, 600])
+        
+        jee_layout.addWidget(jee_splitter, 1)  # Stretch factor 1 to take remaining space
+        
+        tab_widget.addTab(jee_tab, "JEE Main Papers")
+
         self.log_toggle = QPushButton("Show Log")
         self.log_toggle.setCheckable(True)
         self.log_toggle.toggled.connect(self.toggle_log_visibility)
@@ -592,6 +696,11 @@ class TSVWatcherWindow(QMainWindow):
         input_folder = data.get("input_folder", "")
         if input_folder:
             self.input_edit.setText(input_folder)
+        jee_papers_file = data.get("jee_papers_file", "")
+        if jee_papers_file and Path(jee_papers_file).exists():
+            self.jee_papers_file = Path(jee_papers_file)
+            self.jee_file_edit.setText(jee_papers_file)
+            self.load_jee_papers_data()
 
     def _save_last_selection(self) -> None:
         path_text = self.output_edit.text().strip()
@@ -601,6 +710,7 @@ class TSVWatcherWindow(QMainWindow):
         payload = {
             "workbook_path": path_text,
             "input_folder": input_folder if input_folder else "",
+            "jee_papers_file": str(self.jee_papers_file) if self.jee_papers_file else "",
         }
         LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -2163,6 +2273,168 @@ class TSVWatcherWindow(QMainWindow):
             elif event_type == "rowcount":
                 self.update_row_count()
         # Timer will trigger this method again; no manual reschedule needed.
+
+    # ============================================================================
+    # JEE Main Papers Methods
+    # ============================================================================
+    
+    def select_jee_papers_file(self) -> None:
+        """Open file dialog to select JEE papers Excel file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select JEE Papers File",
+            "",
+            "Excel files (*.xlsx *.xls);;All files (*.*)",
+        )
+        if file_path:
+            self.jee_papers_file = Path(file_path)
+            self.jee_file_edit.setText(file_path)
+            self._save_last_selection()
+            self.load_jee_papers_data()
+    
+    def load_jee_papers_data(self) -> None:
+        """Load and process JEE papers data from Excel file."""
+        if not self.jee_papers_file or not self.jee_papers_file.exists():
+            self.log("JEE papers file not found.")
+            return
+        
+        try:
+            # Read Excel file from "Data" sheet, columns A:E
+            self.jee_papers_df = pd.read_excel(
+                self.jee_papers_file, 
+                sheet_name='Data',
+                usecols='A:E'
+            )
+            
+            # Validate required columns
+            required_columns = ['Question Number', 'JEE Main Session', 'Year', 'Subject', 'Chapter']
+            missing_columns = [col for col in required_columns if col not in self.jee_papers_df.columns]
+            
+            if missing_columns:
+                self.log(f"Error: Missing required columns: {', '.join(missing_columns)}")
+                QMessageBox.warning(
+                    self,
+                    "Invalid File Format",
+                    f"Missing required columns: {', '.join(missing_columns)}\nExpected columns in sheet 'Data': {', '.join(required_columns)}"
+                )
+                return
+            
+            # Populate subject dropdown
+            subjects = sorted(self.jee_papers_df['Subject'].unique())
+            self.jee_subject_combo.clear()
+            self.jee_subject_combo.addItems(subjects)
+            
+            self.log(f"Loaded {len(self.jee_papers_df)} questions from JEE papers Excel file (Sheet: 'Data', Columns: A:E).")
+            
+            # Update tables if a subject is selected
+            if subjects:
+                self.update_jee_tables()
+                
+        except ValueError as e:
+            # Handle missing sheet or invalid range
+            error_msg = str(e)
+            if 'Data' in error_msg:
+                self.log(f"Error: Sheet 'Data' not found in Excel file.")
+                QMessageBox.critical(self, "Error", "Sheet 'Data' not found in the Excel file.\nPlease ensure the file has a sheet named 'Data'.")
+            else:
+                self.log(f"Error loading JEE papers file: {error_msg}")
+                QMessageBox.critical(self, "Error", f"Failed to load file: {error_msg}")
+        except Exception as e:
+            self.log(f"Error loading JEE papers file: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
+    
+    def update_jee_tables(self) -> None:
+        """Update the chapters table based on selected subject."""
+        if self.jee_papers_df is None or self.jee_papers_df.empty:
+            return
+        
+        subject = self.jee_subject_combo.currentText()
+        if not subject:
+            return
+        
+        try:
+            # Filter by subject
+            subject_df = self.jee_papers_df[self.jee_papers_df['Subject'] == subject]
+            
+            if subject_df.empty:
+                self.log(f"No data found for subject: {subject}")
+                return
+            
+            # Count questions per chapter
+            chapter_counts = subject_df['Chapter'].value_counts().sort_values(ascending=False)
+            
+            # Populate chapters table
+            self.jee_chapters_table.setRowCount(len(chapter_counts))
+            for row, (chapter, count) in enumerate(chapter_counts.items()):
+                chapter_item = QTableWidgetItem(chapter)
+                count_item = QTableWidgetItem(str(count))
+                count_item.setTextAlignment(Qt.AlignCenter)
+                self.jee_chapters_table.setItem(row, 0, chapter_item)
+                self.jee_chapters_table.setItem(row, 1, count_item)
+            
+            # Clear questions table
+            self.jee_questions_table.setRowCount(0)
+            self.jee_questions_table.setColumnCount(0)
+            self.jee_questions_label.setText(f"Select a chapter to view questions ({subject})")
+            
+            self.log(f"Updated tables for {subject}: {len(chapter_counts)} chapters, {subject_df.shape[0]} total questions")
+            
+        except Exception as e:
+            self.log(f"Error updating JEE tables: {e}")
+    
+    def on_jee_chapter_selected(self) -> None:
+        """Handle chapter selection to show questions for that chapter."""
+        if self.jee_papers_df is None or self.jee_papers_df.empty:
+            return
+        
+        selected_items = self.jee_chapters_table.selectedItems()
+        if not selected_items:
+            return
+        
+        # Get selected chapter name
+        row = selected_items[0].row()
+        chapter_item = self.jee_chapters_table.item(row, 0)
+        if not chapter_item:
+            return
+        
+        chapter_name = chapter_item.text()
+        subject = self.jee_subject_combo.currentText()
+        
+        try:
+            # Filter questions by subject and chapter
+            filtered_df = self.jee_papers_df[
+                (self.jee_papers_df['Subject'] == subject) & 
+                (self.jee_papers_df['Chapter'] == chapter_name)
+            ]
+            
+            if filtered_df.empty:
+                self.jee_questions_label.setText(f"No questions found for {chapter_name}")
+                self.jee_questions_table.setRowCount(0)
+                return
+            
+            # Update label
+            self.jee_questions_label.setText(f"{chapter_name} - {len(filtered_df)} Questions")
+            
+            # Setup columns (all columns from Excel)
+            columns = list(filtered_df.columns)
+            self.jee_questions_table.setColumnCount(len(columns))
+            self.jee_questions_table.setHorizontalHeaderLabels(columns)
+            
+            # Populate rows
+            self.jee_questions_table.setRowCount(len(filtered_df))
+            for row_idx, (_, row_data) in enumerate(filtered_df.iterrows()):
+                for col_idx, col_name in enumerate(columns):
+                    value = str(row_data[col_name]) if pd.notna(row_data[col_name]) else ""
+                    item = QTableWidgetItem(value)
+                    self.jee_questions_table.setItem(row_idx, col_idx, item)
+            
+            # Auto-resize columns to content
+            self.jee_questions_table.resizeColumnsToContents()
+            
+            self.log(f"Showing {len(filtered_df)} questions for {chapter_name}")
+            
+        except Exception as e:
+            self.log(f"Error displaying chapter questions: {e}")
 
     def closeEvent(self, event) -> None:
         self.stop_watching()
