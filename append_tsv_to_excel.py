@@ -454,47 +454,233 @@ class TagBadge(QLabel):
         super().mousePressEvent(event)
 
 
-class MultiSelectTagDialog(QDialog):
-    """Dialog for selecting multiple tags with ability to create new ones."""
+class ClickableTagBadge(QPushButton):
+    """Beautiful clickable tag badge with +/✓ toggle."""
     
-    def __init__(self, existing_tags: list[str], selected_tags: list[str] = None, title: str = "Select Tags", parent=None):
+    def __init__(self, tag: str, color: str, is_selected: bool = False, parent=None):
+        super().__init__(parent)
+        self.tag = tag
+        self.color = color
+        self.is_selected = is_selected
+        self.setFixedHeight(32)
+        self.setCursor(Qt.PointingHandCursor)
+        self.clicked.connect(self._toggle_selection)
+        self._update_style()
+    
+    def _toggle_selection(self):
+        """Toggle selection state."""
+        self.is_selected = not self.is_selected
+        self._update_style()
+    
+    def _update_style(self):
+        """Update button appearance based on selection state."""
+        icon = "✓" if self.is_selected else "+"
+        if self.is_selected:
+            # Selected state - solid color
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {self.color};
+                    color: white;
+                    border: 2px solid {self.color};
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    font-size: 13px;
+                    font-weight: bold;
+                    text-align: left;
+                }}
+                QPushButton:hover {{
+                    background-color: {self._darken_color(self.color)};
+                    border-color: {self._darken_color(self.color)};
+                }}
+            """)
+        else:
+            # Unselected state - outline only
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: white;
+                    color: {self.color};
+                    border: 2px solid {self.color};
+                    border-radius: 6px;
+                    padding: 6px 12px;
+                    font-size: 13px;
+                    font-weight: bold;
+                    text-align: left;
+                }}
+                QPushButton:hover {{
+                    background-color: {self._lighten_color(self.color)};
+                }}
+            """)
+        self.setText(f"{icon}  {self.tag}")
+    
+    def _darken_color(self, color: str) -> str:
+        """Darken a hex color by 20%."""
+        color = color.lstrip('#')
+        r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+        r, g, b = int(r * 0.8), int(g * 0.8), int(b * 0.8)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    
+    def _lighten_color(self, color: str) -> str:
+        """Lighten a hex color by adding 90% opacity."""
+        return f"{color}20"  # Add alpha for transparency
+
+
+class MultiSelectTagDialog(QDialog):
+    """Beautiful dialog for selecting multiple tags with colored badges."""
+    
+    def __init__(self, existing_tags: list[str], selected_tags: list[str] = None, 
+                 title: str = "Select Tags", tag_colors: dict[str, str] = None, 
+                 available_colors: list[str] = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumWidth(400)
-        self.setMinimumHeight(300)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(400)
+        
+        self.tag_colors = tag_colors or {}
+        self.available_colors = available_colors or ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
+        self.tag_badges = {}
+        self.selected_tags_list = selected_tags or []
         
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
         
-        # Instruction label
-        instruction = QLabel("Select tags (check existing or type new ones):")
+        # Title and instruction
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #1e293b;")
+        layout.addWidget(title_label)
+        
+        instruction = QLabel("Click on tags to select/deselect them:")
+        instruction.setStyleSheet("font-size: 12px; color: #64748b; margin-bottom: 5px;")
         layout.addWidget(instruction)
         
-        # List widget with checkboxes for existing tags
-        self.tag_list = QListWidget()
-        for tag in sorted(existing_tags):
-            item = QListWidgetItem(tag)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if selected_tags and tag in selected_tags else Qt.Unchecked)
-            self.tag_list.addItem(item)
-        layout.addWidget(self.tag_list)
+        # Scrollable area for tag badges
+        scroll_area = QWidget()
+        self.tags_layout = QVBoxLayout(scroll_area)
+        self.tags_layout.setSpacing(8)
+        self.tags_layout.setAlignment(Qt.AlignTop)
+        
+        # Add existing tags as clickable badges
+        if existing_tags:
+            self._add_tag_badges(existing_tags)
+        else:
+            no_tags_label = QLabel("No existing tags. Create new ones below.")
+            no_tags_label.setStyleSheet("color: #94a3b8; font-style: italic; padding: 20px;")
+            self.tags_layout.addWidget(no_tags_label)
+        
+        layout.addWidget(scroll_area, 1)
+        
+        # Separator
+        separator = QWidget()
+        separator.setFixedHeight(1)
+        separator.setStyleSheet("background-color: #e2e8f0;")
+        layout.addWidget(separator)
         
         # Input field for new tags
+        new_tag_label = QLabel("Create new tag:")
+        new_tag_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #475569;")
+        layout.addWidget(new_tag_label)
+        
         new_tag_layout = QHBoxLayout()
-        new_tag_layout.addWidget(QLabel("New tag:"))
         self.new_tag_input = QLineEdit()
-        self.new_tag_input.setPlaceholderText("Type and press Enter to add new tag")
+        self.new_tag_input.setPlaceholderText("Type tag name and press Enter or click Add")
+        self.new_tag_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #cbd5e1;
+                border-radius: 6px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #3b82f6;
+            }
+        """)
         self.new_tag_input.returnPressed.connect(self._add_new_tag)
         new_tag_layout.addWidget(self.new_tag_input)
+        
         add_btn = QPushButton("Add")
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
         add_btn.clicked.connect(self._add_new_tag)
         new_tag_layout.addWidget(add_btn)
         layout.addLayout(new_tag_layout)
         
         # Dialog buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.button(QDialogButtonBox.Ok).setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 24px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
+        button_box.button(QDialogButtonBox.Cancel).setStyleSheet("""
+            QPushButton {
+                background-color: #f1f5f9;
+                color: #475569;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 8px 24px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e2e8f0;
+            }
+        """)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+    
+    def _add_tag_badges(self, tags: list[str]):
+        """Add tag badges in a flowing layout."""
+        row_layout = None
+        tags_per_row = 0
+        max_tags_per_row = 3
+        
+        for tag in sorted(tags):
+            if tags_per_row == 0:
+                row_layout = QHBoxLayout()
+                row_layout.setSpacing(10)
+                self.tags_layout.addLayout(row_layout)
+            
+            color = self._get_tag_color(tag)
+            is_selected = tag in self.selected_tags_list
+            badge = ClickableTagBadge(tag, color, is_selected)
+            self.tag_badges[tag] = badge
+            row_layout.addWidget(badge)
+            
+            tags_per_row += 1
+            if tags_per_row >= max_tags_per_row:
+                row_layout.addStretch()
+                tags_per_row = 0
+        
+        if row_layout and tags_per_row > 0:
+            row_layout.addStretch()
+    
+    def _get_tag_color(self, tag: str) -> str:
+        """Get color for a tag."""
+        if tag not in self.tag_colors:
+            color_index = len(self.tag_colors) % len(self.available_colors)
+            self.tag_colors[tag] = self.available_colors[color_index]
+        return self.tag_colors[tag]
     
     def _add_new_tag(self):
         """Add a new tag to the list."""
@@ -503,28 +689,43 @@ class MultiSelectTagDialog(QDialog):
             return
         
         # Check if tag already exists
-        for i in range(self.tag_list.count()):
-            if self.tag_list.item(i).text() == tag:
-                # Already exists, just check it
-                self.tag_list.item(i).setCheckState(Qt.Checked)
-                self.new_tag_input.clear()
-                return
+        if tag in self.tag_badges:
+            # Already exists, just select it
+            self.tag_badges[tag].is_selected = True
+            self.tag_badges[tag]._update_style()
+            self.new_tag_input.clear()
+            return
         
-        # Add new tag
-        item = QListWidgetItem(tag)
-        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-        item.setCheckState(Qt.Checked)
-        self.tag_list.addItem(item)
+        # Add new tag badge
+        color = self._get_tag_color(tag)
+        badge = ClickableTagBadge(tag, color, is_selected=True)
+        self.tag_badges[tag] = badge
+        
+        # Add to layout (create new row if needed)
+        last_layout = None
+        for i in range(self.tags_layout.count()):
+            item = self.tags_layout.itemAt(i)
+            if isinstance(item, QHBoxLayout):
+                last_layout = item
+        
+        if not last_layout or last_layout.count() >= 4:  # 3 badges + 1 stretch
+            new_row = QHBoxLayout()
+            new_row.setSpacing(10)
+            new_row.addWidget(badge)
+            new_row.addStretch()
+            self.tags_layout.addLayout(new_row)
+        else:
+            # Remove stretch and add badge
+            stretch_item = last_layout.takeAt(last_layout.count() - 1)
+            last_layout.addWidget(badge)
+            if stretch_item:
+                last_layout.addItem(stretch_item)
+        
         self.new_tag_input.clear()
     
     def get_selected_tags(self) -> list[str]:
         """Get list of selected tags."""
-        selected = []
-        for i in range(self.tag_list.count()):
-            item = self.tag_list.item(i)
-            if item.checkState() == Qt.Checked:
-                selected.append(item.text())
-        return selected
+        return [tag for tag, badge in self.tag_badges.items() if badge.is_selected]
 
 
 class QuestionTreeWidget(QTreeWidget):
@@ -2164,6 +2365,8 @@ class TSVWatcherWindow(QMainWindow):
             all_tags, 
             self.selected_tag_filters, 
             "Filter by Tags",
+            self.tag_colors,
+            self.available_tag_colors,
             self
         )
         
@@ -2430,6 +2633,8 @@ class TSVWatcherWindow(QMainWindow):
             all_tags, 
             current_tags, 
             f"Add Tags to '{group_key.title()}'",
+            self.tag_colors,
+            self.available_tag_colors,
             self
         )
         
