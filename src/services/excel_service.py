@@ -366,36 +366,61 @@ def infer_column_types(worksheet, num_columns: int) -> dict[int, type]:
     return column_types
 
 
+def match_column(header_row: list[str], keyword_groups: list[tuple[str, ...]], friendly_name: str) -> int:
+    """Find a column by matching keywords in header."""
+    normalized_headers = []
+    for idx, value in enumerate(header_row, start=1):
+        text = "" if value is None else str(value).lower()
+        normalized_headers.append((idx, text))
+
+    for keywords in keyword_groups:
+        for idx, text in normalized_headers:
+            if all(keyword in text for keyword in keywords):
+                return idx
+    raise ValueError(f"Unable to locate column for {friendly_name}. Please ensure the header contains {keyword_groups[0]}.")
+
+
 def _find_qno_column(header_row: list[str]) -> int:
     """Find the question number column index (1-based)."""
-    for idx, header in enumerate(header_row, 1):
-        if header and "qno" in header.lower():
+    for idx, value in enumerate(header_row, start=1):
+        if value is None:
+            continue
+        if str(value).strip().lower() == "qno":
             return idx
-    raise ValueError("Could not find 'Qno' column in worksheet header.")
+    raise ValueError("Could not find 'Qno' column in Excel header.")
 
 
 def _find_magazine_column(header_row: list[str]) -> int:
     """Find the magazine column index (1-based)."""
-    for idx, header in enumerate(header_row, 1):
-        if header and "magazine" in header.lower():
-            return idx
-    raise ValueError("Could not find 'Magazine' column in worksheet header.")
+    keyword_groups = [
+        ("magazine", "edition"),
+        ("magazine", "issue"),
+        ("magazine",),
+        ("edition",),
+    ]
+    return match_column(header_row, keyword_groups, "Magazine Edition")
 
 
 def _find_question_set_column(header_row: list[str]) -> int:
     """Find the question set column index (1-based)."""
-    for idx, header in enumerate(header_row, 1):
-        if header and "question set name" in header.lower():
-            return idx
-    raise ValueError("Could not find 'Question Set Name' column in worksheet header.")
+    keyword_groups = [
+        ("question", "set"),
+        ("question", "paper"),
+        ("set", "name"),
+        ("set",),
+    ]
+    return match_column(header_row, keyword_groups, "Question Set")
 
 
 def _find_page_column(header_row: list[str]) -> int:
     """Find the page number column index (1-based)."""
-    for idx, header in enumerate(header_row, 1):
-        if header and "page" in header.lower():
-            return idx
-    raise ValueError("Could not find 'Page' column in worksheet header.")
+    keyword_groups = [
+        ("page", "no"),
+        ("page", "number"),
+        ("page",),
+        ("pg",),
+    ]
+    return match_column(header_row, keyword_groups, "Page Number")
 
 
 def _find_insert_row(worksheet) -> int:
@@ -499,6 +524,13 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
             insert_row=insert_row,
             page_col=page_col,
         )
+        
+        # Delete the TSV file after successful import
+        try:
+            tsv_path.unlink()
+        except Exception as delete_exc:
+            # Log warning but don't fail the import
+            print(f"Warning: Could not delete TSV file {tsv_path}: {delete_exc}")
         
         # Add page range to status message
         status_message = f"{status_message}, Pages: {page_range}"
