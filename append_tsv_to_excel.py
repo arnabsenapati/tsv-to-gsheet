@@ -436,9 +436,9 @@ class TagBadge(QLabel):
             QLabel {{
                 background-color: {color};
                 color: white;
-                border-radius: 3px;
-                padding: 2px 6px;
-                font-size: 11px;
+                border-radius: 2px;
+                padding: 1px 4px;
+                font-size: 9px;
                 font-weight: bold;
             }}
             QLabel:hover {{
@@ -1086,7 +1086,7 @@ class TSVWatcherWindow(QMainWindow):
         self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
         
-        # Predefined color palette for tags
+        # Predefined color palette for tags (20 colors)
         self.available_tag_colors = [
             "#2563eb",  # Blue
             "#10b981",  # Green
@@ -1096,6 +1096,18 @@ class TSVWatcherWindow(QMainWindow):
             "#06b6d4",  # Cyan
             "#ec4899",  # Pink
             "#14b8a6",  # Teal
+            "#f97316",  # Orange
+            "#6366f1",  # Indigo
+            "#84cc16",  # Lime
+            "#f43f5e",  # Rose
+            "#0ea5e9",  # Sky Blue
+            "#a855f7",  # Violet
+            "#22c55e",  # Green Light
+            "#eab308",  # Yellow
+            "#d946ef",  # Fuchsia
+            "#3b82f6",  # Blue Light
+            "#fb923c",  # Orange Light
+            "#38bdf8",  # Sky
         ]
 
         # Ensure QuestionList directory exists
@@ -2216,8 +2228,15 @@ class TSVWatcherWindow(QMainWindow):
         self.all_questions = questions or []
         self._apply_question_search()
 
-    def _apply_question_search(self) -> None:
+    def _apply_question_search(self, preserve_scroll: bool = False) -> None:
         """Apply normalized search terms and update the question tree."""
+        # Save scroll position if requested
+        scroll_value = None
+        if preserve_scroll and hasattr(self, "question_tree"):
+            scrollbar = self.question_tree.verticalScrollBar()
+            if scrollbar:
+                scroll_value = scrollbar.value()
+        
         filtered = self.all_questions
         
         # Apply Question Set search (normalized)
@@ -2278,35 +2297,31 @@ class TSVWatcherWindow(QMainWindow):
             display_name = group_key.title()
             label_text = f"{display_name} ({len(group_questions)} questions)"
             
+            # Always create a widget layout for consistent alignment
+            tag_widget = QWidget()
+            tag_layout = QHBoxLayout(tag_widget)
+            tag_layout.setContentsMargins(0, 4, 0, 4)  # Add vertical padding for spacing
+            tag_layout.setSpacing(8)  # Space between badges
+            
+            # Add the label with fixed minimum width for alignment
+            label = QLabel(label_text)
+            label.setStyleSheet("color: #1e40af; font-weight: bold;")
+            label.setMinimumWidth(300)  # Fixed width to align all tags
+            tag_layout.addWidget(label)
+            
             # Add tag badges if tags exist for this group
             tags = self.group_tags.get(group_key, [])
             if tags:
-                # Create a widget to hold the label and badges
-                tag_widget = QWidget()
-                tag_layout = QHBoxLayout(tag_widget)
-                tag_layout.setContentsMargins(0, 0, 0, 0)
-                tag_layout.setSpacing(5)
-                
-                # Add the label
-                label = QLabel(label_text)
-                label.setStyleSheet("color: #1e40af; font-weight: bold;")
-                tag_layout.addWidget(label)
-                
-                # Add tag badges
                 for tag in tags:
                     color = self._get_or_assign_tag_color(tag)
                     badge = TagBadge(tag, color)
                     badge.clicked.connect(self._on_tag_badge_clicked)
                     tag_layout.addWidget(badge)
-                
-                tag_layout.addStretch()
-                
-                # Set the widget in the tree (this replaces the text display)
-                self.question_tree.setItemWidget(group_item, 0, tag_widget)
-            else:
-                # No tags, just set the text normally
-                group_item.setText(0, label_text)
-                group_item.setForeground(0, QColor("#1e40af"))  # Blue for group headers
+            
+            tag_layout.addStretch()
+            
+            # Set the widget in the tree
+            self.question_tree.setItemWidget(group_item, 0, tag_widget)
             
             group_item.setExpanded(False)  # Collapsed by default
             
@@ -2327,6 +2342,12 @@ class TSVWatcherWindow(QMainWindow):
         self.question_tree.resizeColumnToContents(0)
         self.question_tree.resizeColumnToContents(1)
         self.question_tree.resizeColumnToContents(2)
+        
+        # Restore scroll position if it was saved
+        if scroll_value is not None:
+            scrollbar = self.question_tree.verticalScrollBar()
+            if scrollbar:
+                scrollbar.setValue(scroll_value)
 
     def on_question_set_search_changed(self, text: str) -> None:
         """Handle Question Set search box text change."""
@@ -2643,7 +2664,7 @@ class TSVWatcherWindow(QMainWindow):
             if selected_tags:
                 self.group_tags[group_key] = selected_tags
                 self._save_group_tags()
-                self._apply_question_search()  # Refresh tree to show new tags
+                self._apply_question_search(preserve_scroll=True)  # Refresh tree to show new tags
 
     def _remove_tag_from_group(self, group_key: str, tag: str) -> None:
         """Remove a tag from a group."""
@@ -2653,7 +2674,7 @@ class TSVWatcherWindow(QMainWindow):
                 # Remove empty tag list
                 del self.group_tags[group_key]
             self._save_group_tags()
-            self._apply_question_search()  # Refresh tree to update display
+            self._apply_question_search(preserve_scroll=True)  # Refresh tree to update display
         else:
             self.question_text_view.clear()
 
