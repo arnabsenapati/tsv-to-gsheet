@@ -11,19 +11,24 @@ import time
 from decimal import Decimal, InvalidOperation
 from itertools import repeat
 from pathlib import Path
-from PySide6.QtCore import Qt, QMimeData, QTimer
+from PySide6.QtCore import Qt, QMimeData, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette, QDrag, QDragEnterEvent, QDropEvent, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -48,6 +53,7 @@ CHEMISTRY_GROUPING_FILE = BASE_DIR / "ChemistryChapterGrouping.json"
 MATHEMATICS_GROUPING_FILE = BASE_DIR / "MathematicsChapterGrouping.json"
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
 QUESTION_LIST_DIR = BASE_DIR / "QuestionList"
+TAGS_CONFIG_FILE = BASE_DIR / "tags.cfg"
 
 # Magazine name to grouping file mapping
 MAGAZINE_GROUPING_MAP = {
@@ -417,6 +423,110 @@ class QuestionTableWidget(QTableWidget):
         drag.exec(Qt.MoveAction)
 
 
+class TagBadge(QLabel):
+    """Colored tag badge that can be clicked to filter."""
+    
+    clicked = Signal(str)  # Emits tag name when clicked
+    
+    def __init__(self, tag: str, color: str, parent=None):
+        super().__init__(parent)
+        self.tag = tag
+        self.setText(f" {tag} ")
+        self.setStyleSheet(f"""
+            QLabel {{
+                background-color: {color};
+                color: white;
+                border-radius: 3px;
+                padding: 2px 6px;
+                font-size: 11px;
+                font-weight: bold;
+            }}
+            QLabel:hover {{
+                opacity: 0.8;
+            }}
+        """)
+        self.setCursor(Qt.PointingHandCursor)
+    
+    def mousePressEvent(self, event):
+        """Handle click to filter by this tag."""
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.tag)
+        super().mousePressEvent(event)
+
+
+class MultiSelectTagDialog(QDialog):
+    """Dialog for selecting multiple tags with ability to create new ones."""
+    
+    def __init__(self, existing_tags: list[str], selected_tags: list[str] = None, title: str = "Select Tags", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumWidth(400)
+        self.setMinimumHeight(300)
+        
+        layout = QVBoxLayout(self)
+        
+        # Instruction label
+        instruction = QLabel("Select tags (check existing or type new ones):")
+        layout.addWidget(instruction)
+        
+        # List widget with checkboxes for existing tags
+        self.tag_list = QListWidget()
+        for tag in sorted(existing_tags):
+            item = QListWidgetItem(tag)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if selected_tags and tag in selected_tags else Qt.Unchecked)
+            self.tag_list.addItem(item)
+        layout.addWidget(self.tag_list)
+        
+        # Input field for new tags
+        new_tag_layout = QHBoxLayout()
+        new_tag_layout.addWidget(QLabel("New tag:"))
+        self.new_tag_input = QLineEdit()
+        self.new_tag_input.setPlaceholderText("Type and press Enter to add new tag")
+        self.new_tag_input.returnPressed.connect(self._add_new_tag)
+        new_tag_layout.addWidget(self.new_tag_input)
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(self._add_new_tag)
+        new_tag_layout.addWidget(add_btn)
+        layout.addLayout(new_tag_layout)
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def _add_new_tag(self):
+        """Add a new tag to the list."""
+        tag = self.new_tag_input.text().strip()
+        if not tag:
+            return
+        
+        # Check if tag already exists
+        for i in range(self.tag_list.count()):
+            if self.tag_list.item(i).text() == tag:
+                # Already exists, just check it
+                self.tag_list.item(i).setCheckState(Qt.Checked)
+                self.new_tag_input.clear()
+                return
+        
+        # Add new tag
+        item = QListWidgetItem(tag)
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(Qt.Checked)
+        self.tag_list.addItem(item)
+        self.new_tag_input.clear()
+    
+    def get_selected_tags(self) -> list[str]:
+        """Get list of selected tags."""
+        selected = []
+        for i in range(self.tag_list.count()):
+            item = self.tag_list.item(i)
+            if item.checkState() == Qt.Checked:
+                selected.append(item.text())
+        return selected
+
+
 class QuestionTreeWidget(QTreeWidget):
     MIME_TYPE = "application/x-question-row"
 
@@ -761,6 +871,8 @@ class TSVWatcherWindow(QMainWindow):
         self.all_questions: list[dict[str, str]] = []  # Unfiltered questions
         self.question_set_search_term: str = ""
         self.magazine_search_term: str = ""
+        self.tag_filter_term: str = ""
+        self.selected_tag_filters: list[str] = []  # Multiple selected tags for filtering
         self.current_magazine_name: str = ""  # Track current magazine for grouping
         self.canonical_chapters: list[str] = []
         self.chapter_lookup: dict[str, str] = {}
@@ -770,9 +882,25 @@ class TSVWatcherWindow(QMainWindow):
         self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
         self.current_list_name: str | None = None
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
+        self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
+        self.tag_colors: dict[str, str] = {}  # tag -> color
+        
+        # Predefined color palette for tags
+        self.available_tag_colors = [
+            "#2563eb",  # Blue
+            "#10b981",  # Green
+            "#f59e0b",  # Amber
+            "#ef4444",  # Red
+            "#8b5cf6",  # Purple
+            "#06b6d4",  # Cyan
+            "#ec4899",  # Pink
+            "#14b8a6",  # Teal
+        ]
 
         # Ensure QuestionList directory exists
         QUESTION_LIST_DIR.mkdir(exist_ok=True)
+        
+        self._load_group_tags()
 
         self._build_ui()
         self._load_last_selection()
@@ -939,6 +1067,14 @@ class TSVWatcherWindow(QMainWindow):
         self.question_set_search.textChanged.connect(self.on_question_set_search_changed)
         search_layout.addWidget(self.question_set_search)
         
+        search_layout.addWidget(QLabel("Tags:"))
+        self.tag_filter_label = QLabel("None")
+        self.tag_filter_label.setStyleSheet("padding: 4px; background-color: #f1f5f9; border-radius: 4px; min-width: 100px;")
+        search_layout.addWidget(self.tag_filter_label)
+        self.tag_filter_btn = QPushButton("Select Tags")
+        self.tag_filter_btn.clicked.connect(self._show_tag_filter_dialog)
+        search_layout.addWidget(self.tag_filter_btn)
+        
         search_layout.addWidget(QLabel("Magazine:"))
         self.magazine_search = QLineEdit()
         self.magazine_search.setPlaceholderText("Type to search...")
@@ -961,6 +1097,8 @@ class TSVWatcherWindow(QMainWindow):
         question_layout.addLayout(list_control_layout)
         
         self.question_tree = QuestionTreeWidget(self)
+        self.question_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.question_tree.customContextMenuRequested.connect(self._show_group_context_menu)
         question_splitter = QSplitter(Qt.Vertical)
         question_splitter.addWidget(self.question_tree)
         self.question_text_view = QTextEdit()
@@ -1226,6 +1364,34 @@ class TSVWatcherWindow(QMainWindow):
             "input_folder": input_folder if input_folder else "",
         }
         LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _load_group_tags(self) -> None:
+        """Load group tags from tags.cfg file."""
+        if not TAGS_CONFIG_FILE.exists():
+            return
+        try:
+            data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
+            self.group_tags = data.get("group_tags", {})
+            self.tag_colors = data.get("tag_colors", {})
+        except json.JSONDecodeError:
+            self.group_tags = {}
+            self.tag_colors = {}
+
+    def _save_group_tags(self) -> None:
+        """Save group tags to tags.cfg file."""
+        payload = {
+            "group_tags": self.group_tags,
+            "tag_colors": self.tag_colors,
+        }
+        TAGS_CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _get_or_assign_tag_color(self, tag: str) -> str:
+        """Get existing color for tag or assign a new one."""
+        if tag not in self.tag_colors:
+            # Cycle through available colors
+            color_index = len(self.tag_colors) % len(self.available_tag_colors)
+            self.tag_colors[tag] = self.available_tag_colors[color_index]
+        return self.tag_colors[tag]
 
     def _load_canonical_chapters(self, grouping_file: Path) -> list[str]:
         """Load canonical chapters from the grouping JSON file."""
@@ -1886,6 +2052,16 @@ class TSVWatcherWindow(QMainWindow):
                 groups[group_key] = []
             groups[group_key].append(question)
         
+        # Apply tag filtering (multiple tags)
+        if self.selected_tag_filters:
+            filtered_groups = {}
+            for group_key, group_questions in groups.items():
+                tags = self.group_tags.get(group_key, [])
+                # Check if any of the selected filter tags match any of the group's tags
+                if any(filter_tag in tags for filter_tag in self.selected_tag_filters):
+                    filtered_groups[group_key] = group_questions
+            groups = filtered_groups
+        
         # Sort groups by number of questions (descending) then by name
         sorted_groups = sorted(groups.items(), key=lambda x: (-len(x[1]), x[0]))
         
@@ -1893,10 +2069,44 @@ class TSVWatcherWindow(QMainWindow):
         for group_key, group_questions in sorted_groups:
             # Create group node
             group_item = QTreeWidgetItem(self.question_tree)
+            
+            # Store group key for tagging
+            group_item.setData(0, Qt.UserRole + 1, group_key)
+            
             # Format group label with question count
             display_name = group_key.title()
-            group_item.setText(0, f"{display_name} ({len(group_questions)} questions)")
-            group_item.setForeground(0, QColor("#1e40af"))  # Blue for group headers
+            label_text = f"{display_name} ({len(group_questions)} questions)"
+            
+            # Add tag badges if tags exist for this group
+            tags = self.group_tags.get(group_key, [])
+            if tags:
+                # Create a widget to hold the label and badges
+                tag_widget = QWidget()
+                tag_layout = QHBoxLayout(tag_widget)
+                tag_layout.setContentsMargins(0, 0, 0, 0)
+                tag_layout.setSpacing(5)
+                
+                # Add the label
+                label = QLabel(label_text)
+                label.setStyleSheet("color: #1e40af; font-weight: bold;")
+                tag_layout.addWidget(label)
+                
+                # Add tag badges
+                for tag in tags:
+                    color = self._get_or_assign_tag_color(tag)
+                    badge = TagBadge(tag, color)
+                    badge.clicked.connect(self._on_tag_badge_clicked)
+                    tag_layout.addWidget(badge)
+                
+                tag_layout.addStretch()
+                
+                # Set the widget in the tree (this replaces the text display)
+                self.question_tree.setItemWidget(group_item, 0, tag_widget)
+            else:
+                # No tags, just set the text normally
+                group_item.setText(0, label_text)
+                group_item.setForeground(0, QColor("#1e40af"))  # Blue for group headers
+            
             group_item.setExpanded(False)  # Collapsed by default
             
             # Add questions as children
@@ -1931,8 +2141,55 @@ class TSVWatcherWindow(QMainWindow):
         """Clear all search terms."""
         self.question_set_search_term = ""
         self.magazine_search_term = ""
+        self.selected_tag_filters = []
         if hasattr(self, "question_set_search"):
             self.question_set_search.clear()
+        if hasattr(self, "tag_filter_label"):
+            self.tag_filter_label.setText("None")
+        if hasattr(self, "magazine_search"):
+            self.magazine_search.clear()
+        self._apply_question_search()
+
+    def _show_tag_filter_dialog(self) -> None:
+        """Show dialog to select multiple tags for filtering."""
+        # Get all existing tags across all groups
+        all_tags = sorted(set(tag for tags in self.group_tags.values() for tag in tags))
+        
+        if not all_tags:
+            QMessageBox.information(self, "No Tags", "No tags have been created yet. Assign tags to groups first.")
+            return
+        
+        # Show multi-select dialog
+        dialog = MultiSelectTagDialog(
+            all_tags, 
+            self.selected_tag_filters, 
+            "Filter by Tags",
+            self
+        )
+        
+        if dialog.exec() == QDialog.Accepted:
+            self.selected_tag_filters = dialog.get_selected_tags()
+            # Update label
+            if self.selected_tag_filters:
+                self.tag_filter_label.setText(", ".join(self.selected_tag_filters))
+            else:
+                self.tag_filter_label.setText("None")
+            self._apply_question_search()
+
+    def on_magazine_search_changed(self, text: str) -> None:
+        """Handle Magazine search box text change."""
+        self.magazine_search_term = text.strip()
+        self._apply_question_search()
+
+    def clear_question_search(self) -> None:
+        """Clear all search terms."""
+        self.question_set_search_term = ""
+        self.magazine_search_term = ""
+        self.selected_tag_filters = []
+        if hasattr(self, "question_set_search"):
+            self.question_set_search.clear()
+        if hasattr(self, "tag_filter_label"):
+            self.tag_filter_label.setText("None")
         if hasattr(self, "magazine_search"):
             self.magazine_search.clear()
         self._apply_question_search()
@@ -2116,6 +2373,82 @@ class TSVWatcherWindow(QMainWindow):
                 f"</div>"
             )
             self.question_text_view.setHtml(html)
+
+    def _on_tag_badge_clicked(self, tag: str) -> None:
+        """Handle tag badge click - add to filter list."""
+        if tag not in self.selected_tag_filters:
+            self.selected_tag_filters.append(tag)
+            if hasattr(self, "tag_filter_label"):
+                self.tag_filter_label.setText(", ".join(self.selected_tag_filters))
+            self._apply_question_search()
+
+    def _show_group_context_menu(self, position) -> None:
+        """Show context menu for group items."""
+        item = self.question_tree.itemAt(position)
+        if not item:
+            return
+        
+        # Only show menu for group items (items with children)
+        if item.childCount() == 0:
+            return
+        
+        group_key = item.data(0, Qt.UserRole + 1)
+        if not group_key:
+            return
+        
+        menu = QMenu(self.question_tree)
+        
+        # Add tag action
+        add_tag_action = menu.addAction("Add Tag")
+        
+        # Remove tag actions
+        existing_tags = self.group_tags.get(group_key, [])
+        if existing_tags:
+            remove_menu = menu.addMenu("Remove Tag")
+            for tag in existing_tags:
+                remove_menu.addAction(tag)
+        
+        action = menu.exec(self.question_tree.viewport().mapToGlobal(position))
+        
+        if action:
+            if action.text() == "Add Tag":
+                self._assign_tag_to_group(group_key)
+            else:
+                # Remove tag
+                self._remove_tag_from_group(group_key, action.text())
+
+    def _assign_tag_to_group(self, group_key: str) -> None:
+        """Show dialog to assign multiple tags to a group."""
+        # Get all existing tags across all groups
+        all_tags = sorted(set(tag for tags in self.group_tags.values() for tag in tags))
+        
+        # Get currently assigned tags for this group
+        current_tags = self.group_tags.get(group_key, [])
+        
+        # Show multi-select dialog
+        dialog = MultiSelectTagDialog(
+            all_tags, 
+            current_tags, 
+            f"Add Tags to '{group_key.title()}'",
+            self
+        )
+        
+        if dialog.exec() == QDialog.Accepted:
+            selected_tags = dialog.get_selected_tags()
+            if selected_tags:
+                self.group_tags[group_key] = selected_tags
+                self._save_group_tags()
+                self._apply_question_search()  # Refresh tree to show new tags
+
+    def _remove_tag_from_group(self, group_key: str, tag: str) -> None:
+        """Remove a tag from a group."""
+        if group_key in self.group_tags and tag in self.group_tags[group_key]:
+            self.group_tags[group_key].remove(tag)
+            if not self.group_tags[group_key]:
+                # Remove empty tag list
+                del self.group_tags[group_key]
+            self._save_group_tags()
+            self._apply_question_search()  # Refresh tree to update display
         else:
             self.question_text_view.clear()
 
