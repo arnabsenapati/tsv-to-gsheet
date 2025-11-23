@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QPalette, QTextCursor
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -233,15 +233,15 @@ class TSVWatcherWindow(QMainWindow):
         mag_search_layout.addWidget(clear_mag_search_btn)
         mag_tree_layout.addLayout(mag_search_layout)
         
+        # Use QTreeWidget for editions with parent-child structure
         self.mag_tree = QTreeWidget()
-        self.mag_tree.setColumnCount(3)
-        self.mag_tree.setHeaderLabels(["Magazine", "Edition", "Missing Ranges"])
-        self.mag_tree.setRootIsDecorated(False)
+        self.mag_tree.setColumnCount(2)
+        self.mag_tree.setHeaderLabels(["Edition", "Sets"])
+        self.mag_tree.setRootIsDecorated(True)
         self.mag_tree.setAlternatingRowColors(True)
         self.mag_tree.itemSelectionChanged.connect(self.on_magazine_select)
         self.mag_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self.mag_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.mag_tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         mag_tree_layout.addWidget(self.mag_tree)
         mag_split.addWidget(mag_tree_card)
 
@@ -1291,7 +1291,14 @@ class TSVWatcherWindow(QMainWindow):
             return (0, -parsed.toordinal(), display_label.lower())
         return (1, display_label.lower(), "")
 
+    def _edition_sort_key(self, normalized: str, display_label: str) -> tuple:
+        parsed = self._parse_normalized_month(normalized)
+        if parsed:
+            return (0, -parsed.toordinal(), display_label.lower())
+        return (1, display_label.lower(), "")
+
     def _populate_magazine_tree(self, details: list[dict]) -> None:
+        """Populate magazine editions tree with missing editions shown separately."""
         if not hasattr(self, "mag_tree"):
             return
         self.mag_tree.clear()
@@ -1308,48 +1315,136 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         for entry in details:
-            total_editions += len(entry.get("editions", []))
-            for edition in entry.get("editions", []):
-                total_sets += len(edition.get("question_sets", []))
-            missing_text = ", ".join(entry["missing_ranges"]) if entry["missing_ranges"] else "None"
-            parent = QTreeWidgetItem([entry["display_name"], "", missing_text])
-            parent.setData(0, Qt.UserRole, {"type": "magazine", "display_name": entry["display_name"]})
+            magazine_name = entry["display_name"]
+            
+            # Create parent node for magazine
+            parent = QTreeWidgetItem([magazine_name, ""])
+            parent.setData(0, Qt.UserRole, {"type": "magazine", "display_name": magazine_name})
+            font = QFont()
+            font.setBold(True)
+            parent.setFont(0, font)
             self.mag_tree.addTopLevelItem(parent)
-            for edition in entry["editions"]:
+            
+            # Add existing editions
+            for edition in entry.get("editions", []):
                 edition_label = edition["display"] or "(unspecified)"
                 question_sets = edition["question_sets"]
-                edition_value = (
-                    f"{edition_label} ({len(question_sets)} set(s))" if question_sets else edition_label
-                )
-                child = QTreeWidgetItem(["", edition_value, ""])
+                normalized = edition.get("normalized", "")
+                
+                # Parse date and format as "Month 'YY"
+                parsed_date = self._parse_normalized_month(normalized)
+                if parsed_date:
+                    formatted_label = parsed_date.strftime("%b '%y")
+                else:
+                    formatted_label = edition_label
+                
+                child = QTreeWidgetItem([formatted_label, str(len(question_sets))])
+                
+                # Year-based background color
+                if parsed_date:
+                    year = parsed_date.year
+                    bg_color = QColor(self._get_year_color(year))
+                    child.setBackground(0, bg_color)
+                    child.setBackground(1, bg_color)
+                
                 data = {
                     "type": "edition",
-                    "display_name": entry["display_name"],
+                    "display_name": magazine_name,
                     "edition_label": edition_label,
                     "question_sets": question_sets,
+                    "is_missing": False
                 }
                 child.setData(0, Qt.UserRole, data)
-                
-                # Color code editions based on question set count
-                if len(question_sets) == 0:
-                    child.setForeground(2, QColor("#94a3b8"))  # Gray for no sets
-                elif len(question_sets) < 5:
-                    # Yellow background for editions with less than 5 sets
-                    child.setBackground(0, QColor("#fef9c3"))
-                    child.setBackground(1, QColor("#fef9c3"))
-                    child.setBackground(2, QColor("#fef9c3"))
-                elif len(question_sets) >= 5:
-                    child.setForeground(1, QColor("#10b981"))  # Green for many sets
-                
                 parent.addChild(child)
-        
-        self.mag_tree.expandAll()
+                
+                total_editions += 1
+                total_sets += len(question_sets)
+            
+            # Add missing editions section if there are any
+            missing_ranges = entry.get("missing_ranges", [])
+            if missing_ranges:
+                missing_parent = QTreeWidgetItem(["❌ Missing Editions", ""])
+                missing_parent.setForeground(0, QColor("#dc2626"))
+                font_bold = QFont()
+                font_bold.setBold(True)
+                missing_parent.setFont(0, font_bold)
+                missing_parent.setData(0, Qt.UserRole, {"type": "missing_section"})
+                parent.addChild(missing_parent)
+                
+                # Expand missing ranges and add individual missing editions
+                missing_editions = self._expand_missing_ranges(missing_ranges)
+                for missing_date in sorted(missing_editions, key=lambda d: d.toordinal(), reverse=True):
+                    formatted_label = missing_date.strftime("%b '%y")
+                    missing_child = QTreeWidgetItem([formatted_label, "-"])
+                    
+                    # RED BOLD for missing editions
+                    font_red_bold = QFont()
+                    font_red_bold.setBold(True)
+                    missing_child.setFont(0, font_red_bold)
+                    missing_child.setFont(1, font_red_bold)
+                    missing_child.setForeground(0, QColor("#dc2626"))
+                    missing_child.setForeground(1, QColor("#dc2626"))
+                    
+                    # Year-based background color
+                    year = missing_date.year
+                    bg_color = QColor(self._get_year_color(year))
+                    missing_child.setBackground(0, bg_color)
+                    missing_child.setBackground(1, bg_color)
+                    
+                    missing_child.setData(0, Qt.UserRole, {"type": "missing", "is_missing": True})
+                    missing_parent.addChild(missing_child)
+            
+            parent.setExpanded(True)
         
         # Update summary statistics
         if hasattr(self, "mag_total_editions_label"):
             self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
         if hasattr(self, "mag_total_sets_label"):
             self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
+        if hasattr(self, "mag_total_sets_label"):
+            self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
+    
+    def _expand_missing_ranges(self, missing_ranges: list[str]) -> list[dt.date]:
+        """Expand missing ranges into individual dates."""
+        missing_dates = []
+        
+        for range_str in missing_ranges:
+            if " - " in range_str:
+                # Range like "Jan 2023 - Mar 2023"
+                start_str, end_str = range_str.split(" - ")
+                start_date = dt.datetime.strptime(start_str, "%b %Y").date()
+                end_date = dt.datetime.strptime(end_str, "%b %Y").date()
+                
+                current = start_date
+                while current <= end_date:
+                    missing_dates.append(current)
+                    current = self._add_month(current)
+            else:
+                # Single month like "Jan 2023"
+                missing_dates.append(dt.datetime.strptime(range_str, "%b %Y").date())
+        
+        return missing_dates
+    
+    def _get_year_color(self, year: int) -> str:
+        """Get a consistent color for a given year."""
+        year_colors = {
+            2020: "#fef3c7",  # Light amber
+            2021: "#dbeafe",  # Light blue
+            2022: "#d1fae5",  # Light green
+            2023: "#fce7f3",  # Light pink
+            2024: "#e0e7ff",  # Light indigo
+            2025: "#fed7aa",  # Light orange
+            2026: "#e9d5ff",  # Light purple
+            2027: "#ccfbf1",  # Light teal
+            2028: "#fef08a",  # Light yellow
+            2029: "#fbcfe8",  # Light rose
+        }
+        # For years not in the map, generate a color based on year
+        if year not in year_colors:
+            # Generate pastel colors using year as seed
+            hue = (year * 137) % 360
+            return f"hsl({hue}, 70%, 90%)"
+        return year_colors[year]
 
     def _populate_question_sets(self, question_sets: list[str] | None, magazine_name: str = "", edition_label: str = "") -> None:
         """Populate question sets tree with questions as children."""
@@ -1676,7 +1771,6 @@ class TSVWatcherWindow(QMainWindow):
                 parent.setHidden(False)
                 for j in range(parent.childCount()):
                     parent.child(j).setHidden(False)
-            self.mag_tree.expandAll()
             return
         
         # Filter tree items
@@ -1696,21 +1790,51 @@ class TSVWatcherWindow(QMainWindow):
                     visible_children += 1
             
             parent.setHidden(visible_children == 0)
-            if visible_children > 0:
-                parent.setExpanded(True)
     
     def on_magazine_select(self) -> None:
-        selected = self.mag_tree.selectedItems()
-        if not selected:
-            self.question_label.setText("Select an edition to view question sets")
-            self._populate_question_sets([])
+        """Handle magazine edition selection from tree."""
+        if not hasattr(self, "mag_tree"):
             return
-        item = selected[0]
+        
+        selected_items = self.mag_tree.selectedItems()
+        if not selected_items:
+            self._populate_question_sets([])
+            self.question_label.setText("Select an edition to view question sets")
+            self.question_label.setStyleSheet(
+                "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
+            )
+            return
+        
+        item = selected_items[0]
         data = item.data(0, Qt.UserRole)
-        if not isinstance(data, dict) or data.get("type") != "edition":
-            self.question_label.setText("Select an edition to view question sets")
+        
+        if not isinstance(data, dict):
             self._populate_question_sets([])
+            self.question_label.setText("Select an edition to view question sets")
+            self.question_label.setStyleSheet(
+                "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
+            )
             return
+        
+        # Don't show question sets for missing editions or magazine/missing section headers
+        if data.get("type") in ["magazine", "missing_section", "missing"] or data.get("is_missing", False):
+            self._populate_question_sets([])
+            if data.get("type") == "missing" or data.get("is_missing", False):
+                self.question_label.setText("❌ Missing edition - no data available")
+                self.question_label.setStyleSheet(
+                    "padding: 8px; background-color: #fee2e2; border-radius: 6px; color: #dc2626;"
+                )
+            else:
+                self.question_label.setText("Select an edition to view question sets")
+                self.question_label.setStyleSheet(
+                    "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
+                )
+            return
+        
+        # Reset label style for valid editions
+        self.question_label.setStyleSheet(
+            "padding: 8px; background-color: #f1f5f9; border-radius: 6px; color: #475569;"
+        )
 
         question_sets = data.get("question_sets", [])
         magazine_name = data.get("display_name", "")
