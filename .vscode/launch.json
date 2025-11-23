@@ -5,10 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: Run append_tsv_to_excel.py",
+            "name": "append_tsv_to_excel",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/append_tsv_to_excel.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "main",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         }
