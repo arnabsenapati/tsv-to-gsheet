@@ -15,6 +15,7 @@ from typing import Optional
 
 from openpyxl import load_workbook
 
+from config.constants import MAGAZINE_GROUPING_MAP
 from utils.helpers import (
     normalize_magazine_edition,
     normalize_qno,
@@ -22,6 +23,36 @@ from utils.helpers import (
     validate_tsv,
     convert_value_for_column,
 )
+
+
+def detect_magazine_name_from_normalized(normalized_magazine: str) -> str:
+    """
+    Detect magazine name from normalized magazine string.
+    
+    Extracts the magazine name portion from a normalized magazine string
+    (e.g., "physics for you|2023-01" -> "physics for you") and checks
+    if it matches any known magazine in MAGAZINE_GROUPING_MAP.
+    
+    Args:
+        normalized_magazine: Normalized magazine string (format: "name|edition")
+        
+    Returns:
+        Detected magazine name key (e.g., "physics for you", "chemistry today")
+        or empty string if no match found
+    """
+    if not normalized_magazine:
+        return ""
+    
+    # Extract magazine name (before the | separator)
+    parts = normalized_magazine.split("|", 1)
+    magazine_name = parts[0].strip().lower()
+    
+    # Check against known magazines
+    for magazine_key in MAGAZINE_GROUPING_MAP.keys():
+        if magazine_key in magazine_name or magazine_name in magazine_key:
+            return magazine_key
+    
+    return ""
 
 
 def read_tsv_rows(tsv_path: Path) -> list[list[str]]:
@@ -432,28 +463,30 @@ def _find_insert_row(worksheet) -> int:
     return worksheet.max_row + 1
 
 
-def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
+def process_tsv(tsv_path: Path, workbook_path: Path, current_magazine_name: str = "") -> str:
     """
     Process a TSV file and append its contents to an Excel workbook.
     
     This is the main entry point for TSV processing. It:
     1. Validates the TSV file format
     2. Loads the Excel workbook
-    3. Checks for duplicates
-    4. Appends new rows
-    5. Deletes the TSV file after processing (success or failure)
-    6. Returns status message
+    3. Validates magazine name matches workbook
+    4. Checks for duplicates
+    5. Appends new rows
+    6. Deletes the TSV file after processing (success or failure)
+    7. Returns status message
     
     Args:
         tsv_path: Path to TSV file to import
         workbook_path: Path to target Excel workbook
+        current_magazine_name: Current magazine name detected from workbook (optional)
         
     Returns:
         Status message: "Appended N rows to 'SheetName', Pages: 25-30"
         
     Raises:
         FileNotFoundError: If TSV or workbook not found
-        ValueError: If validation fails or duplicates detected
+        ValueError: If validation fails, magazine mismatch, or duplicates detected
     """
     try:
         # Validate TSV file format
@@ -488,6 +521,18 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
         magazine_identifier, row_signatures = extract_file_metadata(
             rows, magazine_col, question_set_col, qno_column, page_col
         )
+        
+        # Validate magazine name matches workbook (if current_magazine_name provided)
+        if current_magazine_name:
+            tsv_magazine_name = detect_magazine_name_from_normalized(magazine_identifier)
+            if tsv_magazine_name and tsv_magazine_name != current_magazine_name:
+                # Extract display name from magazine_identifier for error message
+                display_magazine = magazine_identifier.split("|")[0].title()
+                raise ValueError(
+                    f"Magazine mismatch: TSV file contains '{display_magazine}' "
+                    f"but workbook contains '{current_magazine_name.title()}'. "
+                    "Please ensure you're importing into the correct workbook."
+                )
         
         # Check for duplicates with existing data
         duplicates = []

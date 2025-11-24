@@ -2508,7 +2508,7 @@ class TSVWatcherWindow(QMainWindow):
                     break
                 self.event_queue.put(("status", tsv_file.name, "Processing", "Validating..."))
                 try:
-                    result_message = process_tsv(tsv_file, workbook_path)
+                    result_message = process_tsv(tsv_file, workbook_path, self.current_magazine_name)
                 except Exception as exc:
                     self.event_queue.put(("status", tsv_file.name, "Error", str(exc)))
                     self.event_queue.put(("log", f"Error processing {tsv_file.name}: {exc}"))
