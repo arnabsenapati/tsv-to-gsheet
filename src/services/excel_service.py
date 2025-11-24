@@ -441,7 +441,8 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
     2. Loads the Excel workbook
     3. Checks for duplicates
     4. Appends new rows
-    5. Returns status message
+    5. Deletes the TSV file after processing (success or failure)
+    6. Returns status message
     
     Args:
         tsv_path: Path to TSV file to import
@@ -540,3 +541,11 @@ def process_tsv(tsv_path: Path, workbook_path: Path) -> str:
         raise ValueError(f"TSV processing failed: {exc}") from exc
     except Exception as exc:
         raise RuntimeError(f"Unexpected error during TSV processing: {exc}") from exc
+    finally:
+        # Always delete the TSV file after processing (success or failure)
+        try:
+            if tsv_path.exists():
+                tsv_path.unlink()
+        except Exception as delete_exc:
+            # Log warning but don't fail the import
+            print(f"Warning: Could not delete TSV file {tsv_path}: {delete_exc}")

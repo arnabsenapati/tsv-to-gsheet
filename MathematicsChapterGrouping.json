@@ -123,7 +123,8 @@
       "Sets, Relations & Functions \u2013 Types of Functions, One-One & Onto",
       "System of Linear Equations (Determinants)",
       "Trigonometry \u2013 Identities, Equations, Properties of Triangle, Heights & Distances, Inverse Trigonometric Functions",
-      "Vector Algebra \u2013 Magnitude, Direction, Dot Product, Cross Product, Scalar Triple Product"
+      "Vector Algebra \u2013 Magnitude, Direction, Dot Product, Cross Product, Scalar Triple Product",
+      "Sets/Relations/Functions"
     ],
     "Complex Numbers & Quadratics": [
       "2. Complex Numbers & Quadratic Equations",
@@ -146,7 +147,8 @@
       "Quadratic Equations \u2013 Graphical Interpretation",
       "Quadratic Equations \u2013 Inequalities Involving Quadratics",
       "Roots of Equation \u2013 Quadratic Equations",
-      "Complex Numbers linked with Matrices"
+      "Complex Numbers linked with Matrices",
+      "Complex Numbers & Quadratics"
     ],
     "Matrices & Determinants": [
       "3. Matrices & Determinants",
@@ -243,7 +245,8 @@
       "7. Sequences & Series \u2013 Binomial Theorem",
       "Binomial Theorem \u2013 General Term & Properties",
       "Binomial Theorem \u2013 Statement, General Term, Middle Term, Applications",
-      "Statistics & Probability \u2013 Mean, Variance, Standard Deviation, Conditional Probability, Bayes\u2019 Theorem, Binomial Distribution"
+      "Statistics & Probability \u2013 Mean, Variance, Standard Deviation, Conditional Probability, Bayes\u2019 Theorem, Binomial Distribution",
+      "Binomial"
     ],
     "Sequences & Series": [
       "7. Sequences & Series",
@@ -681,7 +684,23 @@
       "Piecewise Continuity",
       "Product Rule",
       "Quadratic Roots (Matrix Relation)",
-      "Second Derivative"
+      "Second Derivative",
+      "Current Electricity",
+      "EM Waves",
+      "EMI & AC",
+      "Electrostatics",
+      "Gravitation",
+      "Kinematics",
+      "Kinetic Theory",
+      "Laws of Motion",
+      "Magnetism",
+      "Optics",
+      "Oscillations & Waves",
+      "Properties of Matter & Fluids",
+      "Rotation",
+      "Thermodynamics",
+      "Units & Measurement",
+      "Work/Energy/Power"
     ]
   }
 }
