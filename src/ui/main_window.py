@@ -1896,6 +1896,7 @@ class TSVWatcherWindow(QMainWindow):
         self.on_group_selected()
 
     def reassign_question(self, question: dict, target_group: str) -> None:
+        """Reassign a single question to a different chapter."""
         if not question or not target_group:
             return
         if self.current_workbook_path is None or self.high_level_column_index is None:
@@ -1921,6 +1922,54 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.critical(self, "Update Failed", f"Unable to update workbook: {exc}")
             return
         self.log(f"Question '{qno}' moved to '{target_group}'. Reloading data...")
+        self.update_row_count()
+
+    def reassign_questions(self, questions: list[dict], target_group: str) -> None:
+        """Reassign multiple questions to a different chapter in bulk."""
+        if not questions or not target_group:
+            return
+        if self.current_workbook_path is None or self.high_level_column_index is None:
+            QMessageBox.warning(self, "Unavailable", "Workbook must be loaded before regrouping questions.")
+            return
+        
+        # Filter out questions already in target group and validate row numbers
+        questions_to_move = []
+        for question in questions:
+            old_group = question.get("group")
+            if old_group == target_group:
+                continue
+            row_number = question.get("row_number")
+            if not isinstance(row_number, int):
+                continue
+            questions_to_move.append(question)
+        
+        if not questions_to_move:
+            return
+        
+        count = len(questions_to_move)
+        qnos = ", ".join(q.get("qno", "") for q in questions_to_move[:3])
+        if count > 3:
+            qnos += f" and {count - 3} more"
+        
+        prompt = f"Move {count} question(s) ({qnos}) to '{target_group}'?"
+        if QMessageBox.question(self, "Confirm Reassignment", prompt) != QMessageBox.Yes:
+            return
+        
+        try:
+            workbook = load_workbook(self.current_workbook_path)
+            sheet = workbook[workbook.sheetnames[0]]
+            
+            # Update all questions in one go
+            for question in questions_to_move:
+                row_number = question.get("row_number")
+                sheet.cell(row=row_number, column=self.high_level_column_index, value=target_group)
+            
+            workbook.save(self.current_workbook_path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Update Failed", f"Unable to update workbook: {exc}")
+            return
+        
+        self.log(f"{count} question(s) moved to '{target_group}'. Reloading data...")
         self.update_row_count()
 
     def on_chapter_selected(self) -> None:

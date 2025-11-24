@@ -12,8 +12,8 @@ This module contains all custom widget classes used throughout the application:
 """
 
 import json
-from PySide6.QtCore import Qt, QMimeData, Signal
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -219,34 +219,73 @@ class QuestionTreeWidget(QTreeWidget):
     def startDrag(self, supportedActions) -> None:
         """
         Handle drag operation start.
-        Only allows dragging leaf items (actual questions, not groups).
+        Supports dragging multiple selected questions (leaf items only).
+        Shows count of questions being dragged.
         """
-        current = self.currentItem()
-        if not current:
+        # Get all selected items
+        selected_items = self.selectedItems()
+        if not selected_items:
             return
         
-        # Prevent dragging group headers (items with children)
-        if current.childCount() > 0:
+        # Filter to only leaf items (actual questions, not group headers)
+        question_items = [item for item in selected_items if item.childCount() == 0]
+        if not question_items:
             return
         
-        # Get question data stored in UserRole
-        question_data = current.data(0, Qt.UserRole)
-        if not question_data:
+        # Collect question data from all selected questions
+        questions_data = []
+        for item in question_items:
+            question_data = item.data(0, Qt.UserRole)
+            if question_data:
+                questions_data.append({
+                    "row_number": question_data.get("row_number"),
+                    "qno": question_data.get("qno"),
+                    "question_set": question_data.get("question_set"),
+                    "group": question_data.get("group"),
+                })
+        
+        if not questions_data:
             return
         
-        # Create JSON payload for drag operation
+        # Create JSON payload with array of questions
         payload = json.dumps({
-            "row_number": question_data.get("row_number"),
-            "qno": question_data.get("qno"),
-            "question_set": question_data.get("question_set"),
-            "group": question_data.get("group"),
+            "questions": questions_data,
+            "count": len(questions_data)
         })
         
         # Create mime data and start drag
         mime = QMimeData()
         mime.setData(self.MIME_TYPE, payload.encode("utf-8"))
+        mime.setText(f"Moving {len(questions_data)} question(s)")
+        
+        # Create visual drag indicator with count badge
         drag = QDrag(self)
         drag.setMimeData(mime)
+        
+        # Create small circular badge showing count
+        size = 32
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Draw circle background
+        painter.setBrush(QColor("#2563eb"))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+        
+        # Draw number only
+        painter.setPen(QColor("white"))
+        font = QFont()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(QRect(0, 0, size, size), Qt.AlignCenter, str(len(questions_data)))
+        painter.end()
+        
+        drag.setPixmap(pixmap)
+        # Shift hotspot left and up to align with pointer tip
+        drag.setHotSpot(QPoint(size // 2 + 8, size // 2 + 8))
         drag.exec(Qt.MoveAction)
 
 
@@ -299,7 +338,8 @@ class ChapterTableWidget(QTableWidget):
     def dropEvent(self, event: QDropEvent) -> None:
         """
         Handle question drop event.
-        Reassigns the dropped question to the chapter at drop position.
+        Reassigns the dropped question(s) to the chapter at drop position.
+        Supports both single and multiple questions.
         """
         # Validate mime data format
         if not event.mimeData().hasFormat(QuestionTableWidget.MIME_TYPE):
@@ -309,7 +349,7 @@ class ChapterTableWidget(QTableWidget):
         # Parse question data from drag payload
         try:
             payload = bytes(event.mimeData().data(QuestionTableWidget.MIME_TYPE)).decode("utf-8")
-            question = json.loads(payload)
+            data = json.loads(payload)
         except Exception:
             return
 
@@ -326,8 +366,15 @@ class ChapterTableWidget(QTableWidget):
         # Get chapter name (from UserRole if available, otherwise from text)
         target_group = chapter_item.data(Qt.UserRole) or chapter_item.text()
         
-        # Reassign question to this chapter
-        self.parent_window.reassign_question(question, target_group)
+        # Handle both old single-question format and new multi-question format
+        if "questions" in data:
+            # New format: multiple questions
+            questions = data["questions"]
+            self.parent_window.reassign_questions(questions, target_group)
+        else:
+            # Old format: single question (for backward compatibility)
+            self.parent_window.reassign_question(data, target_group)
+        
         event.acceptProposedAction()
 
 
@@ -358,6 +405,7 @@ class QuestionTableWidget(QTableWidget):
         
         # Configure behavior
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)  # Enable multi-select
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setDragEnabled(True)
         self.setDragDropMode(QAbstractItemView.DragOnly)
@@ -365,30 +413,68 @@ class QuestionTableWidget(QTableWidget):
     def startDrag(self, supportedActions) -> None:
         """
         Handle drag operation start.
-        Creates JSON payload with question data for drag operation.
+        Supports dragging multiple selected questions.
+        Shows count of questions being dragged.
         """
-        row = self.currentRow()
-        
-        # Validate row selection
-        if row < 0 or row >= len(self.parent_window.current_questions):
+        # Get all selected rows
+        selected_rows = sorted(set(index.row() for index in self.selectedIndexes()))
+        if not selected_rows:
             return
         
-        # Get question data for this row
-        question = self.parent_window.current_questions[row]
+        # Collect question data from all selected rows
+        questions_data = []
+        for row in selected_rows:
+            if 0 <= row < len(self.parent_window.current_questions):
+                question = self.parent_window.current_questions[row]
+                questions_data.append({
+                    "row_number": question.get("row_number"),
+                    "qno": question.get("qno"),
+                    "question_set": question.get("question_set"),
+                    "group": question.get("group"),
+                })
         
-        # Create JSON payload
+        if not questions_data:
+            return
+        
+        # Create JSON payload with array of questions
         payload = json.dumps({
-            "row_number": question.get("row_number"),
-            "qno": question.get("qno"),
-            "question_set": question.get("question_set"),
-            "group": question.get("group"),
+            "questions": questions_data,
+            "count": len(questions_data)
         })
         
         # Create mime data and start drag
         mime = QMimeData()
         mime.setData(self.MIME_TYPE, payload.encode("utf-8"))
+        mime.setText(f"Moving {len(questions_data)} question(s)")
+        
+        # Create visual drag indicator with count badge
         drag = QDrag(self)
         drag.setMimeData(mime)
+        
+        # Create small circular badge showing count
+        size = 32
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Draw circle background
+        painter.setBrush(QColor("#2563eb"))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(0, 0, size, size)
+        
+        # Draw number only
+        painter.setPen(QColor("white"))
+        font = QFont()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(QRect(0, 0, size, size), Qt.AlignCenter, str(len(questions_data)))
+        painter.end()
+        
+        drag.setPixmap(pixmap)
+        # Shift hotspot left and up to align with pointer tip
+        drag.setHotSpot(QPoint(size // 2 + 8, size // 2 + 8))
         drag.exec(Qt.MoveAction)
 
 
