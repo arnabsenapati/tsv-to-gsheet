@@ -844,6 +844,7 @@ class TSVWatcherWindow(QMainWindow):
         input_folder = data.get("input_folder", "")
         if input_folder:
             self.input_edit.setText(input_folder)
+            self._auto_start_watching()  # Auto-start watching if both paths are valid
         jee_papers_file = data.get("jee_papers_file", "")
         if jee_papers_file and Path(jee_papers_file).exists():
             self.jee_papers_file = Path(jee_papers_file)
@@ -2642,6 +2643,7 @@ class TSVWatcherWindow(QMainWindow):
             self.input_edit.setText(folder)
             self._save_last_selection()
             self.refresh_file_list()
+            self._auto_start_watching()  # Auto-start watching
 
     def select_output_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2726,6 +2728,23 @@ class TSVWatcherWindow(QMainWindow):
         self.watch_thread.start()
         self.start_button.setEnabled(False)
         self.log("Started watching for TSV files.")
+    
+    def _auto_start_watching(self) -> None:
+        """Automatically start watching if both input folder and workbook are valid."""
+        if self.watch_thread and self.watch_thread.is_alive():
+            return  # Already watching
+        
+        input_path = Path(self.input_edit.text().strip())
+        workbook_path = Path(self.output_edit.text().strip())
+        
+        if input_path.is_dir() and workbook_path.is_file():
+            self.stop_event.clear()
+            self.watch_thread = threading.Thread(
+                target=self._watch_loop, args=(input_path, workbook_path), daemon=True
+            )
+            self.watch_thread.start()
+            self.start_button.setEnabled(False)
+            self.log("Auto-started watching for TSV files.")
 
     def stop_watching(self) -> None:
         self.stop_event.set()
