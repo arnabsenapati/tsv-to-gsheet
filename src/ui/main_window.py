@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QSplitter,
     QTabWidget,
     QTableWidget,
@@ -102,6 +104,7 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_filter_term: str = ""
         self.selected_tag_filters: list[str] = []  # Multiple selected tags for filtering
         self.current_magazine_name: str = ""  # Track current magazine for grouping
+        self.current_selected_chapter: str | None = None  # Track selected chapter
         self.canonical_chapters: list[str] = []
         self.chapter_lookup: dict[str, str] = {}
         self.chapter_groups: dict[str, list[str]] = {}
@@ -109,7 +112,9 @@ class TSVWatcherWindow(QMainWindow):
         self.workbook_df: pd.DataFrame | None = None  # Cached DataFrame
         self.high_level_column_index: int | None = None
         self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
+        self.question_lists_metadata: dict[str, dict] = {}  # name -> metadata (filters, magazine, etc)
         self.current_list_name: str | None = None
+        self.current_selected_chapter: str | None = None  # Track selected chapter for filtering
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
         self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
@@ -363,6 +368,11 @@ class TSVWatcherWindow(QMainWindow):
         add_to_list_btn = QPushButton("Add Selected to List")
         add_to_list_btn.clicked.connect(self.add_selected_to_list)
         list_control_layout.addWidget(add_to_list_btn)
+        
+        create_random_list_btn = QPushButton("Create Random List from Filtered")
+        create_random_list_btn.clicked.connect(self.create_random_list_from_filtered)
+        list_control_layout.addWidget(create_random_list_btn)
+        
         list_control_layout.addStretch()
         question_layout.addLayout(list_control_layout)
         
@@ -449,6 +459,16 @@ class TSVWatcherWindow(QMainWindow):
         self.list_name_label = QLabel("Select a list to view questions")
         self.list_name_label.setObjectName("headerLabel")
         list_questions_layout.addWidget(self.list_name_label)
+        
+        # Label to show filters applied to this list
+        self.list_filters_label = QLabel("")
+        self.list_filters_label.setObjectName("infoLabel")
+        self.list_filters_label.setWordWrap(True)
+        self.list_filters_label.setStyleSheet(
+            "padding: 6px; background-color: #fef3c7; border-radius: 4px; color: #92400e; font-size: 12px;"
+        )
+        self.list_filters_label.setVisible(False)
+        list_questions_layout.addWidget(self.list_filters_label)
         
         remove_from_list_btn = QPushButton("Remove Selected from List")
         remove_from_list_btn.clicked.connect(self.remove_selected_from_list)
@@ -2169,12 +2189,15 @@ class TSVWatcherWindow(QMainWindow):
         row = self.chapter_table.currentRow()
         if row < 0:
             self._populate_question_table([])
+            self.current_selected_chapter = None
             return
         item = self.chapter_table.item(row, 0)
         if not item:
             self._populate_question_table([])
+            self.current_selected_chapter = None
             return
         chapter_key = item.data(Qt.UserRole) or item.text()
+        self.current_selected_chapter = chapter_key  # Store selected chapter
         questions = self.chapter_questions.get(chapter_key, [])
         self._populate_question_table(questions)
 
@@ -2379,26 +2402,53 @@ class TSVWatcherWindow(QMainWindow):
                 data = json.loads(json_file.read_text(encoding="utf-8"))
                 list_name = data.get("name", json_file.stem)
                 questions = data.get("questions", [])
-                self.question_lists[list_name] = questions
+                magazine = data.get("magazine", "")  # Load magazine name
+                filters = data.get("filters", {})  # Load filters
                 
-                item = QListWidgetItem(f"{list_name} ({len(questions)})")
+                self.question_lists[list_name] = questions
+                self.question_lists_metadata[list_name] = {
+                    "magazine": magazine,
+                    "filters": filters
+                }
+                
+                # Display list name with question count and magazine
+                display_text = f"{list_name} ({len(questions)})"
+                if magazine:
+                    display_text += f" - {magazine}"
+                
+                item = QListWidgetItem(display_text)
                 item.setData(Qt.UserRole, list_name)
                 self.saved_lists_widget.addItem(item)
             except Exception as exc:
                 self.log(f"Error loading list {json_file.name}: {exc}")
     
-    def _save_question_list(self, list_name: str) -> None:
-        """Save a question list to file."""
+    def _save_question_list(self, list_name: str, save_filters: bool = False) -> None:
+        """Save a question list to file.
+        
+        Args:
+            list_name: Name of the list to save
+            save_filters: If True, save current active filters with the list
+        """
         if list_name not in self.question_lists:
             return
         
         safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in list_name)
         file_path = QUESTION_LIST_DIR / f"{safe_name}.json"
         
+        # Get or create metadata
+        metadata = self.question_lists_metadata.get(list_name, {})
+        
         data = {
             "name": list_name,
+            "magazine": metadata.get("magazine", self.current_magazine_name),
             "questions": self.question_lists[list_name],
         }
+        
+        # Save filters if requested or if they already exist
+        if save_filters or metadata.get("filters"):
+            filters = self._get_active_filters() if save_filters else metadata.get("filters", {})
+            if filters:
+                data["filters"] = filters
         
         try:
             file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -2583,6 +2633,28 @@ class TSVWatcherWindow(QMainWindow):
         self.current_list_questions = questions
         self.list_name_label.setText(f"{list_name} ({len(questions)} questions)")
         
+        # Show filters if they exist
+        metadata = self.question_lists_metadata.get(list_name, {})
+        filters = metadata.get("filters", {})
+        if filters:
+            filter_parts = []
+            if filters.get("selected_chapter"):
+                filter_parts.append(f"Chapter: '{filters['selected_chapter']}'")
+            if filters.get("question_set_search"):
+                filter_parts.append(f"Question Set: '{filters['question_set_search']}'")
+            if filters.get("selected_tags"):
+                filter_parts.append(f"Tags: {', '.join(filters['selected_tags'])}")
+            if filters.get("selected_magazine"):
+                filter_parts.append(f"Magazine: {filters['selected_magazine']}")
+            
+            if filter_parts:
+                self.list_filters_label.setText(f"🔍 Filters: {' | '.join(filter_parts)}")
+                self.list_filters_label.setVisible(True)
+            else:
+                self.list_filters_label.setVisible(False)
+        else:
+            self.list_filters_label.setVisible(False)
+        
         self.list_question_table.setRowCount(0)
         self.list_question_text_view.clear()
         if not questions:
@@ -2633,6 +2705,140 @@ class TSVWatcherWindow(QMainWindow):
             self.list_question_text_view.setHtml("".join(html_parts))
         else:
             self.list_question_text_view.clear()
+    
+    def _get_active_filters(self) -> dict:
+        """Get currently active filters in Question Analysis tab."""
+        filters = {}
+        
+        # Selected chapter filter (from left table)
+        if self.current_selected_chapter:
+            filters["selected_chapter"] = self.current_selected_chapter
+        
+        # Question Set search filter
+        if self.question_set_search.text().strip():
+            filters["question_set_search"] = self.question_set_search.text().strip()
+        
+        # Tag filters
+        if self.selected_tag_filters:
+            filters["selected_tags"] = self.selected_tag_filters.copy()
+        
+        # Magazine filter (from selected magazine edition)
+        if self.magazine_search_term:
+            filters["selected_magazine"] = self.magazine_search_term
+        
+        return filters
+    
+    def create_random_list_from_filtered(self) -> None:
+        """Create a new question list with random questions from currently filtered list."""
+        from PySide6.QtWidgets import QInputDialog, QDialog, QVBoxLayout, QLabel, QSpinBox, QDialogButtonBox
+        
+        # Get all visible questions from current filtered view
+        visible_questions = []
+        root = self.question_tree.invisibleRootItem()
+        
+        def collect_visible_questions(parent_item):
+            for i in range(parent_item.childCount()):
+                child = parent_item.child(i)
+                if not child.isHidden():
+                    if child.childCount() == 0:  # Leaf node (question)
+                        question_data = child.data(0, Qt.UserRole)
+                        if question_data:
+                            visible_questions.append(question_data)
+                    else:  # Group node, recurse
+                        collect_visible_questions(child)
+        
+        collect_visible_questions(root)
+        
+        if not visible_questions:
+            QMessageBox.warning(self, "No Questions", "No questions available in the current filtered view.")
+            return
+        
+        # Create dialog for list name and question count
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Create Random Question List")
+        dialog.setMinimumWidth(400)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # List name input
+        layout.addWidget(QLabel("List Name:"))
+        name_input = QLineEdit()
+        layout.addWidget(name_input)
+        
+        # Question count input
+        layout.addWidget(QLabel(f"Number of Questions (max {len(visible_questions)}):"))
+        count_spinner = QSpinBox()
+        count_spinner.setMinimum(1)
+        count_spinner.setMaximum(len(visible_questions))
+        count_spinner.setValue(min(30, len(visible_questions)))  # Default 30
+        layout.addWidget(count_spinner)
+        
+        # Filter info
+        active_filters = self._get_active_filters()
+        if active_filters:
+            filter_info = QLabel("<b>Active filters will be saved with this list:</b>")
+            layout.addWidget(filter_info)
+            
+            filter_parts = []
+            if active_filters.get("selected_chapter"):
+                filter_parts.append(f"• Chapter: '{active_filters['selected_chapter']}'")
+            if active_filters.get("question_set_search"):
+                filter_parts.append(f"• Question Set: '{active_filters['question_set_search']}'")
+            if active_filters.get("selected_tags"):
+                filter_parts.append(f"• Tags: {', '.join(active_filters['selected_tags'])}")
+            if active_filters.get("selected_magazine"):
+                filter_parts.append(f"• Magazine: {active_filters['selected_magazine']}")
+            
+            if filter_parts:
+                filter_label = QLabel("\n".join(filter_parts))
+                filter_label.setStyleSheet("padding: 8px; background-color: #fef3c7; border-radius: 4px; color: #92400e;")
+                layout.addWidget(filter_label)
+        
+        # Dialog buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        list_name = name_input.text().strip()
+        if not list_name:
+            QMessageBox.warning(self, "Invalid Name", "Please enter a list name.")
+            return
+        
+        if list_name in self.question_lists:
+            reply = QMessageBox.question(
+                self,
+                "List Exists",
+                f"List '{list_name}' already exists. Overwrite?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+        
+        # Select random questions
+        import random
+        num_questions = count_spinner.value()
+        selected_questions = random.sample(visible_questions, num_questions)
+        
+        # Create the list
+        self.question_lists[list_name] = [q.copy() for q in selected_questions]
+        self.question_lists_metadata[list_name] = {
+            "magazine": self.current_magazine_name,
+            "filters": active_filters
+        }
+        
+        self._save_question_list(list_name, save_filters=True)
+        self._load_saved_question_lists()
+        
+        self.log(f"Created random list '{list_name}' with {num_questions} questions from filtered view")
+        QMessageBox.information(
+            self,
+            "Success",
+            f"Created list '{list_name}' with {num_questions} random questions from filtered view."
+        )
 
     def log(self, message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
