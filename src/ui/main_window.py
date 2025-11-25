@@ -455,8 +455,8 @@ class TSVWatcherWindow(QMainWindow):
         list_questions_layout.addWidget(remove_from_list_btn)
         
         list_question_splitter = QSplitter(Qt.Vertical)
-        self.list_question_table = QTableWidget(0, 4)
-        self.list_question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set Name", "Magazine"])
+        self.list_question_table = QTableWidget(0, 5)
+        self.list_question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set", "Chapter", "Magazine"])
         self.list_question_table.horizontalHeader().setStretchLastSection(True)
         self.list_question_table.verticalHeader().setVisible(False)
         self.list_question_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -2592,13 +2592,15 @@ class TSVWatcherWindow(QMainWindow):
         for row, question in enumerate(questions):
             qno_item = QTableWidgetItem(str(question.get("qno", "")))
             page_item = QTableWidgetItem(str(question.get("page", "")))
-            question_set_item = QTableWidgetItem(str(question.get("question_set", "")))
+            question_set_name_item = QTableWidgetItem(str(question.get("question_set_name", "")))
+            chapter_item = QTableWidgetItem(str(question.get("question_set", "")))
             magazine_item = QTableWidgetItem(str(question.get("magazine", "")))
             
             self.list_question_table.setItem(row, 0, qno_item)
             self.list_question_table.setItem(row, 1, page_item)
-            self.list_question_table.setItem(row, 2, question_set_item)
-            self.list_question_table.setItem(row, 3, magazine_item)
+            self.list_question_table.setItem(row, 2, question_set_name_item)
+            self.list_question_table.setItem(row, 3, chapter_item)
+            self.list_question_table.setItem(row, 4, magazine_item)
         
         self.list_question_table.resizeColumnsToContents()
     
