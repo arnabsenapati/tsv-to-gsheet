@@ -145,6 +145,11 @@ class TSVWatcherWindow(QMainWindow):
         # Ensure QuestionList directory exists
         QUESTION_LIST_DIR.mkdir(exist_ok=True)
         
+        # Status bar animation state
+        self.status_animation_frame = 0
+        self.status_animation_timer = QTimer()
+        self.status_animation_timer.timeout.connect(self._animate_status)
+        
         self._load_group_tags()
 
         self._build_ui()
@@ -617,10 +622,33 @@ class TSVWatcherWindow(QMainWindow):
         
         tab_widget.addTab(jee_tab, "JEE Main Papers")
 
+        # Status bar and log toggle row
+        status_log_layout = QHBoxLayout()
+        
+        # Status label with animation
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                padding: 8px 16px;
+                background-color: #f1f5f9;
+                border-radius: 6px;
+                color: #475569;
+                font-size: 13px;
+            }
+        """)
+        self.status_label.setVisible(True)  # Always visible to maintain layout
+        self.status_label.setWordWrap(False)  # No wrapping - single line only
+        self.status_label.setMinimumWidth(200)  # Minimum width to prevent collapse
+        status_log_layout.addWidget(self.status_label, 1)  # Stretch factor 1 to expand
+        
+        status_log_layout.addSpacing(10)  # Spacing between status and button
+        
         self.log_toggle = QPushButton("Show Log")
         self.log_toggle.setCheckable(True)
         self.log_toggle.toggled.connect(self.toggle_log_visibility)
-        root_layout.addWidget(self.log_toggle, 0, alignment=Qt.AlignLeft)
+        status_log_layout.addWidget(self.log_toggle)
+        
+        root_layout.addLayout(status_log_layout)
 
         self.log_card = self._create_card()
         log_layout = QVBoxLayout(self.log_card)
@@ -703,6 +731,105 @@ class TSVWatcherWindow(QMainWindow):
     def toggle_log_visibility(self, checked: bool) -> None:
         self.log_card.setVisible(checked)
         self.log_toggle.setText("Hide Log" if checked else "Show Log")
+    
+    def _animate_status(self) -> None:
+        """Animate the status spinner icon."""
+        spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.status_animation_frame = (self.status_animation_frame + 1) % len(spinner_frames)
+        
+        # Update the current status text with new spinner frame
+        if hasattr(self, "_current_status_text") and hasattr(self, "_current_status_type"):
+            if self._current_status_type in ("loading", "importing"):
+                icon = spinner_frames[self.status_animation_frame]
+                self.status_label.setText(f"{icon} {self._current_status_text}")
+    
+    def set_status(self, message: str, status_type: str = "info") -> None:
+        """Set status bar message with appropriate icon and styling.
+        
+        Args:
+            message: Status message to display
+            status_type: Type of status - 'loading', 'importing', 'success', 'error', 'info'
+        """
+        self._current_status_text = message
+        self._current_status_type = status_type
+        
+        # Stop any existing animation
+        self.status_animation_timer.stop()
+        
+        if status_type == "loading":
+            # Animated spinner for loading
+            self.status_animation_timer.start(80)  # Update every 80ms
+            icon = "⠋"
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    padding: 8px 16px;
+                    background-color: #dbeafe;
+                    border-radius: 6px;
+                    color: #1e40af;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        elif status_type == "importing":
+            # Animated spinner for importing
+            self.status_animation_timer.start(80)
+            icon = "⠋"
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    padding: 8px 16px;
+                    background-color: #fef3c7;
+                    border-radius: 6px;
+                    color: #92400e;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        elif status_type == "success":
+            icon = "✓"
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    padding: 8px 16px;
+                    background-color: #d1fae5;
+                    border-radius: 6px;
+                    color: #065f46;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        elif status_type == "error":
+            icon = "✗"
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    padding: 8px 16px;
+                    background-color: #fee2e2;
+                    border-radius: 6px;
+                    color: #991b1b;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        else:  # info
+            icon = "ℹ"
+            self.status_label.setStyleSheet("""
+                QLabel {
+                    padding: 8px 16px;
+                    background-color: #f1f5f9;
+                    border-radius: 6px;
+                    color: #475569;
+                    font-size: 13px;
+                    font-weight: 500;
+                }
+            """)
+        
+        self.status_label.setText(f"{icon} {message}")
+        self.status_label.setVisible(True)
+    
+    def clear_status(self) -> None:
+        """Clear status message but keep label visible to maintain layout."""
+        self.status_animation_timer.stop()
+        self.status_label.setText("")  # Clear text but keep label visible
+        self._current_status_text = ""
+        self._current_status_type = ""
 
     def _load_last_selection(self) -> None:
         if not LAST_SELECTION_FILE.exists():
@@ -885,6 +1012,7 @@ class TSVWatcherWindow(QMainWindow):
         
         self.current_workbook_path = workbook_path
         self._save_last_selection()
+        self.set_status(f'Loading workbook "{workbook_path.name}"', "loading")
         self.row_count_label.setText("Total rows: Loading...")
         self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
         self.question_label.setText("Loading editions...")
@@ -928,6 +1056,7 @@ class TSVWatcherWindow(QMainWindow):
                 )
             except Exception as exc:
                 self.event_queue.put(("metrics_error", req_id, str(exc)))
+                self.event_queue.put(("status_error", str(exc)))
 
         threading.Thread(target=worker, args=(workbook_path, request_id), daemon=True).start()
 
@@ -2617,15 +2746,18 @@ class TSVWatcherWindow(QMainWindow):
                 if self.stop_event.is_set():
                     break
                 self.event_queue.put(("status", tsv_file.name, "Processing", "Validating..."))
+                self.event_queue.put(("status_importing", tsv_file.name))
                 try:
                     result_message = process_tsv(tsv_file, workbook_path, self.current_magazine_name)
                 except Exception as exc:
                     self.event_queue.put(("status", tsv_file.name, "Error", str(exc)))
                     self.event_queue.put(("log", f"Error processing {tsv_file.name}: {exc}"))
+                    self.event_queue.put(("status_error", f"Failed to import {tsv_file.name}: {exc}"))
                 else:
                     self.event_queue.put(("status", tsv_file.name, "Completed", result_message))
                     self.event_queue.put(("log", f"Processed {tsv_file.name}: {result_message}"))
                     self.event_queue.put(("rowcount",))
+                    self.event_queue.put(("status_success", tsv_file.name, result_message))
 
             time.sleep(poll_interval)
 
@@ -2654,6 +2786,8 @@ class TSVWatcherWindow(QMainWindow):
                     self.log(f"Loaded chapter grouping for: {detected_magazine or 'default (Physics)'}")
                 
                 self.row_count_label.setText(f"Total rows: {row_count}")
+                # Show success status after workbook loads
+                self.set_status(f'Loaded workbook "{self.current_workbook_path.name}"', "success")
                 total_editions = sum(len(entry["editions"]) for entry in details)
                 self._set_magazine_summary(
                     f"Magazines loaded: {len(details)}",
@@ -2689,6 +2823,15 @@ class TSVWatcherWindow(QMainWindow):
                 self._refresh_grouping_ui()
                 self.question_label.setText("Unable to load editions.")
                 self.log(f"Unable to read workbook rows: {error_message}")
+            elif event_type == "status_error":
+                _, error_msg = event
+                self.set_status(f"Error: {error_msg}", "error")
+            elif event_type == "status_importing":
+                _, filename = event
+                self.set_status(f'Importing data from "{filename}"', "importing")
+            elif event_type == "status_success":
+                _, filename, result_msg = event
+                self.set_status(f'Data imported from "{filename}" • {result_msg}', "success")
             elif event_type == "rowcount":
                 self.update_row_count()
         # Timer will trigger this method again; no manual reschedule needed.
