@@ -71,7 +71,6 @@ from ui.widgets import (
     GroupListWidget,
     QuestionTreeWidget,
     QuestionListCardView,
-    QuestionMasonryView,
     TagBadge,
 )
 from utils.helpers import (
@@ -385,30 +384,20 @@ class TSVWatcherWindow(QMainWindow):
         create_random_list_btn.clicked.connect(self.create_random_list_from_filtered)
         list_control_layout.addWidget(create_random_list_btn)
         
-        # Add column selector for masonry layout
-        list_control_layout.addWidget(QLabel("Columns:"))
-        self.column_selector = QSpinBox()
-        self.column_selector.setMinimum(2)
-        self.column_selector.setMaximum(6)
-        self.column_selector.setValue(3)
-        self.column_selector.setToolTip("Number of columns in grid")
-        self.column_selector.valueChanged.connect(self._on_column_count_changed)
-        list_control_layout.addWidget(self.column_selector)
-        
         list_control_layout.addStretch()
         question_layout.addLayout(list_control_layout)
         
-        # Pinterest-style masonry grid (Option 3 design)
-        self.question_card_view = QuestionMasonryView(self, columns=3)
+        # Replace traditional tree with card-based view
+        self.question_card_view = QuestionListCardView(self)
         self.question_card_view.question_selected.connect(self.on_question_card_selected)
         
-        # Keep old tree widget and accordion view references for compatibility (hidden)
+        # Keep old tree widget reference for compatibility (hidden)
         self.question_tree = QuestionTreeWidget(self)
         self.question_tree.setVisible(False)
         self.question_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.question_tree.customContextMenuRequested.connect(self._show_group_context_menu)
         
-        # Add masonry view
+        # Add card view directly without the text viewer splitter
         question_layout.addWidget(self.question_card_view)
         
         # Create hidden text view for compatibility with other code
@@ -1866,17 +1855,14 @@ class TSVWatcherWindow(QMainWindow):
                     filtered_groups[group_key] = group_questions
             groups = filtered_groups
         
-        # Flatten all questions from all groups for masonry view
-        all_filtered_questions = []
-        for group_questions in groups.values():
-            all_filtered_questions.extend(group_questions)
+        # Sort groups by number of questions (descending) then by name
+        sorted_groups = sorted(groups.items(), key=lambda x: (-len(x[1]), x[0]))
         
-        # Sort questions by qno or any other criteria
-        all_filtered_questions.sort(key=lambda q: q.get("qno", ""))
-        
-        # Populate masonry view with all questions
+        # Populate card view with accordion groups
         if hasattr(self, "question_card_view"):
-            self.question_card_view.add_questions(all_filtered_questions, self.tag_colors)
+            for group_key, group_questions in sorted_groups:
+                tags = self.group_tags.get(group_key, [])
+                self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors)
         
         # Restore scroll position if it was saved
         if scroll_value is not None and hasattr(self, "question_card_view"):
@@ -1906,11 +1892,6 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "magazine_search"):
             self.magazine_search.clear()
         self._apply_question_search()
-
-    def _on_column_count_changed(self, count: int) -> None:
-        """Handle column count change in masonry layout."""
-        if hasattr(self, "question_card_view") and hasattr(self.question_card_view, "set_column_count"):
-            self.question_card_view.set_column_count(count)
 
     def _show_tag_filter_dialog(self) -> None:
         """Show dialog to select multiple tags for filtering."""
