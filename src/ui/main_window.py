@@ -344,9 +344,19 @@ class TSVWatcherWindow(QMainWindow):
         search_layout.addWidget(self.question_set_search)
         
         search_layout.addWidget(QLabel("Tags:"))
-        self.tag_filter_label = QLabel("None")
-        self.tag_filter_label.setStyleSheet("padding: 4px; background-color: #f1f5f9; border-radius: 4px; min-width: 100px;")
-        search_layout.addWidget(self.tag_filter_label)
+        self.tag_filter_display = QLineEdit()
+        self.tag_filter_display.setPlaceholderText("No tags selected")
+        self.tag_filter_display.setReadOnly(True)
+        self.tag_filter_display.setStyleSheet("""
+            QLineEdit {
+                background-color: #0f172a;
+                color: #ffffff;
+                border: 1px solid #334155;
+                padding: 4px;
+                border-radius: 4px;
+            }
+        """)
+        search_layout.addWidget(self.tag_filter_display)
         self.tag_filter_btn = QPushButton("Select Tags")
         self.tag_filter_btn.clicked.connect(self._show_tag_filter_dialog)
         search_layout.addWidget(self.tag_filter_btn)
@@ -1852,8 +1862,8 @@ class TSVWatcherWindow(QMainWindow):
         self.selected_tag_filters = []
         if hasattr(self, "question_set_search"):
             self.question_set_search.clear()
-        if hasattr(self, "tag_filter_label"):
-            self.tag_filter_label.setText("None")
+        if hasattr(self, "tag_filter_display"):
+            self.tag_filter_display.clear()
         if hasattr(self, "magazine_search"):
             self.magazine_search.clear()
         self._apply_question_search()
@@ -1881,27 +1891,14 @@ class TSVWatcherWindow(QMainWindow):
             self.selected_tag_filters = dialog.get_selected_tags()
             # Update label
             if self.selected_tag_filters:
-                self.tag_filter_label.setText(", ".join(self.selected_tag_filters))
+                self.tag_filter_display.setText(", ".join(self.selected_tag_filters))
             else:
-                self.tag_filter_label.setText("None")
+                self.tag_filter_display.clear()
             self._apply_question_search()
 
     def on_magazine_search_changed(self, text: str) -> None:
         """Handle Magazine search box text change."""
         self.magazine_search_term = text.strip()
-        self._apply_question_search()
-
-    def clear_question_search(self) -> None:
-        """Clear all search terms."""
-        self.question_set_search_term = ""
-        self.magazine_search_term = ""
-        self.selected_tag_filters = []
-        if hasattr(self, "question_set_search"):
-            self.question_set_search.clear()
-        if hasattr(self, "tag_filter_label"):
-            self.tag_filter_label.setText("None")
-        if hasattr(self, "magazine_search"):
-            self.magazine_search.clear()
         self._apply_question_search()
 
     def on_mag_tree_search_changed(self, text: str) -> None:
@@ -2316,8 +2313,8 @@ class TSVWatcherWindow(QMainWindow):
         """Handle tag badge click - add to filter list."""
         if tag not in self.selected_tag_filters:
             self.selected_tag_filters.append(tag)
-            if hasattr(self, "tag_filter_label"):
-                self.tag_filter_label.setText(", ".join(self.selected_tag_filters))
+            if hasattr(self, "tag_filter_display"):
+                self.tag_filter_display.setText(", ".join(self.selected_tag_filters))
             self._apply_question_search()
 
     def _show_group_context_menu(self, position) -> None:
