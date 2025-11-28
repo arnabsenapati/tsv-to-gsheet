@@ -753,6 +753,32 @@ class TSVWatcherWindow(QMainWindow):
                 padding: 8px;
                 font-family: Consolas, 'Courier New', monospace;
             }
+            QTabWidget::pane {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                background-color: #ffffff;
+            }
+            QTabBar::tab {
+                background-color: #f1f5f9;
+                color: #475569;
+                border: 1px solid #e2e8f0;
+                border-bottom: none;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                font-weight: 500;
+            }
+            QTabBar::tab:selected {
+                background-color: #ffffff;
+                color: #0f172a;
+                border-bottom: 2px solid #2563eb;
+                font-weight: 600;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #e0e7ff;
+                color: #1e40af;
+            }
             """
         )
 
