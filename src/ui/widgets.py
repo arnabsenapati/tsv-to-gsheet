@@ -23,6 +23,10 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QAbstractItemView,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QScrollArea,
 )
 
 
@@ -602,3 +606,501 @@ class GroupListWidget(QListWidget):
         # Move chapter to target group
         self.parent_window.move_chapter_to_group(chapter, group, stay_on_group=source_group)
         event.acceptProposedAction()
+
+
+class QuestionCardWidget(QLabel):
+    """
+    Modern card widget for displaying a single question with preview.
+    
+    Features:
+    - Card-based layout with shadow effect
+    - Inline question preview (max 20 words)
+    - Prominent Qno and page number
+    - Tag badges inline
+    - Source metadata (question set | magazine)
+    - Hover effect with elevation
+    - Selectable with visual feedback
+    
+    Layout:
+        ┌──────────────────────────────────────────────────┐
+        │ Q15  📄 Page 45    🏷️ important · prev-year    │
+        │ ───────────────────────────────────────────────  │
+        │ A particle of mass 2kg moves under a force...   │
+        │ Calculate the acceleration when velocity is...  │
+        │                                                  │
+        │ 📖 JEE Main 2024 Paper 1 | Physics For You     │
+        └──────────────────────────────────────────────────┘
+    """
+    
+    clicked = Signal(dict)  # Emits full question data
+    
+    def __init__(self, question_data: dict, parent=None):
+        """
+        Initialize question card.
+        
+        Args:
+            question_data: Dict with qno, page, question_text, question_set_name, magazine, tags
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.question_data = question_data
+        self.is_selected = False
+        
+        # Build card HTML
+        self._build_card()
+        
+        # Card styling
+        self.setTextFormat(Qt.RichText)
+        self.setWordWrap(True)
+        self.setStyleSheet("""
+            QLabel {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                padding: 12px;
+                margin: 4px;
+            }
+            QLabel:hover {
+                background-color: #ffffff;
+                border: 2px solid #3b82f6;
+            }
+        """)
+        
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(100)
+        self.setMaximumHeight(150)
+    
+    def _build_card(self):
+        """Build HTML content for the card."""
+        q = self.question_data
+        
+        # Extract data with fallbacks
+        qno = q.get("qno", "?")
+        page = q.get("page", "?")
+        question_text = q.get("question_text", "No question text available")
+        question_set = q.get("question_set_name", "Unknown")
+        magazine = q.get("magazine", "Unknown")
+        tags = q.get("tags", [])
+        
+        # Truncate question to ~20 words (approximately 100 chars)
+        preview = self._truncate_text(question_text, max_words=20)
+        
+        # Build tag badges HTML
+        tag_html = ""
+        if tags:
+            tag_colors = {
+                "important": "#ef4444",
+                "previous year": "#f59e0b",
+                "prev-year": "#f59e0b",
+                "conceptual": "#8b5cf6",
+                "numerical": "#10b981",
+                "difficult": "#dc2626",
+                "easy": "#22c55e",
+            }
+            tag_badges = []
+            for tag in tags[:3]:  # Show max 3 tags
+                color = tag_colors.get(tag.lower(), "#6b7280")
+                tag_badges.append(
+                    f'<span style="background-color: {color}; color: white; '
+                    f'padding: 2px 6px; border-radius: 3px; font-size: 10px; '
+                    f'font-weight: bold; margin-left: 4px;">{tag}</span>'
+                )
+            tag_html = " ".join(tag_badges)
+        
+        # Build card HTML
+        html = f"""
+        <div style="line-height: 1.4;">
+            <div style="margin-bottom: 8px;">
+                <span style="color: #1e40af; font-size: 16px; font-weight: bold;">{qno}</span>
+                <span style="color: #64748b; font-size: 12px; margin-left: 12px;">📄 Page {page}</span>
+                {tag_html}
+            </div>
+            <div style="border-top: 1px solid #cbd5e1; padding-top: 8px; margin-bottom: 8px;">
+                <p style="color: #1f2937; font-size: 13px; margin: 0; line-height: 1.5;">
+                    {preview}
+                </p>
+            </div>
+            <div style="font-size: 11px; color: #94a3b8;">
+                📖 <span style="color: #475569;">{question_set}</span> | 
+                📰 <span style="color: #475569;">{magazine}</span>
+            </div>
+        </div>
+        """
+        
+        self.setText(html)
+    
+    def _truncate_text(self, text: str, max_words: int = 20) -> str:
+        """
+        Truncate text to approximately max_words.
+        
+        Args:
+            text: Full text
+            max_words: Maximum number of words
+            
+        Returns:
+            Truncated text with ellipsis
+        """
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+        
+        truncated = " ".join(words[:max_words])
+        return truncated + "..."
+    
+    def mousePressEvent(self, event):
+        """Handle card click."""
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.question_data)
+        super().mousePressEvent(event)
+    
+    def set_selected(self, selected: bool):
+        """Update visual state for selection."""
+        self.is_selected = selected
+        if selected:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #dbeafe;
+                    border: 2px solid #3b82f6;
+                    border-radius: 8px;
+                    padding: 12px;
+                    margin: 4px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QLabel {
+                    background-color: #f8fafc;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 8px;
+                    padding: 12px;
+                    margin: 4px;
+                }
+                QLabel:hover {
+                    background-color: #ffffff;
+                    border: 1px solid #3b82f6;
+                }
+            """)
+
+
+class QuestionAccordionGroup(QWidget):
+    """
+    Accordion group widget for collapsible question sets.
+    
+    Features:
+    - Collapsible header with expand/collapse icon
+    - Question count badge
+    - Tag badges for group tags
+    - Contains multiple QuestionCardWidget children
+    - Smooth expand/collapse animation
+    - Context menu support for tagging
+    
+    Layout:
+        🔽 JEE Main 2024                    📚 75 Questions
+           [Tag badges if any]
+        ───────────────────────────────────────────────────
+        [QuestionCardWidget]
+        [QuestionCardWidget]
+        [QuestionCardWidget]
+    """
+    
+    def __init__(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, parent=None):
+        """
+        Initialize accordion group.
+        
+        Args:
+            group_key: Group identifier/name
+            questions: List of question data dicts
+            tags: List of tag names for this group
+            tag_colors: Dict mapping tag names to color hex codes
+            parent: Parent widget
+        """
+        super().__init__(parent)
+        self.group_key = group_key
+        self.questions = questions
+        self.tags = tags or []
+        self.tag_colors = tag_colors or {}
+        self.is_expanded = False
+        self.question_cards = []
+        
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Header widget
+        self.header = self._create_header()
+        self.header.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.header.customContextMenuRequested.connect(self._show_context_menu)
+        layout.addWidget(self.header)
+        
+        # Content container (collapsible)
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(8, 8, 8, 8)
+        self.content_layout.setSpacing(4)
+        
+        # Add question cards (initially hidden)
+        for question in questions:
+            card = QuestionCardWidget(question, self)
+            card.clicked.connect(self._on_card_clicked)
+            self.question_cards.append(card)
+            self.content_layout.addWidget(card)
+        
+        self.content_widget.setVisible(False)
+        layout.addWidget(self.content_widget)
+    
+    def _create_header(self) -> QWidget:
+        """Create the header widget with expand/collapse button."""
+        from PySide6.QtWidgets import QHBoxLayout, QWidget, QPushButton
+        
+        header_widget = QWidget()
+        header_widget.setStyleSheet("""
+            QWidget {
+                background-color: #e0e7ff;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QWidget:hover {
+                background-color: #c7d2fe;
+            }
+        """)
+        header_widget.setCursor(Qt.PointingHandCursor)
+        
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(8, 8, 8, 8)
+        
+        # Expand/collapse icon + title
+        self.expand_btn = QPushButton("▶️")
+        self.expand_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                font-size: 14px;
+                padding: 0;
+                min-width: 20px;
+            }
+        """)
+        self.expand_btn.clicked.connect(self.toggle_expanded)
+        header_layout.addWidget(self.expand_btn)
+        
+        # Group title
+        title = QLabel(self.group_key.title())
+        title.setStyleSheet("color: #1e40af; font-weight: bold; font-size: 14px; background: transparent;")
+        header_layout.addWidget(title)
+        
+        # Tag badges
+        if self.tags:
+            tag_container = QWidget()
+            tag_container.setStyleSheet("background: transparent;")
+            tag_layout = QHBoxLayout(tag_container)
+            tag_layout.setContentsMargins(0, 0, 0, 0)
+            tag_layout.setSpacing(4)
+            
+            for tag in self.tags[:3]:  # Max 3 tags in header
+                color = self.tag_colors.get(tag, self._get_tag_color(tag))
+                tag_badge = TagBadge(tag, color)
+                tag_layout.addWidget(tag_badge)
+            
+            header_layout.addWidget(tag_container)
+        
+        header_layout.addStretch()
+        
+        # Tag management button
+        self.tag_btn = QPushButton("🏷️")
+        self.tag_btn.setToolTip("Manage tags for this group")
+        self.tag_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 14px;
+                min-width: 30px;
+            }
+            QPushButton:hover {
+                background-color: #3b82f6;
+            }
+        """)
+        self.tag_btn.clicked.connect(self._show_tag_menu)
+        header_layout.addWidget(self.tag_btn)
+        
+        # Question count badge
+        count_label = QLabel(f"📚 {len(self.questions)} Questions")
+        count_label.setStyleSheet("""
+            QLabel {
+                background-color: #3b82f6;
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+        """)
+        header_layout.addWidget(count_label)
+        
+        # Make entire header clickable
+        header_widget.mousePressEvent = lambda e: self.toggle_expanded()
+        
+        return header_widget
+    
+    def toggle_expanded(self):
+        """Toggle expand/collapse state."""
+        self.is_expanded = not self.is_expanded
+        self.content_widget.setVisible(self.is_expanded)
+        self.expand_btn.setText("🔽" if self.is_expanded else "▶️")
+    
+    def _on_card_clicked(self, question_data: dict):
+        """Handle click on a question card."""
+        # Forward to parent window for handling
+        if hasattr(self.parent(), 'on_question_card_clicked'):
+            self.parent().on_question_card_clicked(question_data)
+    
+    def _show_context_menu(self, position):
+        """Show context menu for group operations."""
+        if hasattr(self.parent(), 'show_group_context_menu'):
+            self.parent().show_group_context_menu(self.group_key, self.header.mapToGlobal(position))
+    
+    def _show_tag_menu(self):
+        """Show tag management dialog."""
+        # Navigate up to find main window
+        widget = self.parent()
+        while widget:
+            if hasattr(widget, '_assign_tag_to_group'):
+                widget._assign_tag_to_group(self.group_key)
+                return
+            if hasattr(widget, 'main_window') and hasattr(widget.main_window, '_assign_tag_to_group'):
+                widget.main_window._assign_tag_to_group(self.group_key)
+                return
+            widget = widget.parent() if hasattr(widget, 'parent') and callable(widget.parent) else None
+    
+    def _get_tag_color(self, tag: str) -> str:
+        """Get fallback color for a tag."""
+        colors = {
+            "important": "#ef4444",
+            "previous year": "#f59e0b",
+            "prev-year": "#f59e0b",
+            "conceptual": "#8b5cf6",
+            "numerical": "#10b981",
+            "difficult": "#dc2626",
+            "easy": "#22c55e",
+        }
+        return colors.get(tag.lower(), "#6b7280")
+
+
+class QuestionListCardView(QScrollArea):
+    """
+    Scrollable container for question accordion groups (Option 1 design).
+    
+    Replaces the traditional QTreeWidget with a modern card-based layout.
+    Contains multiple QuestionAccordionGroup widgets in a vertical layout.
+    
+    Features:
+    - Smooth scrolling
+    - Responsive layout
+    - Multiple selection support via card clicks
+    - Context menu support
+    - Question detail viewing on click
+    """
+    
+    question_selected = Signal(dict)  # Emits question data when card clicked
+    
+    def __init__(self, parent=None):
+        """Initialize the card view container."""
+        super().__init__(parent)
+        
+        self.main_window = parent  # Store reference to main window
+        
+        # Scroll area setup
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        
+        # Container widget
+        self.container = QWidget()
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(8, 8, 8, 8)
+        self.container_layout.setSpacing(12)
+        self.container_layout.addStretch()  # Push groups to top
+        
+        self.setWidget(self.container)
+        
+        # Track accordion groups
+        self.accordion_groups = []
+        self.selected_questions = []  # Track selected question data
+        
+        # Styling
+        self.setStyleSheet("""
+            QScrollArea {
+                border: 1px solid #e2e8f0;
+                background-color: #ffffff;
+            }
+        """)
+    
+    def clear(self):
+        """Remove all accordion groups."""
+        # Remove all groups except the stretch
+        while self.container_layout.count() > 1:
+            item = self.container_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        self.accordion_groups.clear()
+        self.selected_questions.clear()
+    
+    def add_group(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None):
+        """
+        Add an accordion group to the view.
+        
+        Args:
+            group_key: Group identifier
+            questions: List of question data dicts
+            tags: List of tags for this group
+            tag_colors: Dict mapping tag names to color hex codes
+        """
+        group = QuestionAccordionGroup(group_key, questions, tags, tag_colors, self)
+        
+        # Insert before the stretch at the end
+        self.container_layout.insertWidget(len(self.accordion_groups), group)
+        self.accordion_groups.append(group)
+    
+    def on_question_card_clicked(self, question_data: dict):
+        """
+        Handle question card click.
+        Forward to parent for detail display.
+        
+        Args:
+            question_data: Full question data dict
+        """
+        self.question_selected.emit(question_data)
+    
+    def show_group_context_menu(self, group_key: str, position):
+        """
+        Forward context menu request to parent window.
+        
+        Args:
+            group_key: Group identifier
+            position: Global position for menu
+        """
+        if hasattr(self.parent(), 'show_group_context_menu_for_card'):
+            self.parent().show_group_context_menu_for_card(group_key, position)
+    
+    def get_selected_questions(self) -> list[dict]:
+        """
+        Get all currently selected questions.
+        
+        Returns:
+            List of question data dicts
+        """
+        return self.selected_questions
+    
+    def expand_all(self):
+        """Expand all accordion groups."""
+        for group in self.accordion_groups:
+            if not group.is_expanded:
+                group.toggle_expanded()
+    
+    def collapse_all(self):
+        """Collapse all accordion groups."""
+        for group in self.accordion_groups:
+            if group.is_expanded:
+                group.toggle_expanded()

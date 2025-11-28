@@ -70,6 +70,7 @@ from ui.widgets import (
     GroupingChapterListWidget,
     GroupListWidget,
     QuestionTreeWidget,
+    QuestionListCardView,
     TagBadge,
 )
 from utils.helpers import (
@@ -376,11 +377,18 @@ class TSVWatcherWindow(QMainWindow):
         list_control_layout.addStretch()
         question_layout.addLayout(list_control_layout)
         
+        # Replace traditional tree with card-based view
+        self.question_card_view = QuestionListCardView(self)
+        self.question_card_view.question_selected.connect(self.on_question_card_selected)
+        
+        # Keep old tree widget reference for compatibility (hidden)
         self.question_tree = QuestionTreeWidget(self)
+        self.question_tree.setVisible(False)
         self.question_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.question_tree.customContextMenuRequested.connect(self._show_group_context_menu)
+        
         question_splitter = QSplitter(Qt.Vertical)
-        question_splitter.addWidget(self.question_tree)
+        question_splitter.addWidget(self.question_card_view)
         self.question_text_view = QTextEdit()
         self.question_text_view.setReadOnly(True)
         self.question_text_view.setAcceptRichText(True)
@@ -1754,11 +1762,11 @@ class TSVWatcherWindow(QMainWindow):
         self._apply_question_search()
 
     def _apply_question_search(self, preserve_scroll: bool = False) -> None:
-        """Apply normalized search terms and update the question tree."""
+        """Apply normalized search terms and update the question card view."""
         # Save scroll position if requested
         scroll_value = None
-        if preserve_scroll and hasattr(self, "question_tree"):
-            scrollbar = self.question_tree.verticalScrollBar()
+        if preserve_scroll and hasattr(self, "question_card_view"):
+            scrollbar = self.question_card_view.verticalScrollBar()
             if scrollbar:
                 scroll_value = scrollbar.value()
         
@@ -1780,9 +1788,14 @@ class TSVWatcherWindow(QMainWindow):
                 if normalized_search in self._normalize_label(q.get("magazine", ""))
             ]
         
-        # Update tree with grouping
+        # Update card view with grouping
         self.current_questions = filtered
-        self.question_tree.clear()
+        
+        # Clear both views
+        if hasattr(self, "question_card_view"):
+            self.question_card_view.clear()
+        if hasattr(self, "question_tree"):
+            self.question_tree.clear()
         self.question_text_view.clear()
         
         if not filtered:
@@ -1810,67 +1823,15 @@ class TSVWatcherWindow(QMainWindow):
         # Sort groups by number of questions (descending) then by name
         sorted_groups = sorted(groups.items(), key=lambda x: (-len(x[1]), x[0]))
         
-        # Build tree structure
-        for group_key, group_questions in sorted_groups:
-            # Create group node
-            group_item = QTreeWidgetItem(self.question_tree)
-            
-            # Store group key for tagging
-            group_item.setData(0, Qt.UserRole + 1, group_key)
-            
-            # Format group label with question count
-            display_name = group_key.title()
-            label_text = f"{display_name} ({len(group_questions)} questions)"
-            
-            # Always create a widget layout for consistent alignment
-            tag_widget = QWidget()
-            tag_layout = QHBoxLayout(tag_widget)
-            tag_layout.setContentsMargins(0, 4, 0, 4)  # Add vertical padding for spacing
-            tag_layout.setSpacing(8)  # Space between badges
-            
-            # Add the label with fixed minimum width for alignment
-            label = QLabel(label_text)
-            label.setStyleSheet("color: #1e40af; font-weight: bold;")
-            label.setMinimumWidth(300)  # Fixed width to align all tags
-            tag_layout.addWidget(label)
-            
-            # Add tag badges if tags exist for this group
-            tags = self.group_tags.get(group_key, [])
-            if tags:
-                for tag in tags:
-                    color = self._get_or_assign_tag_color(tag)
-                    badge = TagBadge(tag, color)
-                    badge.clicked.connect(self._on_tag_badge_clicked)
-                    tag_layout.addWidget(badge)
-            
-            tag_layout.addStretch()
-            
-            # Set the widget in the tree
-            self.question_tree.setItemWidget(group_item, 0, tag_widget)
-            
-            group_item.setExpanded(False)  # Collapsed by default
-            
-            # Add questions as children
-            for question in group_questions:
-                child = QTreeWidgetItem(group_item)
-                child.setText(0, question.get("qno", ""))
-                child.setText(1, question.get("page", ""))
-                child.setText(2, question.get("question_set_name", ""))
-                child.setText(3, question.get("magazine", ""))
-                
-                # Highlight magazine column with light blue background
-                child.setBackground(3, QColor("#dbeafe"))
-                
-                # Store full question data for selection
-                child.setData(0, Qt.UserRole, question)
-        
-        self.question_tree.resizeColumnToContents(0)
-        self.question_tree.resizeColumnToContents(1)
-        self.question_tree.resizeColumnToContents(2)
+        # Populate card view with accordion groups
+        if hasattr(self, "question_card_view"):
+            for group_key, group_questions in sorted_groups:
+                tags = self.group_tags.get(group_key, [])
+                self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors)
         
         # Restore scroll position if it was saved
-        if scroll_value is not None:
-            scrollbar = self.question_tree.verticalScrollBar()
+        if scroll_value is not None and hasattr(self, "question_card_view"):
+            scrollbar = self.question_card_view.verticalScrollBar()
             if scrollbar:
                 scrollbar.setValue(scroll_value)
 
@@ -2231,6 +2192,51 @@ class TSVWatcherWindow(QMainWindow):
                 f"</div>"
             )
             self.question_text_view.setHtml(html)
+    
+    def on_question_card_selected(self, question: dict) -> None:
+        """Handle question card click in card view."""
+        if not question:
+            self.question_text_view.clear()
+            return
+        
+        # Display question details in the bottom panel
+        html = (
+            f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{question.get('qno','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Page No:</span> <span style='color: #cbd5e1;'>{question.get('page','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Question Set:</span> <span style='color: #cbd5e1;'>{question.get('question_set_name','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Magazine Edition:</span> <span style='color: #cbd5e1;'>{question.get('magazine','')}</span><br/>"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Chapter:</span> <span style='color: #cbd5e1;'>{question.get('group','')}</span><br/>"
+            f"<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'/>"
+            f"<div style='color: #e2e8f0; line-height: 1.7; font-size: 14px;'>{question.get('text','').replace(chr(10), '<br/>')}</div>"
+            f"</div>"
+        )
+        self.question_text_view.setHtml(html)
+    
+    def show_group_context_menu_for_card(self, group_key: str, position):
+        """Show context menu for accordion group (from card view)."""
+        menu = QMenu(self)
+        
+        # Add tag action
+        add_tag_action = menu.addAction("🏷️ Assign Tag to Group")
+        
+        # Remove tag submenu (if tags exist)
+        existing_tags = self.group_tags.get(group_key, [])
+        if existing_tags:
+            remove_tag_menu = menu.addMenu("🗑️ Remove Tag from Group")
+            for tag in existing_tags:
+                remove_action = remove_tag_menu.addAction(tag)
+                remove_action.setData(("remove", group_key, tag))
+        
+        # Show menu and handle action
+        action = menu.exec(position)
+        
+        if action == add_tag_action:
+            self._assign_tag_to_group(group_key)
+        elif action and action.data():
+            action_type, grp_key, tag = action.data()
+            if action_type == "remove":
+                self._remove_tag_from_group(grp_key, tag)
     
     def on_mag_question_selected(self) -> None:
         """Handle question selection in Magazine Editions tab."""
