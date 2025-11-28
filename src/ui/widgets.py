@@ -677,7 +677,7 @@ class QuestionCardWidget(QLabel):
         # Extract data with fallbacks
         qno = q.get("qno", "?")
         page = q.get("page", "?")
-        question_text = q.get("question_text", "No question text available")
+        question_text = q.get("text", q.get("question_text", "No question text available"))
         question_set = q.get("question_set_name", "Unknown")
         magazine = q.get("magazine", "Unknown")
         tags = q.get("tags", [])

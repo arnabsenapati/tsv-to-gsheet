@@ -397,16 +397,15 @@ class TSVWatcherWindow(QMainWindow):
         self.question_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.question_tree.customContextMenuRequested.connect(self._show_group_context_menu)
         
-        question_splitter = QSplitter(Qt.Vertical)
-        question_splitter.addWidget(self.question_card_view)
+        # Add card view directly without the text viewer splitter
+        question_layout.addWidget(self.question_card_view)
+        
+        # Create hidden text view for compatibility with other code
         self.question_text_view = QTextEdit()
+        self.question_text_view.setVisible(False)
         self.question_text_view.setReadOnly(True)
         self.question_text_view.setAcceptRichText(True)
-        question_splitter.addWidget(self.question_text_view)
-        question_splitter.setStretchFactor(0, 3)
-        question_splitter.setStretchFactor(1, 1)
-        question_splitter.setSizes([400, 120])
-        question_layout.addWidget(question_splitter)
+        
         analysis_split.addWidget(question_card)
         qa_tabs.addTab(questions_tab, "Question List")
 
