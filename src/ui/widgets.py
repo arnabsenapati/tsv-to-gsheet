@@ -1750,6 +1750,16 @@ class DragDropQuestionPanel(QWidget):
     - Drag-drop area to add questions
     - Shows added questions as removable chips
     - Save (✓) and Cancel (✕) buttons
+    
+    Layout:
+        ┌─────────────────────────────────────────────────────────────┐
+        │  Add to list: [Dropdown ▼]                         [✓] [✕] │
+        ├─────────────────────────────────────────────────────────────┤
+        │  ┌─────────────────────────────────────────────────────────┐│
+        │  │  [Chip1] [Chip2] [Chip3] [Chip4] [Chip5] [Chip6] ...    ││
+        │  │  ← Drag questions here                                  ││
+        │  └─────────────────────────────────────────────────────────┘│
+        └─────────────────────────────────────────────────────────────┘
     """
     
     save_clicked = Signal(str, list)  # Emits (list_name, questions)
@@ -1762,10 +1772,19 @@ class DragDropQuestionPanel(QWidget):
         
         self.setAcceptDrops(True)
         
-        # Main layout
-        main_layout = QHBoxLayout(self)
+        # Main vertical layout
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(8)
+        main_layout.setSpacing(6)
+        
+        # Top row: List selector + action buttons
+        top_row = QHBoxLayout()
+        top_row.setSpacing(8)
+        
+        # List selector label
+        list_label = QLabel("Add to list:")
+        list_label.setStyleSheet("color: #1e40af; font-weight: 600; background: transparent;")
+        top_row.addWidget(list_label)
         
         # List selector
         self.list_selector = QComboBox()
@@ -1777,16 +1796,75 @@ class DragDropQuestionPanel(QWidget):
                 border: 1px solid #cbd5e1;
                 border-radius: 4px;
                 background: white;
+                color: #0f172a;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background: white;
+                color: #0f172a;
+                selection-background-color: #dbeafe;
+                selection-color: #1e40af;
             }
         """)
-        main_layout.addWidget(QLabel("Add to list:"))
-        main_layout.addWidget(self.list_selector)
+        top_row.addWidget(self.list_selector)
         
-        # Drop area container
+        # Spacer to push buttons to right
+        top_row.addStretch()
+        
+        # Save button - use text that renders reliably
+        save_btn = QPushButton("Save")
+        save_btn.setToolTip("Save questions to list")
+        save_btn.setMinimumWidth(60)
+        save_btn.setFixedHeight(28)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
+        save_btn.clicked.connect(self._on_save)
+        top_row.addWidget(save_btn)
+        
+        # Cancel button
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setToolTip("Cancel and close")
+        cancel_btn.setMinimumWidth(60)
+        cancel_btn.setFixedHeight(28)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
+        cancel_btn.clicked.connect(self._on_cancel)
+        top_row.addWidget(cancel_btn)
+        
+        main_layout.addLayout(top_row)
+        
+        # Drop area container (full width)
         drop_container = QWidget()
-        drop_container.setMinimumHeight(60)
+        drop_container.setMinimumHeight(50)
         drop_container_layout = QVBoxLayout(drop_container)
-        drop_container_layout.setContentsMargins(0, 0, 0, 0)
+        drop_container_layout.setContentsMargins(8, 8, 8, 8)
         drop_container_layout.setSpacing(4)
         
         # Drop area label
@@ -1801,12 +1879,11 @@ class DragDropQuestionPanel(QWidget):
         """)
         drop_container_layout.addWidget(self.drop_label)
         
-        # Scroll area for chips
+        # Scroll area for chips (full width)
         self.chip_scroll = QScrollArea()
         self.chip_scroll.setWidgetResizable(True)
         self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.chip_scroll.setMaximumHeight(150)
         self.chip_scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -1821,10 +1898,10 @@ class DragDropQuestionPanel(QWidget):
         self.chip_main_layout.setSpacing(4)
         self.chip_main_layout.setAlignment(Qt.AlignTop)
         
-        # Track current row for chip wrapping
+        # Track current row for chip wrapping - more chips per row now
         self.current_chip_row = None
         self.chips_in_current_row = 0
-        self.max_chips_per_row = 4
+        self.max_chips_per_row = 8  # Increased for full width
         
         self.chip_scroll.setWidget(self.chip_container)
         self.chip_scroll.setVisible(False)
@@ -1837,53 +1914,7 @@ class DragDropQuestionPanel(QWidget):
                 border-radius: 6px;
             }
         """)
-        main_layout.addWidget(drop_container, 1)
-        
-        # Action buttons
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(4)
-        
-        # Save button
-        save_btn = QPushButton("✓")
-        save_btn.setToolTip("Save questions to list")
-        save_btn.setFixedSize(32, 32)
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #10b981;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #059669;
-            }
-        """)
-        save_btn.clicked.connect(self._on_save)
-        button_layout.addWidget(save_btn)
-        
-        # Cancel button
-        cancel_btn = QPushButton("✕")
-        cancel_btn.setToolTip("Cancel and close")
-        cancel_btn.setFixedSize(32, 32)
-        cancel_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #ef4444;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #dc2626;
-            }
-        """)
-        cancel_btn.clicked.connect(self._on_cancel)
-        button_layout.addWidget(cancel_btn)
-        
-        main_layout.addLayout(button_layout)
+        main_layout.addWidget(drop_container, 1)  # Stretch to fill available space
         
         # Panel styling
         self.setStyleSheet("""
@@ -1893,8 +1924,8 @@ class DragDropQuestionPanel(QWidget):
                 border-radius: 8px;
             }
         """)
-        self.setMinimumHeight(80)
-        self.setMaximumHeight(120)
+        self.setMinimumHeight(90)
+        self.setMaximumHeight(180)
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Accept drag events with question data."""
