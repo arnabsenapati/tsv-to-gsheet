@@ -200,7 +200,109 @@ class TSVWatcherWindow(QMainWindow):
         self._create_lists_page()           # Index 4
         self._create_import_page()          # Index 5
         self._create_jee_page()             # Index 6
-        magazine_tab_layout = QVBoxLayout(magazine_tab)
+
+        # Status bar and log toggle row
+        status_log_layout = QHBoxLayout()
+        
+        # Status label with animation
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                padding: 8px 16px;
+                background-color: #f1f5f9;
+                border-radius: 6px;
+                color: #475569;
+                font-size: 13px;
+            }
+        """)
+        self.status_label.setVisible(True)
+        self.status_label.setWordWrap(False)
+        self.status_label.setMinimumWidth(200)
+        status_log_layout.addWidget(self.status_label, 1)
+        
+        status_log_layout.addSpacing(10)
+        
+        self.log_toggle = QPushButton("Show Log")
+        self.log_toggle.setCheckable(True)
+        self.log_toggle.toggled.connect(self.toggle_log_visibility)
+        status_log_layout.addWidget(self.log_toggle)
+        
+        root_layout.addLayout(status_log_layout)
+
+        # Log card (collapsible)
+        self.log_card = self._create_card()
+        log_layout = QVBoxLayout(self.log_card)
+        log_layout.addWidget(self._create_label("Log"))
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setObjectName("logView")
+        log_layout.addWidget(self.log_view)
+        root_layout.addWidget(self.log_card, 0)
+        self.log_card.setVisible(False)
+        
+        self._refresh_grouping_ui()
+        self._load_saved_question_lists()
+
+    def _on_navigation_changed(self, index: int):
+        """Handle navigation sidebar item selection."""
+        self.content_stack.setCurrentIndex(index)
+
+    def _create_dashboard_page(self):
+        """Create Dashboard page (index 0)."""
+        dashboard = QWidget()
+        dashboard_layout = QVBoxLayout(dashboard)
+        dashboard_layout.setContentsMargins(20, 20, 20, 20)
+        dashboard_layout.setSpacing(20)
+        
+        # Title
+        title = QLabel("📊 Dashboard")
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #1e40af;
+                padding-bottom: 10px;
+            }
+        """)
+        dashboard_layout.addWidget(title)
+        
+        # Workbook selector card
+        workbook_card = self._create_card()
+        workbook_layout = QVBoxLayout(workbook_card)
+        workbook_layout.setSpacing(12)
+        
+        self.output_edit = QLineEdit()
+        self.output_edit.editingFinished.connect(self.update_row_count)
+        output_row = QHBoxLayout()
+        output_row.addWidget(self._create_label("Workbook"))
+        output_row.addWidget(self.output_edit)
+        browse_output = QPushButton("Browse…")
+        browse_output.clicked.connect(self.select_output_file)
+        output_row.addWidget(browse_output)
+        workbook_layout.addLayout(output_row)
+
+        info_row = QHBoxLayout()
+        self.row_count_label = QLabel("Total rows: N/A")
+        self.row_count_label.setObjectName("headerLabel")
+        self.mag_summary_label = QLabel("Magazines: N/A")
+        self.mag_summary_label.setObjectName("infoLabel")
+        self.mag_missing_label = QLabel("Missing ranges: N/A")
+        self.mag_missing_label.setObjectName("infoLabel")
+        info_row.addWidget(self.row_count_label)
+        info_row.addStretch()
+        info_row.addWidget(self.mag_summary_label)
+        info_row.addWidget(self.mag_missing_label)
+        workbook_layout.addLayout(info_row)
+        
+        dashboard_layout.addWidget(workbook_card)
+        dashboard_layout.addStretch()
+        
+        self.content_stack.addWidget(dashboard)
+
+    def _create_magazine_page(self):
+        """Create Magazine Editions page (index 1)."""
+        magazine_page = QWidget()
+        magazine_tab_layout = QVBoxLayout(magazine_page)
         
         # Top summary card
         mag_summary_card = self._create_card()
@@ -297,10 +399,13 @@ class TSVWatcherWindow(QMainWindow):
         mag_split.addWidget(detail_card)
         
         mag_split.setSizes([500, 400])
-        qa_tabs.addTab(magazine_tab, "Magazine Editions")
+        
+        self.content_stack.addWidget(magazine_page)
 
-        questions_tab = QWidget()
-        questions_tab_layout = QVBoxLayout(questions_tab)
+    def _create_questions_page(self):
+        """Create Question List page (index 2)."""
+        questions_page = QWidget()
+        questions_tab_layout = QVBoxLayout(questions_page)
         analysis_card = self._create_card()
         questions_tab_layout.addWidget(analysis_card)
         analysis_layout = QVBoxLayout(analysis_card)
@@ -398,10 +503,13 @@ class TSVWatcherWindow(QMainWindow):
         self.question_text_view.setAcceptRichText(True)
         
         analysis_split.addWidget(question_card)
-        qa_tabs.addTab(questions_tab, "Question List")
+        
+        self.content_stack.addWidget(questions_page)
 
-        grouping_tab = QWidget()
-        grouping_layout = QVBoxLayout(grouping_tab)
+    def _create_grouping_page(self):
+        """Create Chapter Grouping page (index 3)."""
+        grouping_page = QWidget()
+        grouping_layout = QVBoxLayout(grouping_page)
         grouping_card = self._create_card()
         grouping_layout.addWidget(grouping_card)
         grouping_card_layout = QHBoxLayout(grouping_card)
@@ -422,11 +530,13 @@ class TSVWatcherWindow(QMainWindow):
         group_controls.addWidget(move_button)
         group_controls.addStretch()
         grouping_card_layout.addLayout(group_controls)
-        qa_tabs.addTab(grouping_tab, "Chapter Grouping")
         
-        # Question Lists Tab
-        lists_tab = QWidget()
-        lists_tab_layout = QVBoxLayout(lists_tab)
+        self.content_stack.addWidget(grouping_page)
+
+    def _create_lists_page(self):
+        """Create Custom Lists page (index 4)."""
+        lists_page = QWidget()
+        lists_tab_layout = QVBoxLayout(lists_page)
         lists_card = self._create_card()
         lists_tab_layout.addWidget(lists_card)
         lists_card_layout = QVBoxLayout(lists_card)
@@ -504,11 +614,12 @@ class TSVWatcherWindow(QMainWindow):
         list_questions_layout.addWidget(list_question_splitter)
         lists_split.addWidget(list_questions_card)
         
-        qa_tabs.addTab(lists_tab, "Custom Lists")
-        tab_widget.addTab(qa_tab, "Question Analysis")
+        self.content_stack.addWidget(lists_page)
 
-        import_tab = QWidget()
-        import_layout = QVBoxLayout(import_tab)
+    def _create_import_page(self):
+        """Create Data Import page (index 5)."""
+        import_page = QWidget()
+        import_layout = QVBoxLayout(import_page)
 
         import_form_card = self._create_card()
         import_form_layout = QVBoxLayout(import_form_card)
@@ -549,15 +660,14 @@ class TSVWatcherWindow(QMainWindow):
         status_layout.addWidget(self.file_table)
         import_layout.addWidget(status_card)
 
-        tab_widget.addTab(import_tab, "Data Import")
+        self.content_stack.addWidget(import_page)
 
-        # ============================================================================
-        # JEE Main Papers Tab
-        # ============================================================================
-        jee_tab = QWidget()
-        jee_layout = QVBoxLayout(jee_tab)
-        jee_layout.setSpacing(8)  # Reduce spacing
-        jee_layout.setContentsMargins(10, 10, 10, 10)  # Reduce margins
+    def _create_jee_page(self):
+        """Create JEE Main Papers page (index 6)."""
+        jee_page = QWidget()
+        jee_layout = QVBoxLayout(jee_page)
+        jee_layout.setSpacing(8)
+        jee_layout.setContentsMargins(10, 10, 10, 10)
         
         # Compact controls in single row
         controls_layout = QHBoxLayout()
@@ -646,49 +756,9 @@ class TSVWatcherWindow(QMainWindow):
         jee_splitter.setStretchFactor(1, 2)
         jee_splitter.setSizes([300, 600])
         
-        jee_layout.addWidget(jee_splitter, 1)  # Stretch factor 1 to take remaining space
+        jee_layout.addWidget(jee_splitter, 1)
         
-        tab_widget.addTab(jee_tab, "JEE Main Papers")
-
-        # Status bar and log toggle row
-        status_log_layout = QHBoxLayout()
-        
-        # Status label with animation
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                padding: 8px 16px;
-                background-color: #f1f5f9;
-                border-radius: 6px;
-                color: #475569;
-                font-size: 13px;
-            }
-        """)
-        self.status_label.setVisible(True)  # Always visible to maintain layout
-        self.status_label.setWordWrap(False)  # No wrapping - single line only
-        self.status_label.setMinimumWidth(200)  # Minimum width to prevent collapse
-        status_log_layout.addWidget(self.status_label, 1)  # Stretch factor 1 to expand
-        
-        status_log_layout.addSpacing(10)  # Spacing between status and button
-        
-        self.log_toggle = QPushButton("Show Log")
-        self.log_toggle.setCheckable(True)
-        self.log_toggle.toggled.connect(self.toggle_log_visibility)
-        status_log_layout.addWidget(self.log_toggle)
-        
-        root_layout.addLayout(status_log_layout)
-
-        self.log_card = self._create_card()
-        log_layout = QVBoxLayout(self.log_card)
-        log_layout.addWidget(self._create_label("Log"))
-        self.log_view = QTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setObjectName("logView")
-        log_layout.addWidget(self.log_view)
-        root_layout.addWidget(self.log_card, 0)
-        self.log_card.setVisible(False)
-        self._refresh_grouping_ui()
-        self._load_saved_question_lists()
+        self.content_stack.addWidget(jee_page)
 
     def _apply_palette(self) -> None:
         palette = QPalette()
