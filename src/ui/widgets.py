@@ -1756,32 +1756,60 @@ class DashboardView(QWidget):
         total_questions = len(df)
         self.total_q_card.value_label.setText(str(total_questions))
         
-        # Get unique chapters from data
+        # Get unique chapters - look for 'Chapter' or fallback to other chapter-like columns
         chapters_in_data = set()
+        chapter_col = None
         if 'Chapter' in df.columns:
-            chapters_in_data = set(df['Chapter'].dropna().unique())
+            chapter_col = 'Chapter'
+        elif 'chapter' in df.columns:
+            chapter_col = 'chapter'
+        elif 'High level chapter from IIT JEE' in df.columns:  # Fallback for JEE papers
+            chapter_col = 'High level chapter from IIT JEE'
+        elif 'Subject' in df.columns:  # Fallback for different column naming
+            chapter_col = 'Subject'
+        
+        if chapter_col:
+            chapters_in_data = set(df[chapter_col].dropna().unique())
         
         total_chapters = len(chapters_in_data)
         self.total_chapters_card.value_label.setText(str(total_chapters))
         
-        # Get unique magazines
+        # Get unique magazines - look for 'Magazine' or fallback to other columns
         magazines = set()
+        magazine_col = None
         if 'Magazine' in df.columns:
-            magazines = set(df['Magazine'].dropna().unique())
+            magazine_col = 'Magazine'
+        elif 'magazine' in df.columns:
+            magazine_col = 'magazine'
+        elif 'Magazine edition' in df.columns:  # Fallback for JEE papers
+            magazine_col = 'Magazine edition'
+        elif 'JEE Main Session' in df.columns:  # Fallback for JEE papers
+            magazine_col = 'JEE Main Session'
+        
+        if magazine_col:
+            magazines = set(df[magazine_col].dropna().unique())
         
         unique_magazines = len(magazines)
         self.unique_mags_card.value_label.setText(str(unique_magazines))
         
         # === Update Latest Magazine Edition ===
-        if not df.empty:
+        if not df.empty and magazine_col:
             last_row = df.iloc[-1]
-            latest_magazine = last_row.get('Magazine', 'Unknown')
+            latest_magazine = last_row.get(magazine_col, 'Unknown') if magazine_col else 'Unknown'
             
             # Get page range for latest magazine
-            mag_df = df[df['Magazine'] == latest_magazine] if 'Magazine' in df.columns else df
+            mag_df = df[df[magazine_col] == latest_magazine] if magazine_col and magazine_col in df.columns else df
             pages = set()
-            if 'Page' in mag_df.columns:
-                pages = set(mag_df['Page'].dropna())
+            
+            # Look for page column with various names
+            page_col = None
+            for col in ['Page', 'page', 'Page Number', 'page_number', 'PageNo']:
+                if col in mag_df.columns:
+                    page_col = col
+                    break
+            
+            if page_col:
+                pages = set(mag_df[page_col].dropna())
             
             # Format page range
             if pages:
@@ -1791,7 +1819,7 @@ class DashboardView(QWidget):
                 else:
                     page_range = "Unknown"
             else:
-                page_range = "Unknown"
+                page_range = "N/A"
             
             latest_mag_count = len(mag_df)
             
@@ -1804,6 +1832,7 @@ class DashboardView(QWidget):
     
     def _update_chapter_statistics(self, df, chapter_groups: dict[str, list[str]]) -> None:
         """Update chapter-wise question count display."""
+        
         # Clear existing chapter cards
         while self.chapters_layout.count():
             item = self.chapters_layout.takeAt(0)
@@ -1816,7 +1845,18 @@ class DashboardView(QWidget):
             self.chapters_layout.addWidget(no_data_label)
             return
         
-        if 'Chapter' not in df.columns:
+        # Find chapter column dynamically
+        chapter_col = None
+        if 'Chapter' in df.columns:
+            chapter_col = 'Chapter'
+        elif 'chapter' in df.columns:
+            chapter_col = 'chapter'
+        elif 'High level chapter from IIT JEE' in df.columns:  # Fallback for JEE papers
+            chapter_col = 'High level chapter from IIT JEE'
+        elif 'Subject' in df.columns:
+            chapter_col = 'Subject'
+        
+        if not chapter_col:
             return
         
         # Get chapter to group mapping (reverse of chapter_groups)
@@ -1828,7 +1868,7 @@ class DashboardView(QWidget):
         # Calculate questions per group
         group_counts = {}
         for _, row in df.iterrows():
-            chapter = row.get('Chapter', 'Unknown')
+            chapter = row.get(chapter_col, 'Unknown')
             group = chapter_to_group.get(chapter, 'Others')
             group_counts[group] = group_counts.get(group, 0) + 1
         

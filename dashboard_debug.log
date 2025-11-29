@@ -1,0 +1,21 @@
+
+[DEBUG] update_dashboard_data called
+[DEBUG] df type: <class 'pandas.core.frame.DataFrame'>
+[DEBUG] df is None: False
+[DEBUG] df shape: (7809, 7)
+[DEBUG] df columns: ['Qno', 'PageNo', 'Magazine edition', 'Name of the question set', 'Full Question Text', 'High level chapter from IIT JEE', 'Column 1']
+[DEBUG] df dtypes:
+Qno                                object
+PageNo                             object
+Magazine edition                   object
+Name of the question set           object
+Full Question Text                 object
+High level chapter from IIT JEE    object
+Column 1                           object
+dtype: object
+[DEBUG] Total questions: 7809
+[DEBUG] 'Chapter' column NOT found
+[DEBUG] Available columns: ['Qno', 'PageNo', 'Magazine edition', 'Name of the question set', 'Full Question Text', 'High level chapter from IIT JEE', 'Column 1']
+[DEBUG] Total unique chapters: 0
+[DEBUG] 'Magazine' column NOT found
+[DEBUG] Total unique magazines: 0
