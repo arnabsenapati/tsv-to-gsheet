@@ -833,18 +833,30 @@ class QuestionAccordionGroup(QWidget):
         self.header.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.header)
         
-        # Content container (collapsible)
+        # Content container (collapsible) with 2-column grid
         self.content_widget = QWidget()
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(8, 8, 8, 8)
         self.content_layout.setSpacing(4)
         
-        # Add question cards (initially hidden)
-        for question in questions:
+        # Add question cards in 2-column grid layout
+        row_layout = None
+        for i, question in enumerate(questions):
             card = QuestionCardWidget(question, self)
             card.clicked.connect(self._on_card_clicked)
             self.question_cards.append(card)
-            self.content_layout.addWidget(card)
+            
+            # Create new row every 2 cards
+            if i % 2 == 0:
+                row_layout = QHBoxLayout()
+                row_layout.setSpacing(8)
+                self.content_layout.addLayout(row_layout)
+            
+            row_layout.addWidget(card)
+            
+            # Add stretch to last row if odd number of cards
+            if i == len(questions) - 1 and len(questions) % 2 == 1:
+                row_layout.addStretch()
         
         self.content_widget.setVisible(False)
         layout.addWidget(self.content_widget)
