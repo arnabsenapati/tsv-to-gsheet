@@ -1933,6 +1933,7 @@ class DashboardView(QWidget):
         progress_bar.setFixedHeight(6)
         progress_layout = QHBoxLayout(progress_bar)
         progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(0)
         
         fill_ratio = count / total if total > 0 else 0
         fill_widget = QWidget()
@@ -1942,7 +1943,8 @@ class DashboardView(QWidget):
                 border-radius: 3px;
             }
         """)
-        progress_layout.addWidget(fill_widget)
+        fill_widget.setFixedHeight(6)
+        progress_layout.addWidget(fill_widget, int(fill_ratio * 100))
         progress_layout.addStretch()
         
         card_layout.addWidget(progress_bar)
