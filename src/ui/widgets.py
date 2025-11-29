@@ -2257,6 +2257,15 @@ class DragDropQuestionPanel(QWidget):
         self.drop_label.setVisible(True)
         self.chip_scroll.setVisible(False)
     
+    def update_list_selector(self, question_lists: dict):
+        """Update the list selector dropdown with current question lists."""
+        self.list_selector.blockSignals(True)
+        self.list_selector.clear()
+        list_names = sorted(question_lists.keys())
+        self.list_selector.addItems(list_names)
+        self.list_selector.blockSignals(False)
+        self.question_lists = question_lists
+    
     def display_existing_questions(self, questions: list):
         """Display existing questions in the list as inactive chips."""
         # Clear existing chips

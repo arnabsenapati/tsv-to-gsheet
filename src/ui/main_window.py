@@ -2628,6 +2628,9 @@ class TSVWatcherWindow(QMainWindow):
         # Trigger selection of first item if any lists loaded
         if self.saved_lists_widget.count() > 0:
             self.saved_lists_widget.setCurrentRow(0)
+        
+        # Update drag-drop panel dropdown with loaded lists
+        self.drag_drop_panel.update_list_selector(self.question_lists)
     
     def _save_question_list(self, list_name: str, save_filters: bool = False) -> None:
         """Save a question list to file.
@@ -2679,6 +2682,7 @@ class TSVWatcherWindow(QMainWindow):
         self.question_lists[list_name] = []
         self._save_question_list(list_name)
         self._load_saved_question_lists()
+        self.drag_drop_panel.update_list_selector(self.question_lists)
         self.log(f"Created new question list: {list_name}")
     
     def rename_question_list(self) -> None:
@@ -2712,6 +2716,7 @@ class TSVWatcherWindow(QMainWindow):
         self.question_lists[new_name] = self.question_lists.pop(old_name)
         self._save_question_list(new_name)
         self._load_saved_question_lists()
+        self.drag_drop_panel.update_list_selector(self.question_lists)
         self.log(f"Renamed list from '{old_name}' to '{new_name}'")
     
     def delete_question_list(self) -> None:
@@ -2739,6 +2744,7 @@ class TSVWatcherWindow(QMainWindow):
         # Update data structure
         del self.question_lists[list_name]
         self._load_saved_question_lists()
+        self.drag_drop_panel.update_list_selector(self.question_lists)
         self.list_question_table.setRowCount(0)
         self.list_name_label.setText("Select a list to view questions")
         self.log(f"Deleted question list: {list_name}")
