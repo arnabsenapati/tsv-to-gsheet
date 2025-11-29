@@ -1580,13 +1580,13 @@ class QuestionListCardView(QScrollArea):
 
 class DashboardView(QWidget):
     """
-    Dashboard view with workbook selector and statistics.
+    Dashboard view with workbook statistics and data samples.
     
     Displays:
-    - Workbook path selector
-    - Total row count
-    - Magazine summary
-    - Missing ranges information
+    - Total questions and chapters statistics
+    - Chapter-wise question count (using chapter grouping JSON)
+    - Latest magazine edition info (last row)
+    - Page range for latest magazine
     """
     
     def __init__(self, parent=None):
@@ -1609,28 +1609,306 @@ class DashboardView(QWidget):
         """)
         layout.addWidget(title)
         
-        # Card container for workbook info
+        # Scroll area for statistics
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        
+        scroll_container = QWidget()
+        scroll_layout = QVBoxLayout(scroll_container)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(16)
+        
+        # === Summary Stats Cards ===
+        summary_layout = QHBoxLayout()
+        summary_layout.setSpacing(12)
+        
+        # Total Questions Card
+        self.total_q_card = self._create_stat_card("📊 Total Questions", "0", "#3b82f6")
+        summary_layout.addWidget(self.total_q_card)
+        
+        # Total Chapters Card
+        self.total_chapters_card = self._create_stat_card("📚 Total Chapters", "0", "#8b5cf6")
+        summary_layout.addWidget(self.total_chapters_card)
+        
+        # Unique Magazines Card
+        self.unique_mags_card = self._create_stat_card("📰 Unique Magazines", "0", "#ec4899")
+        summary_layout.addWidget(self.unique_mags_card)
+        
+        scroll_layout.addLayout(summary_layout)
+        
+        # === Latest Magazine Edition (Highlighted) ===
+        latest_mag_card = QWidget()
+        latest_mag_card.setStyleSheet("""
+            QWidget {
+                background-color: #fef3c7;
+                border: 2px solid #fbbf24;
+                border-radius: 8px;
+                padding: 16px;
+            }
+        """)
+        latest_mag_layout = QVBoxLayout(latest_mag_card)
+        
+        latest_mag_title = QLabel("⭐ Latest Magazine Edition (Most Recent)")
+        latest_mag_title.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #92400e;
+            }
+        """)
+        latest_mag_layout.addWidget(latest_mag_title)
+        
+        # Latest mag info row
+        latest_mag_info_layout = QHBoxLayout()
+        self.latest_mag_name = QLabel("Magazine: -")
+        self.latest_mag_name.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        latest_mag_info_layout.addWidget(self.latest_mag_name)
+        
+        self.latest_mag_pages = QLabel("Pages: -")
+        self.latest_mag_pages.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        latest_mag_info_layout.addWidget(self.latest_mag_pages)
+        
+        self.latest_mag_questions = QLabel("Questions: 0")
+        self.latest_mag_questions.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        latest_mag_info_layout.addWidget(self.latest_mag_questions)
+        
+        latest_mag_info_layout.addStretch()
+        latest_mag_layout.addLayout(latest_mag_info_layout)
+        
+        scroll_layout.addWidget(latest_mag_card)
+        
+        # === Chapter-wise Statistics ===
+        chapters_title = QLabel("📖 Questions by Chapter Group")
+        chapters_title.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #1e40af;
+                padding: 8px 0px;
+            }
+        """)
+        scroll_layout.addWidget(chapters_title)
+        
+        # Scrollable container for chapter cards
+        self.chapters_container = QWidget()
+        self.chapters_layout = QVBoxLayout(self.chapters_container)
+        self.chapters_layout.setContentsMargins(0, 0, 0, 0)
+        self.chapters_layout.setSpacing(8)
+        scroll_layout.addWidget(self.chapters_container)
+        
+        scroll_layout.addStretch()
+        scroll.setWidget(scroll_container)
+        layout.addWidget(scroll, 1)
+    
+    def _create_stat_card(self, title: str, value: str, color: str) -> QWidget:
+        """Create a statistics card with title and value."""
+        card = QWidget()
+        card.setStyleSheet(f"""
+            QWidget {{
+                background-color: #f0f9ff;
+                border: 2px solid {color};
+                border-radius: 8px;
+                padding: 16px;
+            }}
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
+        
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 12px;
+                color: #475569;
+                font-weight: 600;
+            }}
+        """)
+        card_layout.addWidget(title_label)
+        
+        value_label = QLabel(value)
+        value_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 28px;
+                font-weight: bold;
+                color: {color};
+            }}
+        """)
+        card_layout.addWidget(value_label)
+        
+        # Store value label for updates
+        card.value_label = value_label
+        return card
+    
+    def update_dashboard_data(self, df, chapter_groups: dict[str, list[str]]) -> None:
+        """
+        Update dashboard with data from workbook DataFrame.
+        
+        Args:
+            df: Pandas DataFrame with workbook data
+            chapter_groups: Dict mapping group names to chapter lists
+        """
+        if df is None or df.empty:
+            return
+        
+        # === Update Summary Stats ===
+        total_questions = len(df)
+        self.total_q_card.value_label.setText(str(total_questions))
+        
+        # Get unique chapters from data
+        chapters_in_data = set()
+        if 'Chapter' in df.columns:
+            chapters_in_data = set(df['Chapter'].dropna().unique())
+        
+        total_chapters = len(chapters_in_data)
+        self.total_chapters_card.value_label.setText(str(total_chapters))
+        
+        # Get unique magazines
+        magazines = set()
+        if 'Magazine' in df.columns:
+            magazines = set(df['Magazine'].dropna().unique())
+        
+        unique_magazines = len(magazines)
+        self.unique_mags_card.value_label.setText(str(unique_magazines))
+        
+        # === Update Latest Magazine Edition ===
+        if not df.empty:
+            last_row = df.iloc[-1]
+            latest_magazine = last_row.get('Magazine', 'Unknown')
+            
+            # Get page range for latest magazine
+            mag_df = df[df['Magazine'] == latest_magazine] if 'Magazine' in df.columns else df
+            pages = set()
+            if 'Page' in mag_df.columns:
+                pages = set(mag_df['Page'].dropna())
+            
+            # Format page range
+            if pages:
+                page_list = sorted([int(p) if isinstance(p, (int, float)) else 0 for p in pages if p])
+                if page_list:
+                    page_range = f"{min(page_list)}-{max(page_list)}"
+                else:
+                    page_range = "Unknown"
+            else:
+                page_range = "Unknown"
+            
+            latest_mag_count = len(mag_df)
+            
+            self.latest_mag_name.setText(f"📰 Magazine: {latest_magazine}")
+            self.latest_mag_pages.setText(f"📄 Pages: {page_range}")
+            self.latest_mag_questions.setText(f"❓ Questions: {latest_mag_count}")
+        
+        # === Update Chapter-wise Statistics ===
+        self._update_chapter_statistics(df, chapter_groups)
+    
+    def _update_chapter_statistics(self, df, chapter_groups: dict[str, list[str]]) -> None:
+        """Update chapter-wise question count display."""
+        # Clear existing chapter cards
+        while self.chapters_layout.count():
+            item = self.chapters_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        if not chapter_groups or df is None or df.empty:
+            no_data_label = QLabel("No chapter data available")
+            no_data_label.setStyleSheet("color: #94a3b8;")
+            self.chapters_layout.addWidget(no_data_label)
+            return
+        
+        if 'Chapter' not in df.columns:
+            return
+        
+        # Get chapter to group mapping (reverse of chapter_groups)
+        chapter_to_group = {}
+        for group_name, chapters in chapter_groups.items():
+            for chapter in chapters:
+                chapter_to_group[chapter] = group_name
+        
+        # Calculate questions per group
+        group_counts = {}
+        for _, row in df.iterrows():
+            chapter = row.get('Chapter', 'Unknown')
+            group = chapter_to_group.get(chapter, 'Others')
+            group_counts[group] = group_counts.get(group, 0) + 1
+        
+        # Sort by count (descending)
+        sorted_groups = sorted(group_counts.items(), key=lambda x: x[1], reverse=True)
+        
+        # Create progress bar for each group (top 10)
+        for group_name, count in sorted_groups[:10]:
+            group_card = self._create_chapter_progress_card(group_name, count, len(df))
+            self.chapters_layout.addWidget(group_card)
+        
+        # Add stretch at end
+        self.chapters_layout.addStretch()
+    
+    def _create_chapter_progress_card(self, group_name: str, count: int, total: int) -> QWidget:
+        """Create a progress bar card for chapter group."""
         card = QWidget()
         card.setStyleSheet("""
             QWidget {
                 background-color: white;
                 border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                padding: 16px;
+                border-radius: 6px;
+                padding: 12px;
             }
         """)
         card_layout = QVBoxLayout(card)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(8)
         
-        # Workbook selector row (will be connected by main window)
-        self.output_edit = None
-        self.browse_btn = None
-        self.row_count_label = None
-        self.mag_summary_label = None
-        self.mag_missing_label = None
+        # Title row
+        title_row = QHBoxLayout()
+        group_label = QLabel(f"📚 {group_name}")
+        group_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                font-weight: bold;
+                color: #1e40af;
+            }
+        """)
+        title_row.addWidget(group_label)
         
-        layout.addWidget(card)
-        layout.addStretch()
+        count_label = QLabel(f"{count}/{total} ({round(100*count/total)}%)")
+        count_label.setStyleSheet("""
+            QLabel {
+                font-size: 11px;
+                color: #64748b;
+                font-weight: 600;
+            }
+        """)
+        title_row.addWidget(count_label)
+        title_row.addStretch()
+        card_layout.addLayout(title_row)
+        
+        # Progress bar
+        progress_bar = QWidget()
+        progress_bar.setStyleSheet("""
+            QWidget {
+                background-color: #e2e8f0;
+                border-radius: 3px;
+            }
+        """)
+        progress_bar.setFixedHeight(6)
+        progress_layout = QHBoxLayout(progress_bar)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        
+        fill_ratio = count / total if total > 0 else 0
+        fill_widget = QWidget()
+        fill_widget.setStyleSheet("""
+            QWidget {
+                background-color: #3b82f6;
+                border-radius: 3px;
+            }
+        """)
+        progress_layout.addWidget(fill_widget)
+        progress_layout.addStretch()
+        
+        card_layout.addWidget(progress_bar)
+        card.setMaximumHeight(60)
+        
+        return card
 
 
 class NavigationSidebar(QWidget):

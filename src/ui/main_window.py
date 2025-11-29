@@ -259,22 +259,10 @@ class TSVWatcherWindow(QMainWindow):
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
-        dashboard = QWidget()
-        dashboard_layout = QVBoxLayout(dashboard)
+        dashboard_container = QWidget()
+        dashboard_layout = QVBoxLayout(dashboard_container)
         dashboard_layout.setContentsMargins(20, 20, 20, 20)
         dashboard_layout.setSpacing(20)
-        
-        # Title
-        title = QLabel("📊 Dashboard")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
-                font-weight: bold;
-                color: #1e40af;
-                padding-bottom: 10px;
-            }
-        """)
-        dashboard_layout.addWidget(title)
         
         # Workbook selector card
         workbook_card = self._create_card()
@@ -290,24 +278,14 @@ class TSVWatcherWindow(QMainWindow):
         browse_output.clicked.connect(self.select_output_file)
         output_row.addWidget(browse_output)
         workbook_layout.addLayout(output_row)
-
-        info_row = QHBoxLayout()
-        self.row_count_label = QLabel("Total rows: N/A")
-        self.row_count_label.setObjectName("headerLabel")
-        self.mag_summary_label = QLabel("Magazines: N/A")
-        self.mag_summary_label.setObjectName("infoLabel")
-        self.mag_missing_label = QLabel("Missing ranges: N/A")
-        self.mag_missing_label.setObjectName("infoLabel")
-        info_row.addWidget(self.row_count_label)
-        info_row.addStretch()
-        info_row.addWidget(self.mag_summary_label)
-        info_row.addWidget(self.mag_missing_label)
-        workbook_layout.addLayout(info_row)
         
         dashboard_layout.addWidget(workbook_card)
-        dashboard_layout.addStretch()
         
-        self.content_stack.addWidget(dashboard)
+        # Add the new DashboardView for statistics
+        self.dashboard_view = DashboardView(self)
+        dashboard_layout.addWidget(self.dashboard_view, 1)
+        
+        self.content_stack.addWidget(dashboard_container)
 
     def _create_magazine_page(self):
         """Create Magazine Editions page (index 1)."""
@@ -3524,6 +3502,11 @@ class TSVWatcherWindow(QMainWindow):
                 self._auto_assign_chapters(raw_chapter_inputs)
                 self._populate_chapter_list(chapter_data)
                 self._refresh_grouping_ui()
+                
+                # Update dashboard with statistics
+                if hasattr(self, 'dashboard_view') and hasattr(self, 'workbook_df'):
+                    self.dashboard_view.update_dashboard_data(self.workbook_df, self.chapter_groups)
+                
                 for warning in warnings:
                     self.log(warning)
             elif event_type == "metrics_error":

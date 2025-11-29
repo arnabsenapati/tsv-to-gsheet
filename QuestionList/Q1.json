@@ -67,6 +67,39 @@
       "question_set_name": "Are You Ready for Olympiads? (Class XII)",
       "row_number": 2391,
       "text": "In a system of linear equations 5x+4y+2z=13, 4x\u2212y+z=6, 2x+3y+3z=16, find the value of k for which system has no solution."
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | September '25",
+      "page": "55",
+      "qno": "1",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "Are You Ready for Olympiads",
+      "row_number": 192,
+      "text": "If A and B are disjoint sets, then A \u2229 B\u2032, where B\u2032 is complement of B, is equal to ?"
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | September '25",
+      "page": "60",
+      "qno": "1",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "Are You Ready for Olympiads",
+      "row_number": 212,
+      "text": "Let f(x) = log\u2089(x) and g(x) = (x \u2212 2)/(x + 1). Then the domain of the composite function g\u2218f is ?"
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | August '25",
+      "page": "65",
+      "qno": "4",
+      "question_set": "Complex Numbers & Quadratic Equations",
+      "question_set_name": "Are You Ready for Olympiads?",
+      "row_number": 595,
+      "text": "If (5z\u2082)/(11z\u2081) is purely imaginary, then value of (2z\u2081 + 3z\u2082)/(2z\u2081 \u2212 3z\u2082) is (A) 37/33 (B) 2 (C) 1 (D) 3"
     }
   ]
 }
