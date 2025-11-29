@@ -1901,6 +1901,9 @@ class DragDropQuestionPanel(QWidget):
         """)
         top_row.addWidget(self.list_selector)
         
+        # Connect dropdown change to update existing questions
+        self.list_selector.currentTextChanged.connect(self._on_list_selector_changed)
+        
         # Spacer to push buttons to right
         top_row.addStretch()
         
@@ -2265,6 +2268,17 @@ class DragDropQuestionPanel(QWidget):
         self.list_selector.addItems(list_names)
         self.list_selector.blockSignals(False)
         self.question_lists = question_lists
+        
+        # Trigger the change handler to update existing questions display
+        if list_names:
+            first_list = list_names[0]
+            self._on_list_selector_changed(first_list)
+    
+    def _on_list_selector_changed(self, list_name: str):
+        """Handle dropdown selection change - update existing questions display."""
+        if list_name and list_name in self.question_lists:
+            questions = self.question_lists[list_name]
+            self.display_existing_questions(questions)
     
     def display_existing_questions(self, questions: list):
         """Display existing questions in the list as inactive chips."""

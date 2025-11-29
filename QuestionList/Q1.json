@@ -67,6 +67,50 @@
       "question_set_name": "Are You Ready for Olympiads?",
       "row_number": 592,
       "text": "The set of all natural numbers x such that 4x + 9 < 30 is equal to (A) {2, 3, 4, 5} (B) {1, 2, 3, 4, 5} (C) {1, 2, 3, 4, 5, 6} (D) None of these"
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | August '25",
+      "page": "66",
+      "qno": "17",
+      "question_set": "Linear Inequalities",
+      "question_set_name": "Are You Ready for Olympiads?",
+      "row_number": 608,
+      "text": "Solve inequalities 2x \u2212 1 \u2264 3 and 3x + 1 \u2265 \u22125. If x = [\u2212k, k], then k = _____."
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | February '25",
+      "page": "36",
+      "qno": "6",
+      "question_set": "Inequalities",
+      "question_set_name": "Are You Ready for Olympiads?",
+      "row_number": 2082,
+      "text": "The set of admissible values of x such that (2x + 3)/(2x \u2212 9) < 0 is _____."
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | October '25",
+      "page": "35",
+      "qno": "4",
+      "question_set": "15. Trigonometry \u2013 Identities, Equations, Properties of Triangle, Heights & Distances, Inverse Trigonometric Functions",
+      "question_set_name": "Are You Ready for Olympiads? (Class XI)",
+      "row_number": 2371,
+      "text": "If sin\u03b8 + cos\u03b8 = \u221a2, then cos\u2076\u03b8 + sin\u2076\u03b8 is equal to"
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "group_key": "are you ready",
+      "magazine": "Mathematics Today | October '25",
+      "page": "40",
+      "qno": "4",
+      "question_set": "3. Matrices & Determinants \u2013 Types of Matrices, Properties, Inverse, Cramer\u2019s Rule, Linear Equations",
+      "question_set_name": "Are You Ready for Olympiads? (Class XII)",
+      "row_number": 2391,
+      "text": "In a system of linear equations 5x+4y+2z=13, 4x\u2212y+z=6, 2x+3y+3z=16, find the value of k for which system has no solution."
     }
   ]
 }
