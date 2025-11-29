@@ -23,7 +23,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import load_workbook
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -427,61 +427,160 @@ class TSVWatcherWindow(QMainWindow):
 
         question_card = self._create_card()
         question_layout = QVBoxLayout(question_card)
-        question_layout.addWidget(self._create_label("Questions"))
         
-        # Add search controls
+        # Search and action controls in single row
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("Search:"))
+        search_layout.setSpacing(8)
         
-        search_layout.addWidget(QLabel("Question Set:"))
+        # Search controls container with visual grouping
+        search_container = QWidget()
+        search_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QLabel {
+                color: #1e40af;
+                font-weight: 600;
+                background: transparent;
+            }
+            QLineEdit {
+                background-color: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #0f172a;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3b82f6;
+            }
+        """)
+        search_container_layout = QHBoxLayout(search_container)
+        search_container_layout.setContentsMargins(8, 4, 8, 4)
+        search_container_layout.setSpacing(8)
+        
+        # Question Set search
         self.question_set_search = QLineEdit()
-        self.question_set_search.setPlaceholderText("Type to search...")
+        self.question_set_search.setPlaceholderText("Search by question set name")
+        self.question_set_search.setToolTip("Search by question set name")
+        self.question_set_search.setMinimumHeight(28)
+        self.question_set_search.setMaximumHeight(28)
         self.question_set_search.textChanged.connect(self.on_question_set_search_changed)
-        search_layout.addWidget(self.question_set_search)
+        search_container_layout.addWidget(self.question_set_search, 2)  # Stretch factor 2
         
-        search_layout.addWidget(QLabel("Tags:"))
+        # Tags filter
         self.tag_filter_display = QLineEdit()
         self.tag_filter_display.setPlaceholderText("No tags selected")
+        self.tag_filter_display.setToolTip("Selected tags for filtering")
         self.tag_filter_display.setReadOnly(True)
+        self.tag_filter_display.setMinimumHeight(28)
+        self.tag_filter_display.setMaximumHeight(28)
         self.tag_filter_display.setStyleSheet("""
             QLineEdit {
                 background-color: #0f172a;
                 color: #ffffff;
                 border: 1px solid #334155;
-                padding: 4px;
+                padding: 4px 8px;
                 border-radius: 4px;
             }
         """)
-        search_layout.addWidget(self.tag_filter_display)
-        self.tag_filter_btn = QPushButton("Select Tags")
+        search_container_layout.addWidget(self.tag_filter_display, 2)  # Stretch factor 2
+        
+        # Tag filter button (same style as accordion tag button)
+        self.tag_filter_btn = QPushButton("🏷️")
+        self.tag_filter_btn.setToolTip("Select tags to filter questions")
+        self.tag_filter_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 14px;
+                min-width: 30px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QPushButton:hover {
+                background-color: #3b82f6;
+            }
+        """)
         self.tag_filter_btn.clicked.connect(self._show_tag_filter_dialog)
-        search_layout.addWidget(self.tag_filter_btn)
+        search_container_layout.addWidget(self.tag_filter_btn)
         
-        search_layout.addWidget(QLabel("Magazine:"))
+        # Magazine search
         self.magazine_search = QLineEdit()
-        self.magazine_search.setPlaceholderText("Type to search...")
+        self.magazine_search.setPlaceholderText("Search by magazine name")
+        self.magazine_search.setToolTip("Search by magazine name")
+        self.magazine_search.setMinimumHeight(28)
+        self.magazine_search.setMaximumHeight(28)
         self.magazine_search.textChanged.connect(self.on_magazine_search_changed)
-        search_layout.addWidget(self.magazine_search)
+        search_container_layout.addWidget(self.magazine_search, 2)  # Stretch factor 2
         
-        clear_search_btn = QPushButton("Clear Search")
+        # Clear button with icon
+        clear_search_btn = QPushButton("✕")
+        clear_search_btn.setToolTip("Clear all search filters")
+        clear_search_btn.setMinimumHeight(28)
+        clear_search_btn.setMaximumHeight(28)
+        clear_search_btn.setMinimumWidth(32)
+        clear_search_btn.setMaximumWidth(32)
+        clear_search_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
         clear_search_btn.clicked.connect(self.clear_question_search)
-        search_layout.addWidget(clear_search_btn)
-        search_layout.addStretch()
+        search_container_layout.addWidget(clear_search_btn)
+        
+        search_layout.addWidget(search_container, 1)  # Stretch to fill space
+        
+        # Action buttons container with different visual style
+        action_container = QWidget()
+        action_container.setStyleSheet("""
+            QWidget {
+                background-color: #dbeafe;
+                border: 1px solid #93c5fd;
+                border-radius: 6px;
+                padding: 6px;
+            }
+        """)
+        action_layout = QHBoxLayout(action_container)
+        action_layout.setContentsMargins(8, 4, 8, 4)
+        action_layout.setSpacing(8)
+        
+        # Action buttons with icons
+        add_to_list_btn = QPushButton()
+        add_to_list_btn.setIcon(QIcon("icons/add.svg"))
+        add_to_list_btn.setToolTip("Add selected questions to list")
+        add_to_list_btn.setMinimumHeight(28)
+        add_to_list_btn.setMaximumHeight(28)
+        add_to_list_btn.setMinimumWidth(32)
+        add_to_list_btn.setMaximumWidth(32)
+        add_to_list_btn.clicked.connect(self.add_selected_to_list)
+        action_layout.addWidget(add_to_list_btn)
+        
+        create_random_list_btn = QPushButton()
+        create_random_list_btn.setIcon(QIcon("icons/random.png"))
+        create_random_list_btn.setToolTip("Create random list from filtered questions")
+        create_random_list_btn.setMinimumHeight(28)
+        create_random_list_btn.setMaximumHeight(28)
+        create_random_list_btn.setMinimumWidth(32)
+        create_random_list_btn.setMaximumWidth(32)
+        create_random_list_btn.clicked.connect(self.create_random_list_from_filtered)
+        action_layout.addWidget(create_random_list_btn)
+        
+        search_layout.addWidget(action_container)
         
         question_layout.addLayout(search_layout)
-        
-        # Add question list controls
-        list_control_layout = QHBoxLayout()
-        add_to_list_btn = QPushButton("Add Selected to List")
-        add_to_list_btn.clicked.connect(self.add_selected_to_list)
-        list_control_layout.addWidget(add_to_list_btn)
-        
-        create_random_list_btn = QPushButton("Create Random List from Filtered")
-        create_random_list_btn.clicked.connect(self.create_random_list_from_filtered)
-        list_control_layout.addWidget(create_random_list_btn)
-        
-        list_control_layout.addStretch()
-        question_layout.addLayout(list_control_layout)
         
         # Replace traditional tree with card-based view
         self.question_card_view = QuestionListCardView(self)
