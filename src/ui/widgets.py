@@ -810,6 +810,85 @@ class GroupListWidget(QListWidget):
         event.acceptProposedAction()
 
 
+class QuestionCardWithRemoveButton(QWidget):
+    """
+    Wrapper widget for QuestionCardWidget that adds a remove button in top-right corner on hover.
+    
+    Features:
+    - Displays question card normally with no hover darkening
+    - Shows ✕ icon button in top-right corner on hover
+    - Single click on button to remove
+    - Double click on card works normally for copying
+    """
+    
+    clicked = Signal(dict)  # Emits question data when card clicked
+    remove_requested = Signal(dict)  # Emits question data when remove button clicked
+    
+    def __init__(self, question_data: dict, parent=None):
+        super().__init__(parent)
+        self.question_data = question_data
+        self.setMinimumHeight(100)
+        self.setMaximumHeight(150)
+        
+        # Main layout for the card
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Create the card widget
+        self.card = QuestionCardWidget(question_data, self)
+        self.card.clicked.connect(lambda q: self.clicked.emit(q))
+        layout.addWidget(self.card)
+        
+        # Create remove button (positioned absolutely in top-right corner)
+        self.remove_btn = QPushButton("✕", self)
+        self.remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 16px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
+        self.remove_btn.setFixedSize(28, 28)
+        self.remove_btn.clicked.connect(self._on_remove_clicked)
+        self.remove_btn.setVisible(False)
+        self.remove_btn.setCursor(Qt.PointingHandCursor)
+        self.remove_btn.raise_()
+    
+    def enterEvent(self, event):
+        """Show remove button in top-right corner on hover."""
+        self.remove_btn.setVisible(True)
+        # Position button in top-right corner
+        self.remove_btn.move(self.width() - 32, 4)
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """Hide remove button when leaving."""
+        self.remove_btn.setVisible(False)
+        super().leaveEvent(event)
+    
+    def mouseDoubleClickEvent(self, event):
+        """Pass double-click events to the card widget."""
+        if hasattr(self.card, 'mouseDoubleClickEvent'):
+            self.card.mouseDoubleClickEvent(event)
+        else:
+            super().mouseDoubleClickEvent(event)
+    
+    def _on_remove_clicked(self):
+        """Emit remove signal when button clicked."""
+        self.remove_requested.emit(self.question_data)
+
+
 class QuestionCardWidget(QLabel):
     """
     Modern card widget for displaying a single question with preview.

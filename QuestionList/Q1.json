@@ -7,17 +7,6 @@
       "group_key": "are you ready",
       "magazine": "Mathematics Today | September '25",
       "page": "55",
-      "qno": "1",
-      "question_set": "Sets, Relations & Functions",
-      "question_set_name": "Are You Ready for Olympiads",
-      "row_number": 192,
-      "text": "If A and B are disjoint sets, then A \u2229 B\u2032, where B\u2032 is complement of B, is equal to ?"
-    },
-    {
-      "group": "Sets/Relations/Functions",
-      "group_key": "are you ready",
-      "magazine": "Mathematics Today | September '25",
-      "page": "55",
       "qno": "2",
       "question_set": "Functions",
       "question_set_name": "Are You Ready for Olympiads",
@@ -29,33 +18,11 @@
       "group_key": "are you ready",
       "magazine": "Mathematics Today | September '25",
       "page": "55",
-      "qno": "5",
-      "question_set": "Inequalities",
-      "question_set_name": "Are You Ready for Olympiads",
-      "row_number": 196,
-      "text": "Solve inequality \u22125 \u2264 (2 \u2212 3x)/4 \u2264 9."
-    },
-    {
-      "group": "Sets/Relations/Functions",
-      "group_key": "are you ready",
-      "magazine": "Mathematics Today | September '25",
-      "page": "55",
       "qno": "3",
       "question_set": "Complex Numbers & Quadratic Equations",
       "question_set_name": "Are You Ready for Olympiads",
       "row_number": 194,
       "text": "If z = x + iy, then the equation |z + 1| = |z \u2212 1| represents what geometric locus?"
-    },
-    {
-      "group": "Sets/Relations/Functions",
-      "group_key": "are you ready",
-      "magazine": "Mathematics Today | September '25",
-      "page": "56",
-      "qno": "15",
-      "question_set": "Sets, Relations & Functions",
-      "question_set_name": "Are You Ready for Olympiads",
-      "row_number": 206,
-      "text": "Let A = {2, 3, 4, 5}, B = {36, 45, 49, 60, 77, 90} and let R be the relation \u201cis factor of\u201d from A to B; then the range of R is the set ?"
     },
     {
       "group": "Sets/Relations/Functions",

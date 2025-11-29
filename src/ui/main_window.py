@@ -77,6 +77,7 @@ from ui.widgets import (
     GroupListWidget,
     NavigationSidebar,
     QuestionCardWidget,
+    QuestionCardWithRemoveButton,
     QuestionTreeWidget,
     QuestionListCardView,
     TagBadge,
@@ -820,16 +821,7 @@ class TSVWatcherWindow(QMainWindow):
         action_layout.setContentsMargins(8, 4, 8, 4)
         action_layout.setSpacing(8)
         
-        # Remove from list button
-        remove_from_list_btn = QPushButton("Remove Selected")
-        remove_from_list_btn.setToolTip("Remove selected questions from list")
-        remove_from_list_btn.setMinimumHeight(28)
-        remove_from_list_btn.setMaximumHeight(28)
-        remove_from_list_btn.clicked.connect(self.remove_selected_from_list)
-        action_layout.addWidget(remove_from_list_btn)
-        
         # Copy mode selector for custom lists
-        action_layout.addSpacing(8)
         self.list_copy_mode_combo = QComboBox()
         self.list_copy_mode_combo.addItems(["Copy: Text", "Copy: Metadata", "Copy: Both"])
         self.list_copy_mode_combo.setCurrentIndex(0)
@@ -3000,50 +2992,28 @@ class TSVWatcherWindow(QMainWindow):
                     self.question_card_view.ensureWidgetVisible(card)
                     return
     
-    def remove_selected_from_list(self) -> None:
-        """Remove selected questions from current list."""
+    def _remove_question_from_list(self, question: dict) -> None:
+        """Remove a single question from current list (called from remove button on card)."""
         if not self.current_list_name:
-            QMessageBox.information(self, "No Selection", "Please select a list first.")
+            QMessageBox.information(self, "No List Selected", "Please select a list first.")
             return
         
-        if not hasattr(self, '_list_card_grid_layout'):
-            QMessageBox.information(self, "No Selection", "Please select questions to remove.")
-            return
+        # Find and remove the question by qno
+        qno = question.get('qno')
+        questions = self.question_lists[self.current_list_name]
         
-        # Get selected question indices from card view
-        selected_count = 0
-        if self.question_lists[self.current_list_name]:
-            # Collect indices of questions to remove
-            indices_to_remove = []
-            
-            # Iterate through all cards in grid layout
-            for i in range(self._list_card_grid_layout.count()):
-                widget = self._list_card_grid_layout.itemAt(i).widget()
-                if isinstance(widget, QuestionCardWidget):
-                    if hasattr(widget, 'is_selected') and widget.is_selected:
-                        # Find the global index of this question
-                        for q_idx, question in enumerate(self.question_lists[self.current_list_name]):
-                            if question.get('qno') == widget.question_data.get('qno'):
-                                indices_to_remove.append(q_idx)
-                                selected_count += 1
-                                break
-            
-            if not indices_to_remove:
-                QMessageBox.information(self, "No Selection", "Please select questions to remove.")
+        for idx, q in enumerate(questions):
+            if q.get('qno') == qno:
+                del questions[idx]
+                self._save_question_list(self.current_list_name)
+                self.on_saved_list_selected()  # Refresh display
+                self.log(f"Removed question Q{qno} from '{self.current_list_name}'")
                 return
-            
-            # Sort in reverse to avoid index issues
-            for idx in sorted(indices_to_remove, reverse=True):
-                if 0 <= idx < len(self.question_lists[self.current_list_name]):
-                    del self.question_lists[self.current_list_name][idx]
-            
-            self._save_question_list(self.current_list_name)
-            self._load_saved_question_lists()
-            self._populate_list_question_table(self.current_list_name)
-            self.log(f"Removed {selected_count} question(s) from '{self.current_list_name}'")
+        
+        QMessageBox.warning(self, "Not Found", f"Question Q{qno} not found in list.")
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
-        """Populate card view with 2-column grid of question cards from custom list using QuestionCardWidget."""
+        """Populate card view with 2-column grid of question cards from custom list using QuestionCardWithRemoveButton wrapper."""
         if not questions:
             return
         
@@ -3064,13 +3034,14 @@ class TSVWatcherWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
         
-        # Add question cards in 2-column grid using QuestionCardWidget
+        # Add question cards in 2-column grid using QuestionCardWithRemoveButton wrapper
         for idx, question in enumerate(questions):
-            card = QuestionCardWidget(question, self)
-            card.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
+            card_wrapper = QuestionCardWithRemoveButton(question, self)
+            card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
+            card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
             row = idx // 2
             col = idx % 2
-            self._list_card_grid_layout.addWidget(card, row, col)
+            self._list_card_grid_layout.addWidget(card_wrapper, row, col)
         
         # Add stretch to push cards to top
         self._list_card_grid_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding), 
