@@ -582,6 +582,14 @@ class TSVWatcherWindow(QMainWindow):
         
         question_layout.addLayout(search_layout)
         
+        # Drag-drop panel (initially hidden)
+        from src.ui.widgets import DragDropQuestionPanel
+        self.drag_drop_panel = DragDropQuestionPanel(self.question_lists, self)
+        self.drag_drop_panel.save_clicked.connect(self._on_drag_drop_save)
+        self.drag_drop_panel.cancel_clicked.connect(self._on_drag_drop_cancel)
+        self.drag_drop_panel.setVisible(False)
+        question_layout.addWidget(self.drag_drop_panel)
+        
         # Replace traditional tree with card-based view
         self.question_card_view = QuestionListCardView(self)
         self.question_card_view.question_selected.connect(self.on_question_card_selected)
@@ -2728,9 +2736,7 @@ class TSVWatcherWindow(QMainWindow):
         self.log(f"Deleted question list: {list_name}")
     
     def add_selected_to_list(self) -> None:
-        """Add selected questions from card view to a list."""
-        from PySide6.QtWidgets import QInputDialog
-        
+        """Toggle the drag-drop panel for adding questions to a list."""
         if not self.question_lists:
             reply = QMessageBox.question(
                 self,
@@ -2742,28 +2748,30 @@ class TSVWatcherWindow(QMainWindow):
                 self.create_new_question_list()
             return
         
-        # Get selected questions from card view
-        selected_questions = self.question_card_view.get_selected_questions()
+        # Toggle drag-drop panel visibility
+        self.drag_drop_panel.setVisible(not self.drag_drop_panel.isVisible())
         
-        if not selected_questions:
-            QMessageBox.information(
-                self, 
-                "No Selection", 
-                "Please select questions to add.\n\nTip: Click cards to select (Ctrl+Click for multiple)"
-            )
-            return
-        
-        # Select list
-        list_names = sorted(self.question_lists.keys())
-        list_name, ok = QInputDialog.getItem(
-            self, "Select List", "Choose a list to add questions to:", list_names, 0, False
-        )
-        if not ok or not list_name:
-            return
-        
-        # Add selected questions
+        # Update panel with current question lists
+        if self.drag_drop_panel.isVisible():
+            from src.ui.widgets import DragDropQuestionPanel
+            # Recreate panel with updated question lists
+            old_panel = self.drag_drop_panel
+            self.drag_drop_panel = DragDropQuestionPanel(self.question_lists, self)
+            self.drag_drop_panel.save_clicked.connect(self._on_drag_drop_save)
+            self.drag_drop_panel.cancel_clicked.connect(self._on_drag_drop_cancel)
+            
+            # Replace in layout
+            question_layout = old_panel.parent().layout()
+            for i in range(question_layout.count()):
+                if question_layout.itemAt(i).widget() == old_panel:
+                    old_panel.deleteLater()
+                    question_layout.insertWidget(i, self.drag_drop_panel)
+                    break
+    
+    def _on_drag_drop_save(self, list_name: str, questions: list):
+        """Handle save from drag-drop panel."""
         added_count = 0
-        for question in selected_questions:
+        for question in questions:
             # Check for duplicates based on row_number
             if not any(q.get("row_number") == question.get("row_number") for q in self.question_lists[list_name]):
                 self.question_lists[list_name].append(question.copy())
@@ -2773,6 +2781,13 @@ class TSVWatcherWindow(QMainWindow):
         self._load_saved_question_lists()
         self.log(f"Added {added_count} question(s) to list '{list_name}'")
         QMessageBox.information(self, "Success", f"Added {added_count} question(s) to '{list_name}'.")
+        
+        # Hide panel
+        self.drag_drop_panel.setVisible(False)
+    
+    def _on_drag_drop_cancel(self):
+        """Handle cancel from drag-drop panel."""
+        self.drag_drop_panel.setVisible(False)
     
     def remove_selected_from_list(self) -> None:
         """Remove selected questions from current list."""

@@ -14,6 +14,8 @@ This module contains all custom widget classes used throughout the application:
 - QuestionListCardView: Scrollable container for accordion groups
 - DashboardView: Dashboard with workbook selector and statistics
 - NavigationSidebar: Collapsible sidebar navigation for main views
+- QuestionChip: Small chip widget for question metadata with remove button
+- DragDropQuestionPanel: Drag-and-drop panel for adding questions to lists
 """
 
 import json
@@ -33,6 +35,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QScrollArea,
     QLineEdit,
+    QComboBox,
+)
 )
 
 
@@ -653,6 +657,9 @@ class QuestionCardWidget(QLabel):
         self.is_selected = False
         self.original_stylesheet = ""
         
+        # Enable drag
+        self.setAcceptDrops(False)  # Cards don't accept drops
+        
         # Build card HTML
         self._build_card()
         
@@ -788,6 +795,35 @@ class QuestionCardWidget(QLabel):
             # Visual feedback - flash green
             self._show_copy_feedback()
         super().mouseDoubleClickEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle drag initiation."""
+        if event.buttons() & Qt.LeftButton:
+            # Start drag operation
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            
+            # Serialize question data as JSON
+            question_json = json.dumps(self.question_data)
+            mime_data.setData("application/x-question-data", question_json.encode())
+            
+            drag.setMimeData(mime_data)
+            
+            # Create drag pixmap (visual representation)
+            pixmap = QPixmap(self.size())
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setOpacity(0.7)
+            self.render(painter)
+            painter.end()
+            
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(event.pos())
+            
+            # Execute drag
+            drag.exec(Qt.CopyAction)
+        
+        super().mouseMoveEvent(event)
     
     def _show_copy_feedback(self):
         """Show visual feedback that copy was successful."""
@@ -1496,3 +1532,321 @@ class NavigationSidebar(QWidget):
     def get_selected_index(self) -> int:
         """Get currently selected navigation index."""
         return self.selected_index
+
+
+class QuestionChip(QWidget):
+    """
+    Small chip widget representing a question in the drag-drop panel.
+    Shows question metadata in compact form with a remove button.
+    """
+    
+    remove_clicked = Signal(dict)  # Emits question data when remove is clicked
+    
+    def __init__(self, question_data: dict, parent=None):
+        super().__init__(parent)
+        self.question_data = question_data
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
+        
+        # Question metadata label
+        qno = question_data.get("qno", "?")
+        page = question_data.get("page", "?")
+        question_set = question_data.get("question_set_name", "Unknown")[:15]  # Truncate
+        magazine = question_data.get("magazine", "Unknown")[:15]  # Truncate
+        
+        text = f"Q{qno} | P{page} | {question_set} | {magazine}"
+        label = QLabel(text)
+        label.setStyleSheet("""
+            QLabel {
+                color: #1e40af;
+                font-size: 11px;
+                background: transparent;
+            }
+        """)
+        layout.addWidget(label, 1)
+        
+        # Remove button
+        remove_btn = QPushButton("✕")
+        remove_btn.setFixedSize(18, 18)
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 9px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
+        remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.question_data))
+        layout.addWidget(remove_btn)
+        
+        # Chip styling
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #dbeafe;
+                border: 1px solid #93c5fd;
+                border-radius: 4px;
+            }
+        """)
+        self.setMaximumHeight(28)
+
+
+class DragDropQuestionPanel(QWidget):
+    """
+    Panel for drag-and-drop question list management.
+    
+    Features:
+    - Dropdown to select target question list
+    - Drag-drop area to add questions
+    - Shows added questions as removable chips
+    - Save (✓) and Cancel (✕) buttons
+    """
+    
+    save_clicked = Signal(str, list)  # Emits (list_name, questions)
+    cancel_clicked = Signal()
+    
+    def __init__(self, question_lists: dict, parent=None):
+        super().__init__(parent)
+        self.question_lists = question_lists
+        self.pending_questions = []  # Questions to be added
+        
+        self.setAcceptDrops(True)
+        
+        # Main layout
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
+        
+        # List selector
+        self.list_selector = QComboBox()
+        self.list_selector.addItems(sorted(question_lists.keys()))
+        self.list_selector.setMinimumWidth(200)
+        self.list_selector.setStyleSheet("""
+            QComboBox {
+                padding: 4px 8px;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                background: white;
+            }
+        """)
+        main_layout.addWidget(QLabel("Add to list:"))
+        main_layout.addWidget(self.list_selector)
+        
+        # Drop area container
+        drop_container = QWidget()
+        drop_container.setMinimumHeight(60)
+        drop_container_layout = QVBoxLayout(drop_container)
+        drop_container_layout.setContentsMargins(0, 0, 0, 0)
+        drop_container_layout.setSpacing(4)
+        
+        # Drop area label
+        self.drop_label = QLabel("← Drag questions here")
+        self.drop_label.setAlignment(Qt.AlignCenter)
+        self.drop_label.setStyleSheet("""
+            QLabel {
+                color: #64748b;
+                font-style: italic;
+                background: transparent;
+            }
+        """)
+        drop_container_layout.addWidget(self.drop_label)
+        
+        # Scroll area for chips
+        self.chip_scroll = QScrollArea()
+        self.chip_scroll.setWidgetResizable(True)
+        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chip_scroll.setMaximumHeight(80)
+        self.chip_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+        """)
+        
+        # Chip container
+        self.chip_container = QWidget()
+        self.chip_layout = QHBoxLayout(self.chip_container)
+        self.chip_layout.setContentsMargins(0, 0, 0, 0)
+        self.chip_layout.setSpacing(4)
+        self.chip_layout.addStretch()
+        
+        self.chip_scroll.setWidget(self.chip_container)
+        self.chip_scroll.setVisible(False)
+        drop_container_layout.addWidget(self.chip_scroll)
+        
+        drop_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8fafc;
+                border: 2px dashed #cbd5e1;
+                border-radius: 6px;
+            }
+        """)
+        main_layout.addWidget(drop_container, 1)
+        
+        # Action buttons
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(4)
+        
+        # Save button
+        save_btn = QPushButton("✓")
+        save_btn.setToolTip("Save questions to list")
+        save_btn.setFixedSize(32, 32)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+            }
+        """)
+        save_btn.clicked.connect(self._on_save)
+        button_layout.addWidget(save_btn)
+        
+        # Cancel button
+        cancel_btn = QPushButton("✕")
+        cancel_btn.setToolTip("Cancel and close")
+        cancel_btn.setFixedSize(32, 32)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 18px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
+        cancel_btn.clicked.connect(self._on_cancel)
+        button_layout.addWidget(cancel_btn)
+        
+        main_layout.addLayout(button_layout)
+        
+        # Panel styling
+        self.setStyleSheet("""
+            DragDropQuestionPanel {
+                background-color: #e0f2fe;
+                border: 2px solid #0284c7;
+                border-radius: 8px;
+            }
+        """)
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(120)
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Accept drag events with question data."""
+        if event.mimeData().hasFormat("application/x-question-data"):
+            event.acceptProposedAction()
+            # Highlight drop area
+            self.setStyleSheet("""
+                DragDropQuestionPanel {
+                    background-color: #dbeafe;
+                    border: 2px solid #3b82f6;
+                    border-radius: 8px;
+                }
+            """)
+    
+    def dragLeaveEvent(self, event):
+        """Reset styling when drag leaves."""
+        self.setStyleSheet("""
+            DragDropQuestionPanel {
+                background-color: #e0f2fe;
+                border: 2px solid #0284c7;
+                border-radius: 8px;
+            }
+        """)
+    
+    def dropEvent(self, event: QDropEvent):
+        """Handle dropped question."""
+        if event.mimeData().hasFormat("application/x-question-data"):
+            question_json = event.mimeData().data("application/x-question-data").data().decode()
+            question_data = json.loads(question_json)
+            
+            # Check for duplicates
+            if not any(q.get("row_number") == question_data.get("row_number") for q in self.pending_questions):
+                self.pending_questions.append(question_data)
+                self._add_chip(question_data)
+            
+            event.acceptProposedAction()
+            
+            # Reset styling
+            self.setStyleSheet("""
+                DragDropQuestionPanel {
+                    background-color: #e0f2fe;
+                    border: 2px solid #0284c7;
+                    border-radius: 8px;
+                }
+            """)
+    
+    def _add_chip(self, question_data: dict):
+        """Add a chip for the dropped question."""
+        chip = QuestionChip(question_data, self)
+        chip.remove_clicked.connect(self._remove_chip)
+        
+        # Insert before stretch
+        self.chip_layout.insertWidget(self.chip_layout.count() - 1, chip)
+        
+        # Show chip container, hide label
+        self.drop_label.setVisible(False)
+        self.chip_scroll.setVisible(True)
+    
+    def _remove_chip(self, question_data: dict):
+        """Remove a chip and its question from pending list."""
+        # Remove from pending questions
+        self.pending_questions = [q for q in self.pending_questions if q.get("row_number") != question_data.get("row_number")]
+        
+        # Remove chip widget
+        for i in range(self.chip_layout.count()):
+            widget = self.chip_layout.itemAt(i).widget()
+            if isinstance(widget, QuestionChip) and widget.question_data == question_data:
+                widget.deleteLater()
+                break
+        
+        # Show label if no chips left
+        if not self.pending_questions:
+            self.drop_label.setVisible(True)
+            self.chip_scroll.setVisible(False)
+    
+    def _on_save(self):
+        """Emit save signal with selected list and questions."""
+        if not self.pending_questions:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "No Questions", "Please drag some questions to add to the list.")
+            return
+        
+        list_name = self.list_selector.currentText()
+        if list_name:
+            self.save_clicked.emit(list_name, self.pending_questions.copy())
+            self._clear()
+    
+    def _on_cancel(self):
+        """Emit cancel signal and clear pending questions."""
+        self._clear()
+        self.cancel_clicked.emit()
+    
+    def _clear(self):
+        """Clear all pending questions and chips."""
+        self.pending_questions.clear()
+        
+        # Remove all chips
+        while self.chip_layout.count() > 1:  # Keep the stretch
+            item = self.chip_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
+        self.drop_label.setVisible(True)
+        self.chip_scroll.setVisible(False)
