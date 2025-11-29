@@ -1641,46 +1641,42 @@ class DashboardView(QWidget):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(12)
         
-        # === Latest Magazine Edition (Highlighted) ===
-        latest_mag_card = QWidget()
-        latest_mag_card.setStyleSheet("""
-            QWidget {
-                background-color: #fef3c7;
-                border: 2px solid #fbbf24;
-                border-radius: 8px;
-                padding: 16px;
-            }
-        """)
-        latest_mag_layout = QVBoxLayout(latest_mag_card)
+        # === Latest Magazine Edition ===
+        latest_mag_layout = QVBoxLayout()
+        latest_mag_layout.setContentsMargins(0, 0, 0, 0)
+        latest_mag_layout.setSpacing(4)
         
         latest_mag_title = QLabel("⭐ Latest Magazine Edition (Most Recent)")
         latest_mag_title.setStyleSheet("""
             QLabel {
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
-                color: #92400e;
+                color: #1e40af;
             }
         """)
         latest_mag_layout.addWidget(latest_mag_title)
         
         # Latest mag info row
         latest_mag_info_layout = QHBoxLayout()
+        latest_mag_info_layout.setContentsMargins(0, 0, 0, 0)
+        latest_mag_info_layout.setSpacing(20)
+        
         self.latest_mag_name = QLabel("Magazine: -")
-        self.latest_mag_name.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        self.latest_mag_name.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
         latest_mag_info_layout.addWidget(self.latest_mag_name)
         
         self.latest_mag_pages = QLabel("Pages: -")
-        self.latest_mag_pages.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        self.latest_mag_pages.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
         latest_mag_info_layout.addWidget(self.latest_mag_pages)
         
         self.latest_mag_questions = QLabel("Questions: 0")
-        self.latest_mag_questions.setStyleSheet("QLabel { color: #78350f; font-weight: bold; }")
+        self.latest_mag_questions.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
         latest_mag_info_layout.addWidget(self.latest_mag_questions)
         
         latest_mag_info_layout.addStretch()
         latest_mag_layout.addLayout(latest_mag_info_layout)
         
-        scroll_layout.addWidget(latest_mag_card)
+        scroll_layout.addLayout(latest_mag_layout)
         
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
