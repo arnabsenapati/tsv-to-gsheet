@@ -659,6 +659,7 @@ class QuestionCardWidget(QLabel):
         # Card styling
         self.setTextFormat(Qt.RichText)
         self.setWordWrap(True)
+        self.setTextInteractionFlags(Qt.NoTextInteraction)  # Disable text selection, enable click
         self.original_stylesheet = """
             QLabel {
                 background-color: #f8fafc;
