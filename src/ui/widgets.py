@@ -37,7 +37,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QComboBox,
 )
-)
 
 
 class TagBadge(QLabel):
@@ -814,7 +813,7 @@ class QuestionCardWidget(QLabel):
             pixmap.fill(Qt.transparent)
             painter = QPainter(pixmap)
             painter.setOpacity(0.7)
-            self.render(painter)
+            self.render(painter, QPoint(), QRect())
             painter.end()
             
             drag.setPixmap(pixmap)
