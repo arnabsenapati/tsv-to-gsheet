@@ -12,8 +12,8 @@ This module contains all custom widget classes used throughout the application:
 """
 
 import json
-from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont
+from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -645,6 +645,7 @@ class QuestionCardWidget(QLabel):
         super().__init__(parent)
         self.question_data = question_data
         self.is_selected = False
+        self.original_stylesheet = ""
         
         # Build card HTML
         self._build_card()
@@ -652,7 +653,7 @@ class QuestionCardWidget(QLabel):
         # Card styling
         self.setTextFormat(Qt.RichText)
         self.setWordWrap(True)
-        self.setStyleSheet("""
+        self.original_stylesheet = """
             QLabel {
                 background-color: #f8fafc;
                 border: 1px solid #e2e8f0;
@@ -664,7 +665,8 @@ class QuestionCardWidget(QLabel):
                 background-color: #ffffff;
                 border: 2px solid #3b82f6;
             }
-        """)
+        """
+        self.setStyleSheet(self.original_stylesheet)
         
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumHeight(100)
@@ -748,10 +750,49 @@ class QuestionCardWidget(QLabel):
         return truncated + "..."
     
     def mousePressEvent(self, event):
-        """Handle card click."""
+        """Handle card click - copy metadata to clipboard."""
         if event.button() == Qt.LeftButton:
+            # Copy metadata to clipboard
+            q = self.question_data
+            qno = q.get("qno", "?")
+            page = q.get("page", "?")
+            question_set = q.get("question_set_name", "Unknown")
+            magazine = q.get("magazine", "Unknown")
+            
+            # Format: Q15 | P34 | Question set name | Magazine edition
+            metadata_text = f"Q{qno} | P{page} | {question_set} | {magazine}"
+            
+            # Copy to clipboard
+            clipboard = QGuiApplication.clipboard()
+            clipboard.setText(metadata_text)
+            
+            # Visual feedback - flash green
+            self._show_copy_feedback()
+            
+            # Still emit signal for other functionality
             self.clicked.emit(self.question_data)
         super().mousePressEvent(event)
+    
+    def _show_copy_feedback(self):
+        """Show visual feedback that copy was successful."""
+        # Flash green background
+        self.setStyleSheet("""
+            QLabel {
+                background-color: #d1fae5;
+                border: 2px solid #10b981;
+                border-radius: 8px;
+                padding: 12px;
+                margin: 4px;
+            }
+        """)
+        
+        # Reset after 500ms
+        QTimer.singleShot(500, self._reset_style)
+    
+    def _reset_style(self):
+        """Reset to original style."""
+        if not self.is_selected:
+            self.setStyleSheet(self.original_stylesheet)
     
     def set_selected(self, selected: bool):
         """Update visual state for selection."""
@@ -767,19 +808,7 @@ class QuestionCardWidget(QLabel):
                 }
             """)
         else:
-            self.setStyleSheet("""
-                QLabel {
-                    background-color: #f8fafc;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 8px;
-                    padding: 12px;
-                    margin: 4px;
-                }
-                QLabel:hover {
-                    background-color: #ffffff;
-                    border: 1px solid #3b82f6;
-                }
-            """)
+            self.setStyleSheet(self.original_stylesheet)
 
 
 class QuestionAccordionGroup(QWidget):
