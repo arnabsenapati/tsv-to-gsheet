@@ -1563,9 +1563,10 @@ class QuestionChip(QWidget):
         self.question_data = question_data
         self.is_highlighted = False
         
-        # Get tag color for chip background
+        # Get tag color for chip background.
+        # Use the same tag-color mapping as question cards / group tags.
         tags = question_data.get("tags", [])
-        self.tag_colors = {
+        tag_colors = {
             "important": "#ef4444",
             "previous year": "#f59e0b",
             "prev-year": "#f59e0b",
@@ -1574,14 +1575,14 @@ class QuestionChip(QWidget):
             "difficult": "#dc2626",
             "easy": "#22c55e",
         }
-        self.bg_color = "#dbeafe"  # default blue
+        self.bg_color = "#60a5fa"  # lighter blue for better appearance
         if tags:
             first_tag = tags[0].lower() if isinstance(tags, list) else tags.lower()
-            self.bg_color = self.tag_colors.get(first_tag, "#6b7280")
+            self.bg_color = tag_colors.get(first_tag, self.bg_color)
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(8)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
         
         # Extract metadata
         qno = question_data.get("qno", "?")
@@ -1600,26 +1601,26 @@ class QuestionChip(QWidget):
         self.label.setObjectName("chipLabel")
         self.label.setStyleSheet("""
             QLabel#chipLabel {
-                color: black;
-                font-size: 11px;
+                color: white;
+                font-size: 10px;
                 font-weight: 600;
                 background: transparent;
                 border: none;
             }
         """)
-        layout.addWidget(self.label, 1)
+        layout.addWidget(self.label)
         
         # Remove button with cross icon
         remove_btn = QPushButton()
         remove_btn.setObjectName("chipRemoveBtn")
-        remove_btn.setFixedSize(18, 18)
+        remove_btn.setFixedSize(14, 14)
         remove_btn.setIcon(QIcon(os.path.join(os.path.dirname(__file__), "..", "..", "icons", "close.svg")))
-        remove_btn.setIconSize(QSize(10, 10))
+        remove_btn.setIconSize(QSize(8, 8))
         remove_btn.setStyleSheet("""
             QPushButton#chipRemoveBtn {
                 background-color: #ef4444;
                 border: none;
-                border-radius: 9px;
+                border-radius: 7px;
                 padding: 0px;
                 margin: 0px;
             }
@@ -1633,9 +1634,9 @@ class QuestionChip(QWidget):
         # Make chip clickable
         self.setCursor(Qt.PointingHandCursor)
         
-        # Chip styling - rounded rectangle with fixed size
+        # Chip styling - fixed size for consistent layout (4 per row)
         self._update_style()
-        self.setFixedSize(200, 28)
+        self.setFixedSize(120, 24)
     
     def _extract_edition(self, magazine: str) -> str:
         """Extract edition part from magazine string."""
@@ -1677,7 +1678,7 @@ class QuestionChip(QWidget):
                 QuestionChip {
                     background-color: #fef08a;
                     border: 2px solid #eab308;
-                    border-radius: 14px;
+                    border-radius: 12px;
                 }
             """)
         else:
@@ -1686,7 +1687,7 @@ class QuestionChip(QWidget):
                 QuestionChip {{
                     background-color: {self.bg_color};
                     border: 1px solid {self.bg_color};
-                    border-radius: 14px;
+                    border-radius: 12px;
                 }}
             """)
 
@@ -1774,7 +1775,7 @@ class DragDropQuestionPanel(QWidget):
         # Track current row for chip wrapping
         self.current_chip_row = None
         self.chips_in_current_row = 0
-        self.max_chips_per_row = 3
+        self.max_chips_per_row = 4
         
         self.chip_scroll.setWidget(self.chip_container)
         self.chip_scroll.setVisible(False)
@@ -1897,12 +1898,8 @@ class DragDropQuestionPanel(QWidget):
         chip.remove_clicked.connect(self._remove_chip)
         chip.chip_clicked.connect(self._on_chip_clicked)
         
-        # Calculate max chips per row based on container width
-        # Chip width: 200px, spacing: 4px
-        container_width = self.chip_scroll.width() - 20  # Account for margins
-        chips_per_row = max(1, container_width // 204)  # 200 + 4 spacing
-        
-        # Create new row if needed
+        # Create new row if needed (simple max chips per row; width is flexible)
+        chips_per_row = self.max_chips_per_row or 6
         if self.current_chip_row is None or self.chips_in_current_row >= chips_per_row:
             self.current_chip_row = QHBoxLayout()
             self.current_chip_row.setSpacing(4)
