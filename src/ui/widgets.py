@@ -1642,13 +1642,8 @@ class DashboardView(QWidget):
         scroll_layout.setSpacing(12)
         
         # === Latest Magazine Edition Card ===
-        latest_mag_card = self._create_magazine_card(
-            "⭐ Latest Magazine Edition",
-            "Magazine: -",
-            "Pages: -",
-            "Questions: 0"
-        )
-        scroll_layout.addWidget(latest_mag_card)
+        self.latest_mag_card = self._create_stat_card("⭐ Questions in Latest Magazine", "0", "#10b981")
+        scroll_layout.addWidget(self.latest_mag_card)
         
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
@@ -1692,52 +1687,7 @@ class DashboardView(QWidget):
         card.value_label = value_label
         return card
     
-    def _create_magazine_card(self, title: str, name: str, pages: str, questions: str) -> QWidget:
-        """Create a magazine information card with multiple fields."""
-        card = QWidget()
-        card.setStyleSheet("""
-            QWidget {
-                background-color: transparent;
-                border: none;
-                padding: 8px;
-            }
-        """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(6)
-        
-        # Title
-        title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                color: #475569;
-                font-weight: 600;
-            }
-        """)
-        card_layout.addWidget(title_label)
-        
-        # Magazine details row
-        details_layout = QHBoxLayout()
-        details_layout.setContentsMargins(0, 0, 0, 0)
-        details_layout.setSpacing(16)
-        
-        self.latest_mag_name = QLabel(name)
-        self.latest_mag_name.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
-        details_layout.addWidget(self.latest_mag_name)
-        
-        self.latest_mag_pages = QLabel(pages)
-        self.latest_mag_pages.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
-        details_layout.addWidget(self.latest_mag_pages)
-        
-        self.latest_mag_questions = QLabel(questions)
-        self.latest_mag_questions.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
-        details_layout.addWidget(self.latest_mag_questions)
-        
-        details_layout.addStretch()
-        card_layout.addLayout(details_layout)
-        
-        return card
+
     
     def update_dashboard_data(self, df, chapter_groups: dict[str, list[str]]) -> None:
         """
@@ -1821,9 +1771,7 @@ class DashboardView(QWidget):
             
             latest_mag_count = len(mag_df)
             
-            self.latest_mag_name.setText(f"📰 Magazine: {latest_magazine}")
-            self.latest_mag_pages.setText(f"📄 Pages: {page_range}")
-            self.latest_mag_questions.setText(f"❓ Questions: {latest_mag_count}")
+            self.latest_mag_card.value_label.setText(str(latest_mag_count))
 
 
 class NavigationSidebar(QWidget):
