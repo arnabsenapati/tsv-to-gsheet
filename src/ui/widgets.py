@@ -1627,6 +1627,10 @@ class DashboardView(QWidget):
         self.unique_mags_card = self._create_stat_card("📰 Unique Magazines", "0", "#ec4899")
         summary_layout.addWidget(self.unique_mags_card)
         
+        # Last Magazine Card
+        self.last_mag_card = self._create_stat_card("⭐ Last Magazine Added", "-", "#f59e0b")
+        summary_layout.addWidget(self.last_mag_card)
+        
         summary_layout.addStretch()
         layout.addLayout(summary_layout)
         
@@ -1751,6 +1755,10 @@ class DashboardView(QWidget):
                     page_range = "Unknown"
             else:
                 page_range = "N/A"
+            
+            # Update last magazine card
+            last_mag_text = f"{latest_magazine}\n(Pages: {page_range})"
+            self.last_mag_card.value_label.setText(last_mag_text)
             
 
 
