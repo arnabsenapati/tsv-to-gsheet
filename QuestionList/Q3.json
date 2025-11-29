@@ -1,0 +1,339 @@
+{
+  "name": "Q3",
+  "magazine": "mathematics today",
+  "questions": [
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "CBSE Warm-up Series\u20112 \u2013 Relations and Functions (Class XI)",
+      "group_key": "cbse warm-up series\u20112",
+      "qno": "23",
+      "page": "75",
+      "magazine": "Mathematics Today | June '25",
+      "text": "If A={1,3,4},B={1,4}, draw A\u00d7B arrow diagram",
+      "row_number": 1175
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "Are You Ready for Olympiads?",
+      "group_key": "are you ready",
+      "qno": "17",
+      "page": "37",
+      "magazine": "Mathematics Today | February '25",
+      "text": "Which of the following statements is incorrect? (A) f(x) = |x| is periodic. (B) Fundamental period of f(x) = 3 cos(6\u03c0x) + 4 sin(6\u03c0x) is 1/3. (C) Number of non-empty subsets of {a, b, c, d} is 15. (D) Range of y = log\u2083(x\u00b2 \u2212 4x \u2212 5) is R\u207a.",
+      "row_number": 2093
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "JEE Advanced Practice Paper 2025",
+      "group_key": "jee advanced practice",
+      "qno": "15",
+      "page": "29",
+      "magazine": "Mathematics Today | May '25",
+      "text": "Match List I\u2013II: f(x)=x\u00b2\u22126x+5/(x\u00b2\u22125x+6), find correct relation for f(x).",
+      "row_number": 1348
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "WB JEE 2025 (27 April 2025 Exam)",
+      "group_key": "wb jee (27",
+      "qno": "5",
+      "page": "35",
+      "magazine": "Mathematics Today | June '25",
+      "text": "f(x)=|sinx|, g(x)=sin(\u221ax\u00b2), then f\u2218g= ___",
+      "row_number": 1067
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Complex Numbers & Quadratic Equations",
+      "question_set_name": "Are You Ready for Olympiads? (Class XI)",
+      "group_key": "are you ready",
+      "qno": "12",
+      "page": "33",
+      "magazine": "Mathematics Today | October '22",
+      "text": "If |z\u00b2 \u2212 1| = |z\u00b2 + 1|, then z lies on (a) imaginary axis (b) real axis (c) origin (d) None of these.",
+      "row_number": 4618
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Trigonometry \u2013 Identities, Equations, Properties of Triangle, Heights & Distances, Inverse Trigonometric Functions",
+      "question_set_name": "JEE Main 2022 Mock Test Paper",
+      "group_key": "jee main mock",
+      "qno": "20",
+      "page": "24",
+      "magazine": "Mathematics Today | May '22",
+      "text": "In a triangle ABC, if r1 = 3 and s = 4, then cos A =",
+      "row_number": 6963
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "3. Matrices & Determinants \u2013 Types of Matrices, Properties, Inverse, Cramer\u2019s Rule, Linear Equations",
+      "question_set_name": "Practice Paper \u2013 CUET (UG) 2025",
+      "group_key": "practice \u2013 cuet",
+      "qno": "52",
+      "page": "32",
+      "magazine": "Mathematics Today | April '25",
+      "text": "If A is a skew symmetric matrix, then A\u00b2\u2070\u00b2\u00b9 is ____.",
+      "row_number": 1617
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "CBSE Warm-up Series\u20112 \u2013 Relations and Functions (Class XI)",
+      "group_key": "cbse warm-up series\u20112",
+      "qno": "7",
+      "page": "74",
+      "magazine": "Mathematics Today | June '25",
+      "text": "If A\u00d7B={(p,q),(p,r),(m,q),(m,p)}, then A,B= ___",
+      "row_number": 1159
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "3. Matrices & Determinants \u2013 Types of Matrices, Properties, Inverse, Cramer\u2019s Rule, Linear Equations",
+      "question_set_name": "KEAM 2025 Solved Paper \u2013 Engineering",
+      "group_key": "keam solved \u2013",
+      "qno": "75",
+      "page": "26",
+      "magazine": "Mathematics Today | July '25",
+      "text": "In a linear programming problem, the optimal solution lies (a) at centre of feasible region (b) at corner point of feasible region (c) on x-axis (d) at origin (e) where objective function is zero.",
+      "row_number": 782
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Logarithms & Exponents",
+      "question_set_name": "JEE Main 2022 Mock Test Paper",
+      "group_key": "jee main mock",
+      "qno": "30",
+      "page": "",
+      "magazine": "Mathematics Today | July '22",
+      "text": "If log\u2082x + log\u2083y \u2265 6, then the least value of x + y is _____.",
+      "row_number": 5784
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "Are You Ready for Olympiads?",
+      "group_key": "are you ready",
+      "qno": "3",
+      "page": "36",
+      "magazine": "Mathematics Today | February '25",
+      "text": "Let f : R \u2192 R be defined by f(x) = x / (1 + x\u00b2), x \u2208 R. Then the range of f is _____.",
+      "row_number": 2079
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions \u2013 Sets, Types of Relations, Domain, Range, Types of Functions, Composition, Inverse",
+      "question_set_name": "Monthly Test Drive Practice Paper XI",
+      "group_key": "monthly drive practice",
+      "qno": "3",
+      "page": "65",
+      "magazine": "Mathematics Today | April '22",
+      "text": "The domain of the function f(x) = log_2 [ \u2212log_{1/2} (1/(f(x) \u2212 1)) ] is",
+      "row_number": 6846
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions \u2013 Sets, Types of Relations, Domain, Range, Types of Functions, Composition, Inverse",
+      "question_set_name": "JEE 2022 Practice Paper Advanced \u2013 Paper-2",
+      "group_key": "jee practice advanced",
+      "qno": "8",
+      "page": "32",
+      "magazine": "Mathematics Today | May '22",
+      "text": "Question text for Paper-2 Q8 is not clearly readable from the provided image; please enter manually from the magazine.",
+      "row_number": 7000
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets",
+      "question_set_name": "Monthly Test Drive \u2013 Series 1: Sets, Relations & Functions",
+      "group_key": "monthly drive \u2013",
+      "qno": "10",
+      "page": "61",
+      "magazine": "Mathematics Today | August '22",
+      "text": "If A={(x,y):x\u00b2+y\u00b2\u22641, x,y\u2208R} and B={(x,y):x\u00b2+y\u00b2\u22644, x,y\u2208R}, then ?",
+      "row_number": 5657
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "CBSE Warm-up! Series-1: Relations and Functions",
+      "group_key": "cbse warm-up! series-1:",
+      "qno": "7",
+      "page": "77",
+      "magazine": "Mathematics Today | May '25",
+      "text": "Number of equivalence relations defined in S={a,b,c}.",
+      "row_number": 1456
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets",
+      "question_set_name": "Monthly Test Drive \u2013 Series 1: Sets, Relations & Functions",
+      "group_key": "monthly drive \u2013",
+      "qno": "2",
+      "page": "61",
+      "magazine": "Mathematics Today | August '22",
+      "text": "If A and B are two sets, then (A\u2212B)\u222a(B\u2212A)\u222a(A\u2229B) equals ?",
+      "row_number": 5649
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "Practice Paper \u2013 JEE Main 2022",
+      "group_key": "practice \u2013 jee",
+      "qno": "29",
+      "page": "",
+      "magazine": "Mathematics Today | July '22",
+      "text": "Let p and q be positive integers. f is a function defined for positive numbers and attains only positive values such that f(xy) = f(x)f(y) and f(p\u2074) = q\u00b9\u2076. Then the value of 6\u03bb \u2212 \u03bc is _____.",
+      "row_number": 5753
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "SOF IMO Level 2 \u2013 Class XII",
+      "group_key": "sof imo level",
+      "qno": "3",
+      "page": "32",
+      "magazine": "Mathematics Today | February '23",
+      "text": "Domain of f(x)=\u221a(4\u2212x\u00b2)/sin\u207b\u00b9(2\u2212x) is",
+      "row_number": 2913
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "NDA & NA II Practice Paper 2025",
+      "group_key": "nda & na",
+      "qno": "67",
+      "page": "13",
+      "magazine": "Mathematics Today | September '25",
+      "text": "Let f(x) = (x\u00b2 \u2212 x + 1)/(x\u00b2 + x + 1) for x \u2208 R and g(x) = e\u02e3 for x \u2208 R. Then the function h(x) = tan\u207b\u00b9x for \u2212\u03c0/4 < x < \u03c0/2 is ?",
+      "row_number": 68
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "Practice Paper \u2013 JEE Main 2025",
+      "group_key": "practice \u2013 jee",
+      "qno": "7",
+      "page": "9",
+      "magazine": "Mathematics Today | February '25",
+      "text": "Let S be the set of real line. Consider subsets of R\u00d7R: S = {(x, y): y = x + 1 and 0 < x < 2} and T = {(x, y): x \u2212 y is an integer}. Which of the following is true?",
+      "row_number": 2018
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets/Relations/Functions",
+      "question_set_name": "JEE 2022 Practice Paper \u2013 Advanced \u2013 Paper 1 \u2013 Section 1",
+      "group_key": "jee practice \u2013",
+      "qno": "4",
+      "page": "22",
+      "magazine": "Mathematics Today | June '22",
+      "text": "The set of values of a for which inequation (a \u2212 1)x^2 \u2212 (a + 1)x + a \u2212 1 \u2265 0 is true for all x \u2265 2 is (a) (1, 7/3] (b) (\u2212\u221e, 1) (c) [7/3, \u221e) (d) none of these.",
+      "row_number": 7176
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets",
+      "question_set_name": "CBSE Warm-up Series-1: Sets | Relations and Functions",
+      "group_key": "cbse warm-up series-1:",
+      "qno": "14",
+      "page": "53",
+      "magazine": "Mathematics Today | August '22",
+      "text": "If A={4,6}, B={2,3}, C={4,5}, find A\u00d7(B\u2229C).",
+      "row_number": 5608
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "JEE Main 2022 Mock Test Paper",
+      "group_key": "jee main mock",
+      "qno": "26",
+      "page": "",
+      "magazine": "Mathematics Today | July '22",
+      "text": "If n(A) = 700, n(B) = 240, n(A \u2229 B) = 100, then n(A \u222a B\u1d9c) equals _____.",
+      "row_number": 5780
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions \u2013 Sets, Types of Relations, Domain, Range, Types of Functions, Composition, Inverse",
+      "question_set_name": "JEE 2022 Practice Paper Advanced \u2013 Paper-1",
+      "group_key": "jee practice advanced",
+      "qno": "15",
+      "page": "32",
+      "magazine": "Mathematics Today | May '22",
+      "text": "Question text for Paper-1 Q15 is not clearly readable from the provided image; please enter manually from the magazine.",
+      "row_number": 6988
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Complex Numbers & Quadratic Equations",
+      "question_set_name": "10 Best Problems for JEE Advanced 2025",
+      "group_key": "best problems for",
+      "qno": "8",
+      "page": "83",
+      "magazine": "Mathematics Today | April '25",
+      "text": "Let a be a complex number such that |a| = 1. If the equation a\u00b2z\u0305 + z + 1 = 0 has pure imaginary root, then tan(arg a) = (a) (\u221a5\u22121)/2 (b) (\u221a5+1)/2 (c) \u221a((\u221a5\u22121)/2) (d) \u221a((\u221a5+1)/2)",
+      "row_number": 1711
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "Challenging Problems for JEE \u2013 Sets, Relations & Functions",
+      "group_key": "challenging problems for",
+      "qno": "14",
+      "page": "65",
+      "magazine": "Mathematics Today | April '23",
+      "text": "f:R\u00b2\u2192R\u00b2 satisfies f(x+y)=f(x)+f(y), x,y\u2208R. Then f(x)=?",
+      "row_number": 3828
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Mixed \u2013 Sets, Relations, Functions, Complex Numbers, Sequences & Series, Coordinate Geometry, Probability",
+      "question_set_name": "Are You Ready for Olympiads? Level 2 (Class XI)",
+      "group_key": "are you ready",
+      "qno": "11",
+      "page": "37",
+      "magazine": "Mathematics Today | January '25",
+      "text": "Evaluate lim_{x\u21920} [8/sin^8 x] \u00d7 (1 \u2212 cos(x^2/2) \u2212 cos(x^2/4) + cos(x^2/8) \u2212 cos(x^2/4)).",
+      "row_number": 3193
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Sets, Relations & Functions",
+      "question_set_name": "Are You Ready for Olympiads? (Class XI)",
+      "group_key": "are you ready",
+      "qno": "1",
+      "page": "59",
+      "magazine": "Mathematics Today | November '25",
+      "text": "The set (A \u222a B \u222a C) \u2229 (A \u2229 B' \u2229 C') \u2229 C' is equal to what?",
+      "row_number": 5243
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "WBJEE Practice Paper 2023",
+      "group_key": "wbjee practice",
+      "qno": "28",
+      "page": "55",
+      "magazine": "Mathematics Today | April '23",
+      "text": "Function y=x/(1+|x|) is?",
+      "row_number": 3800
+    },
+    {
+      "group": "Sets/Relations/Functions",
+      "question_set": "Functions",
+      "question_set_name": "JEE Main Practice Paper (Session-2 April 2023)",
+      "group_key": "jee main practice",
+      "qno": "9",
+      "page": "8",
+      "magazine": "Mathematics Today | April '23",
+      "text": "The range of the function F(x) = 7 \u2212 x\u00b2 \u2212 |x \u2212 3| is.",
+      "row_number": 3636
+    }
+  ],
+  "filters": {
+    "selected_chapter": "Sets/Relations/Functions"
+  }
+}

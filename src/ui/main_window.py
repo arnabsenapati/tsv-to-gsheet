@@ -2994,20 +2994,30 @@ class TSVWatcherWindow(QMainWindow):
         
         # Get all visible questions from current filtered view
         visible_questions = []
-        root = self.question_tree.invisibleRootItem()
         
-        def collect_visible_questions(parent_item):
-            for i in range(parent_item.childCount()):
-                child = parent_item.child(i)
-                if not child.isHidden():
-                    if child.childCount() == 0:  # Leaf node (question)
-                        question_data = child.data(0, Qt.UserRole)
-                        if question_data:
-                            visible_questions.append(question_data)
-                    else:  # Group node, recurse
-                        collect_visible_questions(child)
-        
-        collect_visible_questions(root)
+        # Collect questions from card view instead of tree
+        if hasattr(self, 'question_card_view'):
+            for group in self.question_card_view.accordion_groups:
+                for card in group.get_all_cards():
+                    question_data = card.question_data
+                    if question_data:
+                        visible_questions.append(question_data)
+        else:
+            # Fallback to old tree method if card view doesn't exist
+            root = self.question_tree.invisibleRootItem()
+            
+            def collect_visible_questions(parent_item):
+                for i in range(parent_item.childCount()):
+                    child = parent_item.child(i)
+                    if not child.isHidden():
+                        if child.childCount() == 0:  # Leaf node (question)
+                            question_data = child.data(0, Qt.UserRole)
+                            if question_data:
+                                visible_questions.append(question_data)
+                        else:  # Group node, recurse
+                            collect_visible_questions(child)
+            
+            collect_visible_questions(root)
         
         if not visible_questions:
             QMessageBox.warning(self, "No Questions", "No questions available in the current filtered view.")
