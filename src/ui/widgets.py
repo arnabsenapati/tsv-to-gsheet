@@ -19,8 +19,9 @@ This module contains all custom widget classes used throughout the application:
 """
 
 import json
-from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication
+import os
+from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -36,6 +37,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QLineEdit,
     QComboBox,
+    QApplication,
 )
 
 
@@ -770,6 +772,8 @@ class QuestionCardWidget(QLabel):
     def mousePressEvent(self, event):
         """Handle card click - toggle selection or copy metadata."""
         if event.button() == Qt.LeftButton:
+            # Store press position for drag distance calculation
+            self._drag_start_position = event.pos()
             # Emit signal for selection handling (parent will handle multi-select logic)
             self.clicked.emit(self.question_data)
         super().mousePressEvent(event)
@@ -798,6 +802,16 @@ class QuestionCardWidget(QLabel):
     def mouseMoveEvent(self, event):
         """Handle drag initiation."""
         if event.buttons() & Qt.LeftButton:
+            # Only start drag if moved beyond minimum distance
+            if not hasattr(self, '_drag_start_position'):
+                super().mouseMoveEvent(event)
+                return
+            
+            drag_distance = (event.pos() - self._drag_start_position).manhattanLength()
+            if drag_distance < QApplication.startDragDistance():
+                super().mouseMoveEvent(event)
+                return
+            
             # Start drag operation
             drag = QDrag(self)
             mime_data = QMimeData()
@@ -1535,8 +1549,8 @@ class NavigationSidebar(QWidget):
 
 class QuestionChip(QWidget):
     """
-    Compact chip widget representing a question in the drag-drop panel.
-    Shows only essential metadata: Q# | Page# | Magazine Edition (e.g., Sep'25)
+    Compact chip widget as a filled rounded rectangle.
+    Shows Q# | P# | Edition with a close button on the right.
     Clickable to highlight corresponding question card.
     """
     
@@ -1545,19 +1559,36 @@ class QuestionChip(QWidget):
     
     def __init__(self, question_data: dict, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)  # Ensure background color is painted
         self.question_data = question_data
         self.is_highlighted = False
         
+        # Get tag color for chip background
+        tags = question_data.get("tags", [])
+        self.tag_colors = {
+            "important": "#ef4444",
+            "previous year": "#f59e0b",
+            "prev-year": "#f59e0b",
+            "conceptual": "#8b5cf6",
+            "numerical": "#10b981",
+            "difficult": "#dc2626",
+            "easy": "#22c55e",
+        }
+        self.bg_color = "#dbeafe"  # default blue
+        if tags:
+            first_tag = tags[0].lower() if isinstance(tags, list) else tags.lower()
+            self.bg_color = self.tag_colors.get(first_tag, "#6b7280")
+        
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(8)
         
         # Extract metadata
         qno = question_data.get("qno", "?")
         page = question_data.get("page", "?")
         magazine = question_data.get("magazine", "")
         
-        # Extract just the edition (e.g., "Sep'25" from "Sep'25 Physics For You")
+        # Extract just the edition
         edition = self._extract_edition(magazine)
         
         # Compact text: Q# | P# | Edition
@@ -1566,30 +1597,33 @@ class QuestionChip(QWidget):
             text += f" | {edition}"
         
         self.label = QLabel(text)
+        self.label.setObjectName("chipLabel")
         self.label.setStyleSheet("""
-            QLabel {
-                color: #1e40af;
-                font-size: 10px;
+            QLabel#chipLabel {
+                color: black;
+                font-size: 11px;
                 font-weight: 600;
                 background: transparent;
+                border: none;
             }
         """)
         layout.addWidget(self.label, 1)
         
-        # Remove button with visible cross
-        remove_btn = QPushButton("×")
-        remove_btn.setFixedSize(16, 16)
+        # Remove button with cross icon
+        remove_btn = QPushButton()
+        remove_btn.setObjectName("chipRemoveBtn")
+        remove_btn.setFixedSize(18, 18)
+        remove_btn.setIcon(QIcon(os.path.join(os.path.dirname(__file__), "..", "..", "icons", "close.svg")))
+        remove_btn.setIconSize(QSize(10, 10))
         remove_btn.setStyleSheet("""
-            QPushButton {
+            QPushButton#chipRemoveBtn {
                 background-color: #ef4444;
-                color: white;
                 border: none;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: bold;
+                border-radius: 9px;
                 padding: 0px;
+                margin: 0px;
             }
-            QPushButton:hover {
+            QPushButton#chipRemoveBtn:hover {
                 background-color: #dc2626;
             }
         """)
@@ -1599,13 +1633,12 @@ class QuestionChip(QWidget):
         # Make chip clickable
         self.setCursor(Qt.PointingHandCursor)
         
-        # Chip styling
+        # Chip styling - rounded rectangle with fixed size
         self._update_style()
-        self.setMaximumHeight(26)
-        self.setMinimumHeight(26)
+        self.setFixedSize(200, 28)
     
     def _extract_edition(self, magazine: str) -> str:
-        """Extract edition part from magazine string (e.g., 'Sep'25' from 'Sep'25 Physics For You')."""
+        """Extract edition part from magazine string."""
         if not magazine:
             return ""
         
@@ -1619,11 +1652,11 @@ class QuestionChip(QWidget):
         # Try to match Month YY or Month YYYY
         match = re.search(r"([A-Z][a-z]{2,8})\s*['\-]?\s*(\d{2,4})", magazine)
         if match:
-            month = match.group(1)[:3]  # First 3 letters
-            year = match.group(2)[-2:]  # Last 2 digits
+            month = match.group(1)[:3]
+            year = match.group(2)[-2:]
             return f"{month}'{year}"
         
-        # Fallback: return first 10 characters
+        # Fallback
         return magazine[:10] if len(magazine) > 10 else magazine
     
     def mousePressEvent(self, event):
@@ -1638,22 +1671,23 @@ class QuestionChip(QWidget):
         self._update_style()
     
     def _update_style(self):
-        """Update chip styling based on state."""
+        """Update chip styling based on state - filled rounded rectangle."""
         if self.is_highlighted:
             self.setStyleSheet("""
                 QuestionChip {
                     background-color: #fef08a;
                     border: 2px solid #eab308;
-                    border-radius: 5px;
+                    border-radius: 14px;
                 }
             """)
         else:
-            self.setStyleSheet("""
-                QuestionChip {
-                    background-color: #dbeafe;
-                    border: 1px solid #93c5fd;
-                    border-radius: 5px;
-                }
+            # Use tag-based color directly in stylesheet
+            self.setStyleSheet(f"""
+                QuestionChip {{
+                    background-color: {self.bg_color};
+                    border: 1px solid {self.bg_color};
+                    border-radius: 14px;
+                }}
             """)
 
 
@@ -1720,9 +1754,9 @@ class DragDropQuestionPanel(QWidget):
         # Scroll area for chips
         self.chip_scroll = QScrollArea()
         self.chip_scroll.setWidgetResizable(True)
-        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chip_scroll.setMaximumHeight(100)
+        self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.chip_scroll.setMaximumHeight(150)
         self.chip_scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -1730,16 +1764,17 @@ class DragDropQuestionPanel(QWidget):
             }
         """)
         
-        # Chip container with multi-row layout
+        # Chip container with flow layout (wrapping)
         self.chip_container = QWidget()
         self.chip_main_layout = QVBoxLayout(self.chip_container)
         self.chip_main_layout.setContentsMargins(0, 0, 0, 0)
         self.chip_main_layout.setSpacing(4)
+        self.chip_main_layout.setAlignment(Qt.AlignTop)
         
         # Track current row for chip wrapping
         self.current_chip_row = None
         self.chips_in_current_row = 0
-        self.max_chips_per_row = 6
+        self.max_chips_per_row = 3
         
         self.chip_scroll.setWidget(self.chip_container)
         self.chip_scroll.setVisible(False)
@@ -1862,16 +1897,21 @@ class DragDropQuestionPanel(QWidget):
         chip.remove_clicked.connect(self._remove_chip)
         chip.chip_clicked.connect(self._on_chip_clicked)
         
+        # Calculate max chips per row based on container width
+        # Chip width: 200px, spacing: 4px
+        container_width = self.chip_scroll.width() - 20  # Account for margins
+        chips_per_row = max(1, container_width // 204)  # 200 + 4 spacing
+        
         # Create new row if needed
-        if self.current_chip_row is None or self.chips_in_current_row >= self.max_chips_per_row:
+        if self.current_chip_row is None or self.chips_in_current_row >= chips_per_row:
             self.current_chip_row = QHBoxLayout()
             self.current_chip_row.setSpacing(4)
-            self.current_chip_row.addStretch()
+            self.current_chip_row.setAlignment(Qt.AlignLeft)
             self.chip_main_layout.addLayout(self.current_chip_row)
             self.chips_in_current_row = 0
         
-        # Insert before stretch in current row
-        self.current_chip_row.insertWidget(self.chips_in_current_row, chip)
+        # Add chip to current row
+        self.current_chip_row.addWidget(chip)
         self.chips_in_current_row += 1
         
         # Show chip container, hide label
