@@ -21,7 +21,7 @@ This module contains all custom widget classes used throughout the application:
 import json
 import os
 from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QIcon
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QIcon, QPen
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -306,14 +306,13 @@ class QuestionTreeWidget(QTreeWidget):
 
 class ChapterCardWidget(QWidget):
     """
-    Simple rectangular chapter row card with integrated badge.
+    Custom chapter card widget with integrated badge - everything painted in one rectangle.
     
     Features:
-    - Single rectangle containing chapter text and question badge
-    - Badge is proper badge styling (right-aligned)
+    - Single rectangle with chapter text (left) and badge (right) painted together
+    - No separate elements - true single rectangle
     - Hover: background color change + height increase
-    - Click signal emission
-    - Hairline gaps between cards
+    - Custom painting for precise control
     """
     
     clicked = Signal(str)  # Signal emits chapter_key when clicked
@@ -325,76 +324,80 @@ class ChapterCardWidget(QWidget):
         self.question_count = question_count
         self.is_selected = False
         self.is_hovered = False
-        self.base_height = 48
+        self.base_height = 44
         self.hover_height = int(self.base_height * 1.15)  # 15% increase
         
         self.setMinimumHeight(self.base_height)
         self.setMaximumHeight(self.base_height)
         self.setCursor(Qt.PointingHandCursor)
-        
-        # Main layout - horizontal row
-        layout = QHBoxLayout()
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(8)
-        
-        # Chapter name label (left side, takes most space)
-        self.name_label = QLabel(chapter_name)
-        self.name_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #1e293b;
-                font-weight: 500;
-                background: transparent;
-            }
-        """)
-        self.name_label.setWordWrap(False)
-        self.name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        layout.addWidget(self.name_label, 1)
-        
-        # Question count badge (right side, proper badge styling)
-        self.count_badge = QLabel(str(question_count))
-        self.count_badge.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
-                font-weight: bold;
-                color: white;
-                background: #3b82f6;
-                border-radius: 10px;
-                padding: 2px 8px;
-                min-width: 28px;
-                text-align: center;
-            }
-        """)
-        self.count_badge.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.count_badge)
-        
-        self.setLayout(layout)
         self._update_style()
     
     def _update_style(self):
-        """Update card styling based on selection/hover state"""
+        """Update styling based on state"""
         if self.is_selected:
-            bg_color = "#e0e7ff"  # Light indigo
-            border = "1px solid #3b82f6"
+            self.bg_color = QColor("#e0e7ff")  # Light indigo
+            self.border_color = QColor("#3b82f6")
         elif self.is_hovered:
-            bg_color = "#f0f4f8"  # Slightly darker on hover
-            border = "1px solid #cbd5e1"
+            self.bg_color = QColor("#f0f4f8")  # Slightly darker on hover
+            self.border_color = QColor("#cbd5e1")
         else:
-            bg_color = "#f8fafc"  # Very light gray
-            border = "1px solid #e2e8f0"  # Light border
+            self.bg_color = QColor("#f8fafc")  # Very light gray
+            self.border_color = QColor("#e2e8f0")  # Light border
         
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: {bg_color};
-                border: {border};
-                border-radius: 4px;
-            }}
-        """)
+        self.update()
     
     def set_selected(self, selected: bool):
         """Update selection state"""
         self.is_selected = selected
         self._update_style()
+    
+    def paintEvent(self, event):
+        """Custom paint event to draw card with text and badge in one rectangle"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        rect = self.rect()
+        
+        # Draw main background rectangle
+        painter.fillRect(rect, self.bg_color)
+        painter.setPen(QPen(self.border_color, 1))
+        painter.drawRect(0, 0, rect.width() - 1, rect.height() - 1)
+        
+        # Draw chapter name text (left side)
+        painter.setPen(QColor("#1e293b"))
+        name_font = QFont()
+        name_font.setPointSize(10)
+        name_font.setWeight(QFont.Medium)  # Use QFont.Medium instead of 500
+        painter.setFont(name_font)
+        
+        text_rect = QRect(12, 0, rect.width() - 100, rect.height())
+        painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, self.chapter_name)
+        
+        # Draw badge (right side)
+        badge_text = str(self.question_count)
+        badge_font = QFont()
+        badge_font.setPointSize(9)
+        badge_font.setWeight(QFont.Bold)  # Use QFont.Bold instead of 600
+        painter.setFont(badge_font)
+        
+        # Calculate badge dimensions
+        fm = painter.fontMetrics()
+        badge_width = fm.horizontalAdvance(badge_text) + 16  # text + padding
+        badge_height = 24
+        badge_x = rect.width() - badge_width - 12
+        badge_y = (rect.height() - badge_height) // 2
+        badge_rect = QRect(badge_x, badge_y, badge_width, badge_height)
+        
+        # Draw badge background with rounded corners
+        painter.setBrush(QColor("#3b82f6"))
+        painter.setPen(QPen(QColor("#2563eb"), 1))
+        painter.drawRoundedRect(badge_rect, 6, 6)
+        
+        # Draw badge text
+        painter.setPen(QColor("white"))
+        painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
+        
+        painter.end()
     
     def enterEvent(self, event):
         """Handle mouse enter - change background and increase size"""
@@ -440,7 +443,7 @@ class ChapterCardView(QWidget):
         
         # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setContentsMargins(0, 0, 0, 0)  # No margins for hairline gaps
         main_layout.setSpacing(0)  # Hairline gap between cards
         
         # Scroll area for card stack
@@ -451,7 +454,7 @@ class ChapterCardView(QWidget):
         # Container widget for vertical stack
         container = QWidget()
         self.cards_layout = QVBoxLayout()
-        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)  # No margins
         self.cards_layout.setSpacing(0)  # Hairline gap
         
         container.setLayout(self.cards_layout)
