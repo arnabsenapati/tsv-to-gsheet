@@ -2789,6 +2789,38 @@ class TSVWatcherWindow(QMainWindow):
         """Handle cancel from drag-drop panel."""
         self.drag_drop_panel.setVisible(False)
     
+    def _highlight_question_card(self, question_data: dict):
+        """Highlight the corresponding question card with yellow background."""
+        from PySide6.QtCore import QTimer
+        
+        # Find and highlight the card in the question card view
+        for group in self.question_card_view.accordion_groups:
+            for card in group.get_all_cards():
+                if card.question_data.get("row_number") == question_data.get("row_number"):
+                    # Temporarily highlight with yellow
+                    card.setStyleSheet("""
+                        QLabel {
+                            background-color: #fef08a;
+                            border: 3px solid #eab308;
+                            border-radius: 8px;
+                            padding: 12px;
+                            margin: 4px;
+                        }
+                    """)
+                    
+                    # Reset after 2 seconds
+                    def reset_card_style():
+                        if card.is_selected:
+                            card.set_selected(True)
+                        else:
+                            card.setStyleSheet(card.original_stylesheet)
+                    
+                    QTimer.singleShot(2000, reset_card_style)
+                    
+                    # Scroll to make the card visible
+                    self.question_card_view.ensureWidgetVisible(card)
+                    return
+    
     def remove_selected_from_list(self) -> None:
         """Remove selected questions from current list."""
         if not self.current_list_name:

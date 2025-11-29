@@ -1535,48 +1535,59 @@ class NavigationSidebar(QWidget):
 
 class QuestionChip(QWidget):
     """
-    Small chip widget representing a question in the drag-drop panel.
-    Shows question metadata in compact form with a remove button.
+    Compact chip widget representing a question in the drag-drop panel.
+    Shows only essential metadata: Q# | Page# | Magazine Edition (e.g., Sep'25)
+    Clickable to highlight corresponding question card.
     """
     
     remove_clicked = Signal(dict)  # Emits question data when remove is clicked
+    chip_clicked = Signal(dict)  # Emits question data when chip is clicked
     
     def __init__(self, question_data: dict, parent=None):
         super().__init__(parent)
         self.question_data = question_data
+        self.is_highlighted = False
         
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
         
-        # Question metadata label
+        # Extract metadata
         qno = question_data.get("qno", "?")
         page = question_data.get("page", "?")
-        question_set = question_data.get("question_set_name", "Unknown")[:15]  # Truncate
-        magazine = question_data.get("magazine", "Unknown")[:15]  # Truncate
+        magazine = question_data.get("magazine", "")
         
-        text = f"Q{qno} | P{page} | {question_set} | {magazine}"
-        label = QLabel(text)
-        label.setStyleSheet("""
+        # Extract just the edition (e.g., "Sep'25" from "Sep'25 Physics For You")
+        edition = self._extract_edition(magazine)
+        
+        # Compact text: Q# | P# | Edition
+        text = f"Q{qno} | P{page}"
+        if edition:
+            text += f" | {edition}"
+        
+        self.label = QLabel(text)
+        self.label.setStyleSheet("""
             QLabel {
                 color: #1e40af;
-                font-size: 11px;
+                font-size: 10px;
+                font-weight: 600;
                 background: transparent;
             }
         """)
-        layout.addWidget(label, 1)
+        layout.addWidget(self.label, 1)
         
-        # Remove button
-        remove_btn = QPushButton("✕")
-        remove_btn.setFixedSize(18, 18)
+        # Remove button with visible cross
+        remove_btn = QPushButton("×")
+        remove_btn.setFixedSize(16, 16)
         remove_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ef4444;
                 color: white;
                 border: none;
-                border-radius: 9px;
-                font-size: 12px;
+                border-radius: 8px;
+                font-size: 14px;
                 font-weight: bold;
+                padding: 0px;
             }
             QPushButton:hover {
                 background-color: #dc2626;
@@ -1585,15 +1596,65 @@ class QuestionChip(QWidget):
         remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.question_data))
         layout.addWidget(remove_btn)
         
+        # Make chip clickable
+        self.setCursor(Qt.PointingHandCursor)
+        
         # Chip styling
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #dbeafe;
-                border: 1px solid #93c5fd;
-                border-radius: 4px;
-            }
-        """)
-        self.setMaximumHeight(28)
+        self._update_style()
+        self.setMaximumHeight(26)
+        self.setMinimumHeight(26)
+    
+    def _extract_edition(self, magazine: str) -> str:
+        """Extract edition part from magazine string (e.g., 'Sep'25' from 'Sep'25 Physics For You')."""
+        if not magazine:
+            return ""
+        
+        import re
+        
+        # Try to match Month'YY pattern
+        match = re.search(r"([A-Z][a-z]{2})'(\d{2})", magazine)
+        if match:
+            return f"{match.group(1)}'{match.group(2)}"
+        
+        # Try to match Month YY or Month YYYY
+        match = re.search(r"([A-Z][a-z]{2,8})\s*['\-]?\s*(\d{2,4})", magazine)
+        if match:
+            month = match.group(1)[:3]  # First 3 letters
+            year = match.group(2)[-2:]  # Last 2 digits
+            return f"{month}'{year}"
+        
+        # Fallback: return first 10 characters
+        return magazine[:10] if len(magazine) > 10 else magazine
+    
+    def mousePressEvent(self, event):
+        """Handle chip click to highlight corresponding question."""
+        if event.button() == Qt.LeftButton:
+            self.chip_clicked.emit(self.question_data)
+        super().mousePressEvent(event)
+    
+    def set_highlighted(self, highlighted: bool):
+        """Set highlighted state."""
+        self.is_highlighted = highlighted
+        self._update_style()
+    
+    def _update_style(self):
+        """Update chip styling based on state."""
+        if self.is_highlighted:
+            self.setStyleSheet("""
+                QuestionChip {
+                    background-color: #fef08a;
+                    border: 2px solid #eab308;
+                    border-radius: 5px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QuestionChip {
+                    background-color: #dbeafe;
+                    border: 1px solid #93c5fd;
+                    border-radius: 5px;
+                }
+            """)
 
 
 class DragDropQuestionPanel(QWidget):
@@ -1661,7 +1722,7 @@ class DragDropQuestionPanel(QWidget):
         self.chip_scroll.setWidgetResizable(True)
         self.chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.chip_scroll.setMaximumHeight(80)
+        self.chip_scroll.setMaximumHeight(100)
         self.chip_scroll.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -1669,12 +1730,16 @@ class DragDropQuestionPanel(QWidget):
             }
         """)
         
-        # Chip container
+        # Chip container with multi-row layout
         self.chip_container = QWidget()
-        self.chip_layout = QHBoxLayout(self.chip_container)
-        self.chip_layout.setContentsMargins(0, 0, 0, 0)
-        self.chip_layout.setSpacing(4)
-        self.chip_layout.addStretch()
+        self.chip_main_layout = QVBoxLayout(self.chip_container)
+        self.chip_main_layout.setContentsMargins(0, 0, 0, 0)
+        self.chip_main_layout.setSpacing(4)
+        
+        # Track current row for chip wrapping
+        self.current_chip_row = None
+        self.chips_in_current_row = 0
+        self.max_chips_per_row = 6
         
         self.chip_scroll.setWidget(self.chip_container)
         self.chip_scroll.setVisible(False)
@@ -1795,9 +1860,19 @@ class DragDropQuestionPanel(QWidget):
         """Add a chip for the dropped question."""
         chip = QuestionChip(question_data, self)
         chip.remove_clicked.connect(self._remove_chip)
+        chip.chip_clicked.connect(self._on_chip_clicked)
         
-        # Insert before stretch
-        self.chip_layout.insertWidget(self.chip_layout.count() - 1, chip)
+        # Create new row if needed
+        if self.current_chip_row is None or self.chips_in_current_row >= self.max_chips_per_row:
+            self.current_chip_row = QHBoxLayout()
+            self.current_chip_row.setSpacing(4)
+            self.current_chip_row.addStretch()
+            self.chip_main_layout.addLayout(self.current_chip_row)
+            self.chips_in_current_row = 0
+        
+        # Insert before stretch in current row
+        self.current_chip_row.insertWidget(self.chips_in_current_row, chip)
+        self.chips_in_current_row += 1
         
         # Show chip container, hide label
         self.drop_label.setVisible(False)
@@ -1808,17 +1883,76 @@ class DragDropQuestionPanel(QWidget):
         # Remove from pending questions
         self.pending_questions = [q for q in self.pending_questions if q.get("row_number") != question_data.get("row_number")]
         
-        # Remove chip widget
-        for i in range(self.chip_layout.count()):
-            widget = self.chip_layout.itemAt(i).widget()
-            if isinstance(widget, QuestionChip) and widget.question_data == question_data:
-                widget.deleteLater()
-                break
+        # Remove chip widget - search through all rows
+        for row_idx in range(self.chip_main_layout.count()):
+            row_layout = self.chip_main_layout.itemAt(row_idx).layout()
+            if row_layout:
+                for i in range(row_layout.count()):
+                    widget = row_layout.itemAt(i).widget()
+                    if isinstance(widget, QuestionChip) and widget.question_data == question_data:
+                        widget.deleteLater()
+                        # Rebuild layout after removal
+                        self._rebuild_chip_layout()
+                        return
         
         # Show label if no chips left
         if not self.pending_questions:
             self.drop_label.setVisible(True)
             self.chip_scroll.setVisible(False)
+            self.current_chip_row = None
+            self.chips_in_current_row = 0
+    
+    def _on_chip_clicked(self, question_data: dict):
+        """Handle chip click - highlight corresponding question card."""
+        # Highlight clicked chip, unhighlight others
+        for row_idx in range(self.chip_main_layout.count()):
+            row_layout = self.chip_main_layout.itemAt(row_idx).layout()
+            if row_layout:
+                for i in range(row_layout.count()):
+                    widget = row_layout.itemAt(i).widget()
+                    if isinstance(widget, QuestionChip):
+                        widget.set_highlighted(widget.question_data == question_data)
+        
+        # Emit signal to highlight question card in main view
+        if hasattr(self.parent(), '_highlight_question_card'):
+            self.parent()._highlight_question_card(question_data)
+    
+    def _rebuild_chip_layout(self):
+        """Rebuild chip layout after removal to maintain proper row structure."""
+        # Clear all existing rows
+        while self.chip_main_layout.count() > 0:
+            item = self.chip_main_layout.takeAt(0)
+            if item.layout():
+                while item.layout().count() > 0:
+                    widget_item = item.layout().takeAt(0)
+                    if widget_item.widget():
+                        widget_item.widget().setParent(None)
+        
+        # Reset row tracking
+        self.current_chip_row = None
+        self.chips_in_current_row = 0
+        
+        # Re-add all chips
+        questions_copy = self.pending_questions.copy()
+        self.pending_questions.clear()
+        
+        for question in questions_copy:
+            # Create chip without adding to pending_questions yet
+            chip = QuestionChip(question, self)
+            chip.remove_clicked.connect(self._remove_chip)
+            chip.chip_clicked.connect(self._on_chip_clicked)
+            
+            # Create new row if needed
+            if self.current_chip_row is None or self.chips_in_current_row >= self.max_chips_per_row:
+                self.current_chip_row = QHBoxLayout()
+                self.current_chip_row.setSpacing(4)
+                self.current_chip_row.addStretch()
+                self.chip_main_layout.addLayout(self.current_chip_row)
+                self.chips_in_current_row = 0
+            
+            self.current_chip_row.insertWidget(self.chips_in_current_row, chip)
+            self.chips_in_current_row += 1
+            self.pending_questions.append(question)
     
     def _on_save(self):
         """Emit save signal with selected list and questions."""
@@ -1841,11 +1975,16 @@ class DragDropQuestionPanel(QWidget):
         """Clear all pending questions and chips."""
         self.pending_questions.clear()
         
-        # Remove all chips
-        while self.chip_layout.count() > 1:  # Keep the stretch
-            item = self.chip_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        # Remove all chips from all rows
+        while self.chip_main_layout.count() > 0:
+            item = self.chip_main_layout.takeAt(0)
+            if item.layout():
+                while item.layout().count() > 0:
+                    widget_item = item.layout().takeAt(0)
+                    if widget_item.widget():
+                        widget_item.widget().deleteLater()
         
+        self.current_chip_row = None
+        self.chips_in_current_row = 0
         self.drop_label.setVisible(True)
         self.chip_scroll.setVisible(False)
