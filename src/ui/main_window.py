@@ -1953,14 +1953,12 @@ class TSVWatcherWindow(QMainWindow):
         
         # Clear and populate chapter view
         self.chapter_view.clear_chapters()
-        max_questions = max(len(q) for _, q in sorted_chapters) if sorted_chapters else 1
         
         for chapter_key, questions in sorted_chapters:
             self.chapter_view.add_chapter(
                 chapter_name=chapter_key,
                 chapter_key=chapter_key,
-                question_count=len(questions),
-                max_questions=max_questions
+                question_count=len(questions)
             )
         
         # Select first chapter
