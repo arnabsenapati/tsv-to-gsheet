@@ -2855,6 +2855,8 @@ class TSVWatcherWindow(QMainWindow):
             self.list_name_label.setText("Select a list to view questions")
             self.current_list_name = None
             self.drag_drop_panel.display_existing_questions([])
+            # Hide panel if no list selected
+            self.drag_drop_panel.setVisible(False)
             return
         
         list_name = current_item.data(Qt.UserRole)
@@ -2865,6 +2867,8 @@ class TSVWatcherWindow(QMainWindow):
         if list_name in self.question_lists:
             questions = self.question_lists[list_name]
             self.drag_drop_panel.display_existing_questions(questions)
+            # Show the panel to display existing questions
+            self.drag_drop_panel.setVisible(True)
     
     def _populate_list_question_table(self, list_name: str) -> None:
         """Populate the list question table with questions from the selected list."""
