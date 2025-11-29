@@ -2811,6 +2811,10 @@ class TSVWatcherWindow(QMainWindow):
         for group in self.question_card_view.accordion_groups:
             for card in group.get_all_cards():
                 if card.question_data.get("row_number") == question_data.get("row_number"):
+                    # Expand accordion group if collapsed
+                    if not group.is_expanded:
+                        group.toggle_expanded()
+                    
                     # Temporarily highlight with yellow
                     card.setStyleSheet("""
                         QLabel {
