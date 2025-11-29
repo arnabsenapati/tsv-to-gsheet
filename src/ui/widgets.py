@@ -1595,7 +1595,7 @@ class DashboardView(QWidget):
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        layout.setSpacing(8)  # Reduced spacing to keep stats close to title
         
         # Title
         title = QLabel("📊 Dashboard")
@@ -1604,25 +1604,16 @@ class DashboardView(QWidget):
                 font-size: 24px;
                 font-weight: bold;
                 color: #1e40af;
-                padding-bottom: 10px;
+                padding-bottom: 0px;
+                margin-bottom: 0px;
             }
         """)
         layout.addWidget(title)
         
-        # Scroll area for statistics
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        
-        scroll_container = QWidget()
-        scroll_layout = QVBoxLayout(scroll_container)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(16)
-        
-        # === Summary Stats Cards ===
+        # === Summary Stats Cards (Horizontal) ===
         summary_layout = QHBoxLayout()
         summary_layout.setSpacing(12)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
         
         # Total Questions Card
         self.total_q_card = self._create_stat_card("📊 Total Questions", "0", "#3b82f6")
@@ -1636,7 +1627,19 @@ class DashboardView(QWidget):
         self.unique_mags_card = self._create_stat_card("📰 Unique Magazines", "0", "#ec4899")
         summary_layout.addWidget(self.unique_mags_card)
         
-        scroll_layout.addLayout(summary_layout)
+        summary_layout.addStretch()
+        layout.addLayout(summary_layout)
+        
+        # Scroll area for content below stats
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        
+        scroll_container = QWidget()
+        scroll_layout = QVBoxLayout(scroll_container)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(12)
         
         # === Latest Magazine Edition (Highlighted) ===
         latest_mag_card = QWidget()
@@ -1679,19 +1682,6 @@ class DashboardView(QWidget):
         
         scroll_layout.addWidget(latest_mag_card)
         
-        # === Chapter-wise Statistics ===
-        chapters_title = QLabel("📖 Questions by Chapter Group")
-        chapters_title.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                font-weight: bold;
-                color: #1e40af;
-                padding: 8px 0px;
-            }
-        """)
-        scroll_layout.addWidget(chapters_title)
-        
-        # Scrollable container for chapter cards
         # === Loading Indicator ===
         self.loading_label = QLabel("⏳ Loading workbook data...")
         self.loading_label.setStyleSheet("""
@@ -1722,15 +1712,14 @@ class DashboardView(QWidget):
         card = QWidget()
         card.setStyleSheet(f"""
             QWidget {{
-                background-color: #f0f9ff;
-                border: 2px solid {color};
-                border-radius: 8px;
-                padding: 16px;
+                background-color: transparent;
+                border: none;
+                padding: 8px;
             }}
         """)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 12, 12, 12)
-        card_layout.setSpacing(8)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(4)
         
         title_label = QLabel(title)
         title_label.setStyleSheet(f"""
