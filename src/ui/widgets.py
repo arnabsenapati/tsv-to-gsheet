@@ -2259,10 +2259,7 @@ class DragDropQuestionPanel(QWidget):
     
     def display_existing_questions(self, questions: list):
         """Display existing questions in the list as inactive chips."""
-        print(f"\n=== display_existing_questions called with {len(questions)} questions ===")
-        
         # Clear existing chips
-        print(f"Clearing existing layout, current count: {self.existing_chip_layout.count()}")
         while self.existing_chip_layout.count() > 0:
             item = self.existing_chip_layout.takeAt(0)
             if item.layout():
@@ -2276,30 +2273,20 @@ class DragDropQuestionPanel(QWidget):
         # Reset row tracking for existing chips
         self.existing_current_row = None
         self.existing_chips_in_row = 0
-        print("Existing layout cleared")
         
         if not questions:
-            print("No questions, hiding scroll area")
             self.existing_chip_scroll.setVisible(False)
             return
         
         # Add inactive chips for existing questions
-        print(f"Adding {len(questions)} inactive chips")
         for idx, question_data in enumerate(questions):
-            print(f"  Adding chip {idx+1}: Q{question_data.get('qno', '?')}")
             self._add_existing_chip(question_data)
         
-        print(f"Setting scroll area visible, existing_chip_scroll exists: {self.existing_chip_scroll is not None}")
         self.existing_chip_scroll.setVisible(True)
         
         # Update layout and scroll area
         self.existing_chip_container.updateGeometry()
         self.existing_chip_scroll.widget().updateGeometry()
-        print(f"Layouts updated")
-        print(f"existing_chip_container size: {self.existing_chip_container.size()}")
-        print(f"existing_chip_scroll size: {self.existing_chip_scroll.size()}")
-        print(f"existing_chip_scroll max height: {self.existing_chip_scroll.maximumHeight()}")
-        print("display_existing_questions complete")
     
     def _add_existing_chip(self, question_data: dict):
         """Add a single inactive chip for an existing question."""
