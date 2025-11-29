@@ -129,11 +129,8 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         
-        # Custom list search/filter variables
+        # Custom list search variables
         self.list_question_set_search_term: str = ""
-        self.list_tag_filter_term: str = ""
-        self.list_selected_tag_filters: list[str] = []
-        self.list_copy_mode: str = "Copy: Text"  # Copy mode for custom lists
         
         # JEE Main Papers analysis
         self.jee_papers_df: pd.DataFrame | None = None
@@ -782,50 +779,11 @@ class TSVWatcherWindow(QMainWindow):
         self.list_question_set_search.setMinimumHeight(28)
         self.list_question_set_search.setMaximumHeight(28)
         self.list_question_set_search.textChanged.connect(self.on_list_question_set_search_changed)
-        search_container_layout.addWidget(self.list_question_set_search, 2)
-        
-        # Tags filter for custom lists
-        self.list_tag_filter_display = QLineEdit()
-        self.list_tag_filter_display.setPlaceholderText("No tags selected")
-        self.list_tag_filter_display.setToolTip("Selected tags for filtering")
-        self.list_tag_filter_display.setReadOnly(True)
-        self.list_tag_filter_display.setMinimumHeight(28)
-        self.list_tag_filter_display.setMaximumHeight(28)
-        self.list_tag_filter_display.setStyleSheet("""
-            QLineEdit {
-                background-color: #0f172a;
-                color: #ffffff;
-                border: 1px solid #334155;
-                padding: 4px 8px;
-                border-radius: 4px;
-            }
-        """)
-        search_container_layout.addWidget(self.list_tag_filter_display, 2)
-        
-        # Tag filter button
-        self.list_tag_filter_btn = QPushButton("🏷️")
-        self.list_tag_filter_btn.setToolTip("Select tags to filter questions")
-        self.list_tag_filter_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid #3b82f6;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 14px;
-                min-width: 30px;
-                min-height: 28px;
-                max-height: 28px;
-            }
-            QPushButton:hover {
-                background-color: #3b82f6;
-            }
-        """)
-        self.list_tag_filter_btn.clicked.connect(self._show_list_tag_filter_dialog)
-        search_container_layout.addWidget(self.list_tag_filter_btn)
+        search_container_layout.addWidget(self.list_question_set_search, 1)
         
         # Clear button
         clear_search_btn = QPushButton("✕")
-        clear_search_btn.setToolTip("Clear all search filters")
+        clear_search_btn.setToolTip("Clear search filter")
         clear_search_btn.setMinimumHeight(28)
         clear_search_btn.setMaximumHeight(28)
         clear_search_btn.setMinimumWidth(32)
@@ -924,13 +882,6 @@ class TSVWatcherWindow(QMainWindow):
             }
         """)
         list_questions_layout.addWidget(self.list_question_card_view)
-        
-        # Question text view for selected question
-        self.list_question_text_view = QTextEdit()
-        self.list_question_text_view.setReadOnly(True)
-        self.list_question_text_view.setAcceptRichText(True)
-        self.list_question_text_view.setMaximumHeight(150)
-        list_questions_layout.addWidget(self.list_question_text_view)
         
         lists_split.addWidget(list_questions_card)
 
@@ -3141,7 +3092,7 @@ class TSVWatcherWindow(QMainWindow):
     
     def _apply_list_search(self) -> None:
         """Apply search/filter to custom list questions."""
-        if not self.current_list_name or not hasattr(self, 'list_question_card_view'):
+        if not self.current_list_name or not hasattr(self, '_list_card_grid_layout'):
             return
         
         questions = self.question_lists[self.current_list_name]
@@ -3158,55 +3109,20 @@ class TSVWatcherWindow(QMainWindow):
                 if normalized_search in self._normalize_label(q.get("question_set_name", ""))
             ]
         
-        # Apply tag filters
-        if self.list_selected_tag_filters:
-            filtered = [
-                q for q in filtered
-                if any(tag in (q.get("tags", "") or "").split(",") for tag in self.list_selected_tag_filters)
-            ]
-        
         # Clear and repopulate card view
-        self.list_question_card_view.clear()
-        self.list_question_text_view.clear()
+        while self._list_card_grid_layout.count():
+            item = self._list_card_grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
         if filtered:
             self._populate_list_card_view(filtered)
     
     def clear_list_search(self) -> None:
-        """Clear all search/filter in custom list."""
+        """Clear search in custom list."""
         self.list_question_set_search.clear()
-        self.list_tag_filter_display.clear()
         self.list_question_set_search_term = ""
-        self.list_selected_tag_filters = []
         self._apply_list_search()
-    
-    def _show_list_tag_filter_dialog(self) -> None:
-        """Show tag filter dialog for custom list."""
-        if not self.current_list_name:
-            QMessageBox.information(self, "No List Selected", "Please select a custom list first.")
-            return
-        
-        # Collect all unique tags from questions in current list
-        all_tags = set()
-        for question in self.question_lists[self.current_list_name]:
-            tags = question.get("tags", "")
-            if tags:
-                all_tags.update(tag.strip() for tag in tags.split(","))
-        
-        if not all_tags:
-            QMessageBox.information(self, "No Tags", "No tags found in this list.")
-            return
-        
-        # Show multi-select dialog
-        dialog = MultiSelectTagDialog(sorted(all_tags), self.list_selected_tag_filters, self)
-        if dialog.exec() == QDialog.Accepted:
-            self.list_selected_tag_filters = dialog.get_selected_items()
-            # Update display
-            if self.list_selected_tag_filters:
-                self.list_tag_filter_display.setText(", ".join(self.list_selected_tag_filters))
-            else:
-                self.list_tag_filter_display.clear()
-            self.on_list_tag_filter_changed()
     
     def _on_list_copy_mode_changed(self, mode: str) -> None:
         """Handle copy mode selection change in custom list."""
@@ -3273,14 +3189,9 @@ class TSVWatcherWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
         
-        self.list_question_text_view.clear()
-        
-        # Reset search and filter states for custom lists
+        # Reset search state for custom lists
         self.list_question_set_search_term = ""
-        self.list_tag_filter_term = ""
-        self.list_selected_tag_filters = []
         self.list_question_set_search.clear()
-        self.list_tag_filter_display.clear()
         
         if not questions:
             return
@@ -3300,21 +3211,8 @@ class TSVWatcherWindow(QMainWindow):
     
     def on_list_question_card_selected(self, question: dict) -> None:
         """Handle question card click in custom list card view."""
-        if not question:
-            self.list_question_text_view.clear()
-            return
-        
-        html = (
-            f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
-            f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{question.get('qno','')}</span> &nbsp;&nbsp;"
-            f"<span style='color: #60a5fa; font-weight: bold;'>Page No:</span> <span style='color: #cbd5e1;'>{question.get('page','')}</span> &nbsp;&nbsp;"
-            f"<span style='color: #60a5fa; font-weight: bold;'>Question Set:</span> <span style='color: #cbd5e1;'>{question.get('question_set_name','')}</span> &nbsp;&nbsp;"
-            f"<span style='color: #60a5fa; font-weight: bold;'>Magazine Edition:</span> <span style='color: #cbd5e1;'>{question.get('magazine','')}</span><br/>"
-            f"<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'/>"
-            f"<div style='color: #e2e8f0; line-height: 1.7; font-size: 14px;'>{question.get('text','').replace(chr(10), '<br/>')}</div>"
-            f"</div>"
-        )
-        self.list_question_text_view.setHtml(html)
+        # Card selection used for information only - no separate text view needed
+        pass
     
     def _get_active_filters(self) -> dict:
         """Get currently active filters in Question Analysis tab."""
