@@ -1610,29 +1610,44 @@ class DashboardView(QWidget):
         """)
         layout.addWidget(title)
         
-        # === Summary Stats Cards (Horizontal) ===
-        summary_layout = QHBoxLayout()
-        summary_layout.setSpacing(12)
-        summary_layout.setContentsMargins(0, 0, 0, 0)
+        # === Summary Stats Cards (2 Rows) ===
+        summary_container = QVBoxLayout()
+        summary_container.setSpacing(12)
+        summary_container.setContentsMargins(0, 0, 0, 0)
+        
+        # First Row: Total Questions and Last Magazine
+        first_row_layout = QHBoxLayout()
+        first_row_layout.setSpacing(12)
+        first_row_layout.setContentsMargins(0, 0, 0, 0)
         
         # Total Questions Card
         self.total_q_card = self._create_stat_card("📊 Total Questions", "0", "#3b82f6")
-        summary_layout.addWidget(self.total_q_card)
-        
-        # Total Chapters Card
-        self.total_chapters_card = self._create_stat_card("📚 Total Chapters", "0", "#8b5cf6")
-        summary_layout.addWidget(self.total_chapters_card)
-        
-        # Unique Magazines Card
-        self.unique_mags_card = self._create_stat_card("📰 Unique Magazines", "0", "#ec4899")
-        summary_layout.addWidget(self.unique_mags_card)
+        first_row_layout.addWidget(self.total_q_card)
         
         # Last Magazine Card
         self.last_mag_card = self._create_stat_card("⭐ Last Magazine Added", "-", "#f59e0b")
-        summary_layout.addWidget(self.last_mag_card)
+        first_row_layout.addWidget(self.last_mag_card)
         
-        summary_layout.addStretch()
-        layout.addLayout(summary_layout)
+        first_row_layout.addStretch()
+        summary_container.addLayout(first_row_layout)
+        
+        # Second Row: Total Chapters and Unique Magazines
+        second_row_layout = QHBoxLayout()
+        second_row_layout.setSpacing(12)
+        second_row_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Total Chapters Card
+        self.total_chapters_card = self._create_stat_card("📚 Total Chapters", "0", "#8b5cf6")
+        second_row_layout.addWidget(self.total_chapters_card)
+        
+        # Unique Magazines Card
+        self.unique_mags_card = self._create_stat_card("📰 Unique Magazines", "0", "#ec4899")
+        second_row_layout.addWidget(self.unique_mags_card)
+        
+        second_row_layout.addStretch()
+        summary_container.addLayout(second_row_layout)
+        
+        layout.addLayout(summary_container)
         
         layout.addStretch()
     
