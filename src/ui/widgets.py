@@ -1721,6 +1721,116 @@ class QuestionChip(QWidget):
             """)
 
 
+class InactiveQuestionChip(QWidget):
+    """
+    Deactivated chip for existing questions in a list.
+    
+    Similar to QuestionChip but:
+    - Grayed out background (no color from tags)
+    - No close/remove button
+    - Still clickable for highlighting
+    - Shows as deactivated state
+    """
+    
+    chip_clicked = Signal(dict)  # Emits question data when chip is clicked
+    
+    def __init__(self, question_data: dict, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.question_data = question_data
+        self.is_highlighted = False
+        
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
+        
+        # Extract metadata
+        qno = question_data.get("qno", "?")
+        page = question_data.get("page", "?")
+        magazine = question_data.get("magazine", "")
+        
+        # Extract just the edition
+        edition = self._extract_edition(magazine)
+        
+        # Compact text: Q# | P# | Edition
+        text = f"Q{qno} | P{page}"
+        if edition:
+            text += f" | {edition}"
+        
+        self.label = QLabel(text)
+        self.label.setObjectName("inactiveChipLabel")
+        self.label.setStyleSheet("""
+            QLabel#inactiveChipLabel {
+                color: #64748b;
+                font-size: 10px;
+                font-weight: 600;
+                background: transparent;
+                border: none;
+            }
+        """)
+        layout.addWidget(self.label)
+        
+        # No remove button for inactive chips
+        self.setCursor(Qt.PointingHandCursor)
+        
+        # Chip styling - fixed size, grayed out
+        self._update_style()
+        self.setFixedSize(120, 24)
+    
+    def _extract_edition(self, magazine: str) -> str:
+        """Extract edition part from magazine string."""
+        if not magazine:
+            return ""
+        
+        import re
+        
+        # Try to match Month'YY pattern
+        match = re.search(r"([A-Z][a-z]{2})'(\d{2})", magazine)
+        if match:
+            return f"{match.group(1)}'{match.group(2)}"
+        
+        # Try to match Month YY or Month YYYY
+        match = re.search(r"([A-Z][a-z]{2,8})\s*['\-]?\s*(\d{2,4})", magazine)
+        if match:
+            month = match.group(1)[:3]
+            year = match.group(2)[-2:]
+            return f"{month}'{year}"
+        
+        # Fallback
+        return magazine[:10] if len(magazine) > 10 else magazine
+    
+    def mousePressEvent(self, event):
+        """Handle chip click to highlight corresponding question."""
+        if event.button() == Qt.LeftButton:
+            self.chip_clicked.emit(self.question_data)
+        super().mousePressEvent(event)
+    
+    def set_highlighted(self, highlighted: bool):
+        """Set highlighted state."""
+        self.is_highlighted = highlighted
+        self._update_style()
+    
+    def _update_style(self):
+        """Update chip styling - grayed out by default."""
+        if self.is_highlighted:
+            self.setStyleSheet("""
+                InactiveQuestionChip {
+                    background-color: #fef08a;
+                    border: 2px solid #eab308;
+                    border-radius: 12px;
+                }
+            """)
+        else:
+            # Grayed out background for deactivated state
+            self.setStyleSheet("""
+                InactiveQuestionChip {
+                    background-color: #e2e8f0;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 12px;
+                }
+            """)
+
+
 class DragDropQuestionPanel(QWidget):
     """
     Panel for drag-and-drop question list management.
@@ -1839,6 +1949,60 @@ class DragDropQuestionPanel(QWidget):
         top_row.addWidget(cancel_btn)
         
         main_layout.addLayout(top_row)
+        
+        # Existing questions container
+        existing_container = QWidget()
+        existing_layout = QVBoxLayout(existing_container)
+        existing_layout.setContentsMargins(0, 0, 0, 0)
+        existing_layout.setSpacing(4)
+        existing_layout.setAlignment(Qt.AlignTop)
+        
+        # Existing questions label
+        existing_label = QLabel("Existing Questions:")
+        existing_label.setStyleSheet("""
+            QLabel {
+                color: #475569;
+                font-weight: 600;
+                font-size: 11px;
+                background: transparent;
+            }
+        """)
+        existing_layout.addWidget(existing_label)
+        
+        # Scroll area for existing chips
+        self.existing_chip_scroll = QScrollArea()
+        self.existing_chip_scroll.setWidgetResizable(True)
+        self.existing_chip_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.existing_chip_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.existing_chip_scroll.setMaximumHeight(40)
+        self.existing_chip_scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+        """)
+        
+        # Existing chips container with flow layout
+        self.existing_chip_container = QWidget()
+        self.existing_chip_layout = QVBoxLayout(self.existing_chip_container)
+        self.existing_chip_layout.setContentsMargins(0, 0, 0, 0)
+        self.existing_chip_layout.setSpacing(4)
+        self.existing_chip_layout.setAlignment(Qt.AlignTop)
+        
+        # Track existing chips rows
+        self.existing_current_row = None
+        self.existing_chips_in_row = 0
+        
+        self.existing_chip_scroll.setWidget(self.existing_chip_container)
+        self.existing_chip_scroll.setVisible(False)
+        existing_layout.addWidget(self.existing_chip_scroll)
+        
+        existing_container.setStyleSheet("""
+            QWidget {
+                background: transparent;
+            }
+        """)
+        main_layout.addWidget(existing_container)
         
         # Drop area container (full width)
         drop_container = QWidget()
@@ -2092,3 +2256,61 @@ class DragDropQuestionPanel(QWidget):
         self.chips_in_current_row = 0
         self.drop_label.setVisible(True)
         self.chip_scroll.setVisible(False)
+    
+    def display_existing_questions(self, questions: list):
+        """Display existing questions in the list as inactive chips."""
+        # Clear existing chips
+        while self.existing_chip_layout.count() > 0:
+            item = self.existing_chip_layout.takeAt(0)
+            if item.layout():
+                while item.layout().count() > 0:
+                    widget_item = item.layout().takeAt(0)
+                    if widget_item.widget():
+                        widget_item.widget().deleteLater()
+            elif item.widget():
+                item.widget().deleteLater()
+        
+        # Reset row tracking for existing chips
+        self.existing_current_row = None
+        self.existing_chips_in_row = 0
+        
+        if not questions:
+            self.existing_chip_scroll.setVisible(False)
+            return
+        
+        # Add inactive chips for existing questions
+        for question_data in questions:
+            self._add_existing_chip(question_data)
+        
+        self.existing_chip_scroll.setVisible(True)
+    
+    def _add_existing_chip(self, question_data: dict):
+        """Add a single inactive chip for an existing question."""
+        chip = InactiveQuestionChip(question_data)
+        chip.chip_clicked.connect(self._on_existing_chip_clicked)
+        
+        # Create row if needed
+        if self.existing_current_row is None or self.existing_chips_in_row >= self.max_chips_per_row:
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(6)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addStretch()  # Right align chips
+            self.existing_chip_layout.addLayout(row_layout)
+            self.existing_current_row = row_layout
+            self.existing_chips_in_row = 0
+        
+        self.existing_current_row.insertWidget(self.existing_current_row.count() - 1, chip)
+        self.existing_chips_in_row += 1
+    
+    def _on_existing_chip_clicked(self, question_data: dict):
+        """Handle click on existing question chip - highlight the card."""
+        # Find parent main window and highlight the question card
+        main_window = self.parent()
+        while main_window:
+            if hasattr(main_window, '_highlight_question_card'):
+                main_window._highlight_question_card(question_data)
+                return
+            parent_widget = main_window.parent() if hasattr(main_window, 'parent') else None
+            if parent_widget is None or parent_widget == main_window:
+                break
+            main_window = parent_widget
