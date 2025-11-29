@@ -1380,15 +1380,10 @@ class TSVWatcherWindow(QMainWindow):
             self.current_workbook_path = None
             self.high_level_column_index = None
             if hasattr(self, 'dashboard_view'):
-                self.dashboard_view.hide_loading()
-            return
+                return
 
         # Clear all existing data before loading new workbook
         self._clear_all_question_data()
-        
-        # Show loading indicator in dashboard
-        if hasattr(self, 'dashboard_view'):
-            self.dashboard_view.show_loading()
         
         self.current_workbook_path = workbook_path
         self._save_last_selection()

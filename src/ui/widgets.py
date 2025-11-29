@@ -1682,30 +1682,9 @@ class DashboardView(QWidget):
         
         scroll_layout.addWidget(latest_mag_card)
         
-        # === Loading Indicator ===
-        self.loading_label = QLabel("⏳ Loading workbook data...")
-        self.loading_label.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                color: #64748b;
-                padding: 16px;
-                text-align: center;
-            }
-        """)
-        self.loading_label.setVisible(False)
-        scroll_layout.addWidget(self.loading_label)
-        
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
         layout.addWidget(scroll, 1)
-    
-    def show_loading(self) -> None:
-        """Show loading indicator."""
-        self.loading_label.setVisible(True)
-    
-    def hide_loading(self) -> None:
-        """Hide loading indicator."""
-        self.loading_label.setVisible(False)
     
     def _create_stat_card(self, title: str, value: str, color: str) -> QWidget:
         """Create a statistics card with title and value."""
@@ -1753,8 +1732,6 @@ class DashboardView(QWidget):
             df: Pandas DataFrame with workbook data
             chapter_groups: Dict mapping group names to chapter lists
         """
-        self.hide_loading()  # Hide loading indicator when data arrives
-        
         if df is None or df.empty:
             return
         
