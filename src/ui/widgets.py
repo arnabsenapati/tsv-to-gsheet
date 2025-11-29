@@ -1115,25 +1115,39 @@ class QuestionCardWidget(QLabel):
             drag = QDrag(self)
             mime_data = QMimeData()
             
-            # Serialize question data as JSON
-            question_json = json.dumps(self.question_data)
-            mime_data.setData("application/x-question-data", question_json.encode())
+            # Serialize question data as JSON (pre-cache this if possible)
+            if not hasattr(self, '_cached_question_json'):
+                self._cached_question_json = json.dumps(self.question_data)
             
+            mime_data.setData("application/x-question-data", self._cached_question_json.encode())
             drag.setMimeData(mime_data)
             
-            # Create drag pixmap (visual representation)
-            pixmap = QPixmap(self.size())
+            # Create a simplified drag pixmap (use text instead of full render)
+            # This is much faster than rendering the entire widget
+            pixmap = QPixmap(200, 80)
             pixmap.fill(Qt.transparent)
             painter = QPainter(pixmap)
-            painter.setOpacity(0.7)
-            self.render(painter, QPoint(), QRect())
+            painter.setOpacity(0.8)
+            
+            # Draw a simple colored rectangle with text
+            painter.fillRect(pixmap.rect(), QColor("#f8fafc"))
+            painter.setPen(QColor("#1e40af"))
+            painter.setFont(QFont("Arial", 10, QFont.Bold))
+            painter.drawRect(0, 0, pixmap.width() - 1, pixmap.height() - 1)
+            
+            # Draw question number and preview
+            qno = self.question_data.get('qno', '?')
+            text = self.question_data.get('text', '')[:40] + "..."
+            painter.drawText(10, 20, f"Q{qno}")
+            painter.setFont(QFont("Arial", 8))
+            painter.drawText(10, 40, text)
             painter.end()
             
             drag.setPixmap(pixmap)
-            drag.setHotSpot(event.pos())
+            drag.setHotSpot(event.pos() - QPoint(100, 40))
             
-            # Execute drag
-            drag.exec(Qt.CopyAction)
+            # Execute drag (use DropAction instead of just CopyAction for better compatibility)
+            drag.exec(Qt.MoveAction | Qt.CopyAction)
         
         super().mouseMoveEvent(event)
     
