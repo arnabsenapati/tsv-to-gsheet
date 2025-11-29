@@ -602,6 +602,12 @@ class TSVWatcherWindow(QMainWindow):
                 border: none;
                 background: transparent;
             }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #1e40af;
+                selection-background-color: #3b82f6;
+                selection-color: #ffffff;
+            }
         """)
         self.copy_mode_combo.currentTextChanged.connect(self._on_copy_mode_changed)
         action_layout.addWidget(self.copy_mode_combo)
