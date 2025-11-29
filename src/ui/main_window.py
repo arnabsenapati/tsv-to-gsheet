@@ -123,6 +123,7 @@ class TSVWatcherWindow(QMainWindow):
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
         self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
+        self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         
         # JEE Main Papers analysis
         self.jee_papers_df: pd.DataFrame | None = None
@@ -573,6 +574,37 @@ class TSVWatcherWindow(QMainWindow):
         create_random_list_btn.setMaximumWidth(32)
         create_random_list_btn.clicked.connect(self.create_random_list_from_filtered)
         action_layout.addWidget(create_random_list_btn)
+        
+        # Copy mode selector
+        action_layout.addSpacing(8)  # Visual separator
+        self.copy_mode_combo = QComboBox()
+        self.copy_mode_combo.addItems(["Copy: Text", "Copy: Metadata", "Copy: Both"])
+        self.copy_mode_combo.setCurrentIndex(0)  # Default to "Copy: Text"
+        self.copy_mode_combo.setToolTip("Select what to copy when double-clicking a question:\n"
+                                        "• Text: Only the question content\n"
+                                        "• Metadata: Only question number, page, chapter\n"
+                                        "• Both: Question text + metadata")
+        self.copy_mode_combo.setMinimumHeight(28)
+        self.copy_mode_combo.setMaximumHeight(28)
+        self.copy_mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #ffffff;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #1e40af;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                background-color: #eff6ff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                background: transparent;
+            }
+        """)
+        self.copy_mode_combo.currentTextChanged.connect(self._on_copy_mode_changed)
+        action_layout.addWidget(self.copy_mode_combo)
         
         search_layout.addWidget(action_container)
         
@@ -2381,6 +2413,10 @@ class TSVWatcherWindow(QMainWindow):
                 f"</div>"
             )
             self.question_text_view.setHtml(html)
+    
+    def _on_copy_mode_changed(self, mode: str) -> None:
+        """Handle copy mode selection change."""
+        self.copy_mode = mode
     
     def on_question_card_selected(self, question: dict) -> None:
         """Handle question card click in card view."""

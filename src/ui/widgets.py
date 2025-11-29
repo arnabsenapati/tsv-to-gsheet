@@ -970,25 +970,54 @@ class QuestionCardWidget(QLabel):
         super().mousePressEvent(event)
     
     def mouseDoubleClickEvent(self, event):
-        """Handle double-click - copy metadata to clipboard."""
+        """Handle double-click - copy based on selected mode."""
         if event.button() == Qt.LeftButton:
-            # Copy metadata to clipboard
             q = self.question_data
             qno = q.get("qno", "?")
             page = q.get("page", "?")
             question_set = q.get("question_set_name", "Unknown")
             magazine = q.get("magazine", "Unknown")
+            chapter = q.get("chapter", "Unknown")
+            tags = q.get("tags", "")
+            question_text = q.get("text", "")
             
-            # Format: Q15 | P34 | Question set name | Magazine edition
-            metadata_text = f"Q{qno} | P{page} | {question_set} | {magazine}"
+            # Get copy mode from parent window
+            parent_window = self._get_parent_window()
+            copy_mode = parent_window.copy_mode if parent_window else "Copy: Text"
+            
+            # Build clipboard text based on selected mode
+            if copy_mode == "Copy: Metadata":
+                # Metadata only: Q15 | P34 | Chapter | Question set name | Magazine edition
+                clipboard_text = f"Q{qno} | P{page} | {chapter} | {question_set} | {magazine}"
+            elif copy_mode == "Copy: Both":
+                # Both: Full formatted text with question and metadata
+                tags_str = f" | Tags: {tags}" if tags else ""
+                clipboard_text = (
+                    f"Q{qno} - {question_set}\n"
+                    f"Chapter: {chapter} | Page: {page}{tags_str}\n"
+                    f"Magazine: {magazine}\n\n"
+                    f"{question_text}"
+                )
+            else:  # "Copy: Text" - default
+                # Text only: Just the question
+                clipboard_text = question_text
             
             # Copy to clipboard
             clipboard = QGuiApplication.clipboard()
-            clipboard.setText(metadata_text)
+            clipboard.setText(clipboard_text)
             
             # Visual feedback - flash green
             self._show_copy_feedback()
         super().mouseDoubleClickEvent(event)
+    
+    def _get_parent_window(self):
+        """Traverse up widget hierarchy to find the main window."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, 'copy_mode'):
+                return parent
+            parent = parent.parent()
+        return None
     
     def mouseMoveEvent(self, event):
         """Handle drag initiation."""
