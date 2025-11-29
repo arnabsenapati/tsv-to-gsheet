@@ -2624,6 +2624,10 @@ class TSVWatcherWindow(QMainWindow):
                 self.saved_lists_widget.addItem(item)
             except Exception as exc:
                 self.log(f"Error loading list {json_file.name}: {exc}")
+        
+        # Trigger selection of first item if any lists loaded
+        if self.saved_lists_widget.count() > 0:
+            self.saved_lists_widget.setCurrentRow(0)
     
     def _save_question_list(self, list_name: str, save_filters: bool = False) -> None:
         """Save a question list to file.
