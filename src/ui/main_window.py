@@ -67,6 +67,7 @@ from config.constants import (
 from services.excel_service import process_tsv
 from ui.dialogs import MultiSelectTagDialog
 from ui.widgets import (
+    ChapterCardView,
     ChapterTableWidget,
     DashboardView,
     GroupingChapterListWidget,
@@ -415,14 +416,9 @@ class TSVWatcherWindow(QMainWindow):
         chapter_card = self._create_card()
         chapter_layout = QVBoxLayout(chapter_card)
         chapter_layout.addWidget(self._create_label("Chapters"))
-        self.chapter_table = ChapterTableWidget(self)
-        self.chapter_table.setHorizontalHeaderLabels(["Chapter", "Questions"])
-        self.chapter_table.horizontalHeader().setStretchLastSection(False)
-        self.chapter_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.chapter_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.chapter_table.verticalHeader().setVisible(False)
-        self.chapter_table.itemSelectionChanged.connect(self.on_chapter_selected)
-        chapter_layout.addWidget(self.chapter_table)
+        self.chapter_view = ChapterCardView(self)
+        self.chapter_view.chapter_selected.connect(self.on_chapter_selected)
+        chapter_layout.addWidget(self.chapter_view)
         analysis_split.addWidget(chapter_card)
 
         question_card = self._create_card()
@@ -1939,31 +1935,38 @@ class TSVWatcherWindow(QMainWindow):
                 self.question_sets_tree.addTopLevelItem(parent_item)
 
     def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
-        if not hasattr(self, "chapter_table"):
+        if not hasattr(self, "chapter_view"):
             return
         self.chapter_questions = chapters or {}
-        self.chapter_table.setRowCount(0)
         if hasattr(self, "question_tree"):
             self.question_tree.clear()
         self.question_text_view.clear()
         if not self.chapter_questions:
+            self.chapter_view.clear_chapters()
             return
+        
+        # Sort chapters by question count (descending) then by name (ascending)
         sorted_chapters = sorted(
             self.chapter_questions.items(),
             key=lambda kv: (-len(kv[1]), kv[0].lower()),
         )
-        self.chapter_table.setRowCount(len(sorted_chapters))
-        for row, (chapter, questions) in enumerate(sorted_chapters):
-            name_item = QTableWidgetItem(chapter)
-            name_item.setData(Qt.UserRole, chapter)
-            count_item = QTableWidgetItem(str(len(questions)))
-            count_item.setTextAlignment(Qt.AlignCenter)
-            self.chapter_table.setItem(row, 0, name_item)
-            self.chapter_table.setItem(row, 1, count_item)
-        self.chapter_table.resizeColumnToContents(0)
-        self.chapter_table.resizeColumnToContents(1)
-        if self.chapter_table.rowCount() > 0:
-            self.chapter_table.selectRow(0)
+        
+        # Clear and populate chapter view
+        self.chapter_view.clear_chapters()
+        max_questions = max(len(q) for _, q in sorted_chapters) if sorted_chapters else 1
+        
+        for chapter_key, questions in sorted_chapters:
+            self.chapter_view.add_chapter(
+                chapter_name=chapter_key,
+                chapter_key=chapter_key,
+                question_count=len(questions),
+                max_questions=max_questions
+            )
+        
+        # Select first chapter
+        if sorted_chapters:
+            first_chapter_key = sorted_chapters[0][0]
+            self.chapter_view._on_card_clicked(first_chapter_key)
 
     def _populate_question_table(self, questions: list[dict]) -> None:
         if not hasattr(self, "question_tree"):
@@ -2341,21 +2344,12 @@ class TSVWatcherWindow(QMainWindow):
         self.log(f"{count} question(s) moved to '{target_group}'. Reloading data...")
         self.update_row_count()
 
-    def on_chapter_selected(self) -> None:
-        if not hasattr(self, "chapter_table"):
-            return
-        row = self.chapter_table.currentRow()
-        if row < 0:
+    def on_chapter_selected(self, chapter_key: str) -> None:
+        if not chapter_key:
             self._populate_question_table([])
             self.current_selected_chapter = None
             return
-        item = self.chapter_table.item(row, 0)
-        if not item:
-            self._populate_question_table([])
-            self.current_selected_chapter = None
-            return
-        chapter_key = item.data(Qt.UserRole) or item.text()
-        self.current_selected_chapter = chapter_key  # Store selected chapter
+        self.current_selected_chapter = chapter_key
         questions = self.chapter_questions.get(chapter_key, [])
         self._populate_question_table(questions)
 

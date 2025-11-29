@@ -304,6 +304,210 @@ class QuestionTreeWidget(QTreeWidget):
         drag.exec(Qt.MoveAction)
 
 
+class ChapterCardWidget(QWidget):
+    """
+    Individual chapter card with gradient intensity based on question count.
+    
+    Features:
+    - Gradient background (intensity based on question count)
+    - Chapter name and question count display
+    - Hover effects (scale, shadow)
+    - Click signal emission
+    """
+    
+    clicked = Signal(str)  # Signal emits chapter_key when clicked
+    
+    def __init__(self, chapter_name: str, chapter_key: str, question_count: int, max_questions: int = 1252):
+        super().__init__()
+        self.chapter_name = chapter_name
+        self.chapter_key = chapter_key
+        self.question_count = question_count
+        self.max_questions = max_questions
+        self.is_selected = False
+        self.is_hovered = False
+        
+        self.setFixedSize(200, 180)
+        self.setCursor(Qt.PointingHandCursor)
+        
+        # Calculate intensity (0.2 to 1.0 range)
+        intensity = 0.2 + (question_count / max_questions) * 0.8
+        # HSL gradient: start at light blue, end at dark blue
+        intensity_percent = int(intensity * 100)
+        
+        # Build color based on intensity
+        if intensity < 0.4:
+            color = "#93c5fd"  # Light blue
+        elif intensity < 0.6:
+            color = "#60a5fa"  # Medium light blue
+        elif intensity < 0.8:
+            color = "#3b82f6"  # Medium blue
+        else:
+            color = "#1e40af"  # Dark blue
+        
+        self.intensity_color = color
+        
+        # Main layout
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(8)
+        
+        # Chapter name label
+        self.name_label = QLabel(chapter_name)
+        self.name_label.setStyleSheet("font-weight: bold; font-size: 13px; color: white;")
+        self.name_label.setWordWrap(True)
+        layout.addWidget(self.name_label)
+        
+        layout.addStretch()
+        
+        # Count display
+        self.count_label = QLabel(f"{question_count}")
+        self.count_label.setStyleSheet("font-size: 28px; font-weight: bold; color: white; background: rgba(255,255,255,0.2); border-radius: 8px; padding: 10px;")
+        self.count_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.count_label)
+        
+        self.questions_text = QLabel("questions")
+        self.questions_text.setStyleSheet("font-size: 11px; color: rgba(255,255,255,0.8);")
+        self.questions_text.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.questions_text)
+        
+        self.setLayout(layout)
+        self._update_style()
+    
+    def _update_style(self):
+        """Update card styling based on hover/selection state"""
+        base_style = f"""
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {self.intensity_color}, stop:1 rgba(30, 64, 175, 0.9));
+            border: none;
+            border-radius: 12px;
+        """
+        
+        if self.is_selected:
+            base_style += """
+                border: 3px solid #fbbf24;
+            """
+        elif self.is_hovered:
+            base_style += """
+                border: 2px solid rgba(255, 255, 255, 0.4);
+            """
+        else:
+            base_style += """
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            """
+        
+        self.setStyleSheet(base_style)
+    
+    def set_selected(self, selected: bool):
+        """Update selection state"""
+        self.is_selected = selected
+        self._update_style()
+    
+    def enterEvent(self, event):
+        """Handle mouse enter"""
+        self.is_hovered = True
+        self._update_style()
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """Handle mouse leave"""
+        self.is_hovered = False
+        self._update_style()
+        super().leaveEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Handle mouse click"""
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self.chapter_key)
+        super().mousePressEvent(event)
+
+
+class ChapterCardView(QWidget):
+    """
+    Scrollable grid view of chapter cards with gradient intensity display.
+    
+    Features:
+    - 2-column grid layout of chapter cards
+    - Gradient colors based on question count intensity
+    - Hover animations (scale, shadow)
+    - Click selection with visual feedback
+    - Emits chapter_selected signal when card is clicked
+    """
+    
+    chapter_selected = Signal(str)  # Signal emits chapter_key when card clicked
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.chapter_cards = {}  # chapter_key -> ChapterCardWidget
+        self.selected_chapter = None
+        
+        # Main layout
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+        
+        # Scroll area for grid of cards
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea { border: none; background: #f8f9fa; }")
+        
+        # Container widget for grid
+        container = QWidget()
+        grid_layout = QHBoxLayout()  # We'll use manual 2-column layout
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setSpacing(10)
+        
+        # Create left and right columns
+        self.left_column = QVBoxLayout()
+        self.left_column.setSpacing(10)
+        self.right_column = QVBoxLayout()
+        self.right_column.setSpacing(10)
+        
+        grid_layout.addLayout(self.left_column)
+        grid_layout.addLayout(self.right_column)
+        grid_layout.addStretch()
+        
+        container.setLayout(grid_layout)
+        scroll_area.setWidget(container)
+        
+        main_layout.addWidget(scroll_area)
+        self.setLayout(main_layout)
+        
+        self.setStyleSheet("background: #f8f9fa;")
+    
+    def add_chapter(self, chapter_name: str, chapter_key: str, question_count: int, max_questions: int = 1252):
+        """Add a chapter card to the grid"""
+        card = ChapterCardWidget(chapter_name, chapter_key, question_count, max_questions)
+        card.clicked.connect(self._on_card_clicked)
+        
+        self.chapter_cards[chapter_key] = card
+        
+        # Alternate columns
+        if len(self.chapter_cards) % 2 == 1:
+            self.left_column.addWidget(card)
+        else:
+            self.right_column.addWidget(card)
+    
+    def clear_chapters(self):
+        """Clear all chapter cards"""
+        for card in self.chapter_cards.values():
+            card.deleteLater()
+        self.chapter_cards.clear()
+        self.selected_chapter = None
+    
+    def _on_card_clicked(self, chapter_key: str):
+        """Handle card click"""
+        # Deselect previous
+        if self.selected_chapter and self.selected_chapter in self.chapter_cards:
+            self.chapter_cards[self.selected_chapter].set_selected(False)
+        
+        # Select new
+        self.selected_chapter = chapter_key
+        if chapter_key in self.chapter_cards:
+            self.chapter_cards[chapter_key].set_selected(True)
+        
+        # Emit signal
+        self.chapter_selected.emit(chapter_key)
+
+
 class ChapterTableWidget(QTableWidget):
     """
     Table widget for chapter management with drop support.
