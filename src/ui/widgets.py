@@ -1557,28 +1557,77 @@ class QuestionChip(QWidget):
     remove_clicked = Signal(dict)  # Emits question data when remove is clicked
     chip_clicked = Signal(dict)  # Emits question data when chip is clicked
     
+    # Class-level cache for tag data to avoid repeated file reads
+    _tag_cache = None
+    
+    @classmethod
+    def _load_tag_data(cls):
+        """Load tag data from tags.cfg file (cached at class level)."""
+        if cls._tag_cache is not None:
+            return cls._tag_cache
+        
+        from src.config.constants import TAGS_CONFIG_FILE
+        import json
+        
+        group_tags = {}
+        tag_colors = {}
+        
+        if TAGS_CONFIG_FILE.exists():
+            try:
+                data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
+                group_tags = data.get("group_tags", {})
+                tag_colors = data.get("tag_colors", {})
+            except (json.JSONDecodeError, Exception):
+                pass
+        
+        cls._tag_cache = (group_tags, tag_colors)
+        return cls._tag_cache
+    
+    @classmethod
+    def invalidate_tag_cache(cls):
+        """Invalidate the tag cache (call when tags are updated)."""
+        cls._tag_cache = None
+    
     def __init__(self, question_data: dict, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)  # Ensure background color is painted
         self.question_data = question_data
         self.is_highlighted = False
         
-        # Get tag color for chip background.
-        # Use the same tag-color mapping as question cards / group tags.
-        tags = question_data.get("tags", [])
-        tag_colors = {
-            "important": "#ef4444",
-            "previous year": "#f59e0b",
-            "prev-year": "#f59e0b",
-            "conceptual": "#8b5cf6",
-            "numerical": "#10b981",
-            "difficult": "#dc2626",
-            "easy": "#22c55e",
-        }
-        self.bg_color = "#60a5fa"  # lighter blue for better appearance
-        if tags:
-            first_tag = tags[0].lower() if isinstance(tags, list) else tags.lower()
-            self.bg_color = tag_colors.get(first_tag, self.bg_color)
+        # Get tag color for chip background using group_key to look up tags
+        group_key = question_data.get("group_key", "")
+        self.bg_color = "#60a5fa"  # Default lighter blue
+        
+        # Debug logging for chip color selection
+        print(f"\n=== CHIP COLOR SELECTION DEBUG ===")
+        print(f"Question: Q{question_data.get('qno', '?')} | Page {question_data.get('page', '?')}")
+        print(f"Group Key: {group_key}")
+        print(f"Question Set Name: {question_data.get('question_set_name', 'Unknown')}")
+        print(f"All question_data keys: {list(question_data.keys())}")
+        
+        # Load tag data directly from tags.cfg
+        group_tags, tag_colors = self._load_tag_data()
+        print(f"Group tags keys: {list(group_tags.keys())}")
+        print(f"Tag colors: {tag_colors}")
+        
+        if group_key:
+            tags = group_tags.get(group_key, [])
+            print(f"Tags for group_key '{group_key}': {tags}")
+            if tags and tag_colors:
+                first_tag = tags[0] if tags else ""
+                print(f"First tag: '{first_tag}'")
+                if first_tag in tag_colors:
+                    self.bg_color = tag_colors[first_tag]
+                    print(f"Matched color: {self.bg_color}")
+                else:
+                    print(f"No color match for tag '{first_tag}'")
+            else:
+                print(f"No tags found for group_key or no tag_colors defined")
+        else:
+            print(f"No group_key found in question_data")
+        
+        print(f"Final bg_color: {self.bg_color}")
+        print(f"=================================\n")
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)

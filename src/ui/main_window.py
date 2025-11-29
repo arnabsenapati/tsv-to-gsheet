@@ -1481,12 +1481,16 @@ class TSVWatcherWindow(QMainWindow):
             question_text = normalize(values[question_text_col - 1]) if question_text_col else ""
             question_set_name = normalize(values[question_set_name_col - 1]) if question_set_name_col else raw_chapter_name
             magazine_value = normalize(values[magazine_col - 1]) if magazine_col else ""
+            
+            # Extract group_key for tag lookup (same key used for accordion headers)
+            group_key = self._extract_group_key(question_set_name)
 
             chapters.setdefault(chapter_name, []).append(
                 {
                     "group": chapter_name,
                     "question_set": raw_chapter_name,
                     "question_set_name": question_set_name,
+                    "group_key": group_key,  # For tag color lookup in chips
                     "qno": qno_value,
                     "page": page_value,
                     "magazine": magazine_value,
