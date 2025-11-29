@@ -715,11 +715,16 @@ class QuestionCardWidget(QLabel):
                 )
             tag_html = " ".join(tag_badges)
         
+        # Add checkmark if selected
+        selection_icon = ""
+        if self.is_selected:
+            selection_icon = '<span style="color: #10b981; font-size: 18px; font-weight: bold; margin-right: 8px;">✓</span>'
+        
         # Build card HTML
         html = f"""
         <div style="line-height: 1.4;">
             <div style="margin-bottom: 8px;">
-                <span style="color: #1e40af; font-size: 16px; font-weight: bold;">{qno}</span>
+                {selection_icon}<span style="color: #1e40af; font-size: 16px; font-weight: bold;">{qno}</span>
                 <span style="color: #64748b; font-size: 12px; margin-left: 12px;">📄 Page {page}</span>
                 {tag_html}
             </div>
@@ -807,11 +812,16 @@ class QuestionCardWidget(QLabel):
     def set_selected(self, selected: bool):
         """Update visual state for selection."""
         self.is_selected = selected
+        
+        # Rebuild card HTML to show/hide checkmark
+        self._build_card()
+        
         if selected:
+            # Strong blue background with green accent border
             self.setStyleSheet("""
                 QLabel {
-                    background-color: #dbeafe;
-                    border: 2px solid #3b82f6;
+                    background-color: #bfdbfe;
+                    border: 3px solid #10b981;
                     border-radius: 8px;
                     padding: 12px;
                     margin: 4px;
