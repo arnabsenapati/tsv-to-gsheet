@@ -586,6 +586,9 @@ class TSVWatcherWindow(QMainWindow):
         self.question_card_view = QuestionListCardView(self)
         self.question_card_view.question_selected.connect(self.on_question_card_selected)
         
+        # Enable keyboard focus for Ctrl detection
+        self.question_card_view.setFocusPolicy(Qt.StrongFocus)
+        
         # Keep old tree widget reference for compatibility (hidden)
         self.question_tree = QuestionTreeWidget(self)
         self.question_tree.setVisible(False)
@@ -2725,7 +2728,7 @@ class TSVWatcherWindow(QMainWindow):
         self.log(f"Deleted question list: {list_name}")
     
     def add_selected_to_list(self) -> None:
-        """Add selected questions from question tree to a list."""
+        """Add selected questions from card view to a list."""
         from PySide6.QtWidgets import QInputDialog
         
         if not self.question_lists:
@@ -2739,21 +2742,15 @@ class TSVWatcherWindow(QMainWindow):
                 self.create_new_question_list()
             return
         
-        selected_items = self.question_tree.selectedItems()
-        if not selected_items:
-            QMessageBox.information(self, "No Selection", "Please select questions to add.")
-            return
-        
-        # Filter out group headers, only get leaf items (questions)
-        selected_questions = []
-        for item in selected_items:
-            if item.childCount() == 0:  # Leaf node
-                question_data = item.data(0, Qt.UserRole)
-                if question_data:
-                    selected_questions.append(question_data)
+        # Get selected questions from card view
+        selected_questions = self.question_card_view.get_selected_questions()
         
         if not selected_questions:
-            QMessageBox.information(self, "No Questions", "Please select actual questions, not group headers.")
+            QMessageBox.information(
+                self, 
+                "No Selection", 
+                "Please select questions to add.\n\nTip: Click cards to select (Ctrl+Click for multiple)"
+            )
             return
         
         # Select list

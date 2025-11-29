@@ -756,7 +756,14 @@ class QuestionCardWidget(QLabel):
         return truncated + "..."
     
     def mousePressEvent(self, event):
-        """Handle card click - copy metadata to clipboard."""
+        """Handle card click - toggle selection or copy metadata."""
+        if event.button() == Qt.LeftButton:
+            # Emit signal for selection handling (parent will handle multi-select logic)
+            self.clicked.emit(self.question_data)
+        super().mousePressEvent(event)
+    
+    def mouseDoubleClickEvent(self, event):
+        """Handle double-click - copy metadata to clipboard."""
         if event.button() == Qt.LeftButton:
             # Copy metadata to clipboard
             q = self.question_data
@@ -774,10 +781,7 @@ class QuestionCardWidget(QLabel):
             
             # Visual feedback - flash green
             self._show_copy_feedback()
-            
-            # Still emit signal for other functionality
-            self.clicked.emit(self.question_data)
-        super().mousePressEvent(event)
+        super().mouseDoubleClickEvent(event)
     
     def _show_copy_feedback(self):
         """Show visual feedback that copy was successful."""
@@ -1002,6 +1006,10 @@ class QuestionAccordionGroup(QWidget):
         if hasattr(self.parent(), 'on_question_card_clicked'):
             self.parent().on_question_card_clicked(question_data)
     
+    def get_all_cards(self) -> list:
+        """Return all question card widgets."""
+        return self.question_cards
+    
     def _show_context_menu(self, position):
         """Show context menu for group operations."""
         if hasattr(self.parent(), 'show_group_context_menu'):
@@ -1112,12 +1120,56 @@ class QuestionListCardView(QScrollArea):
     
     def on_question_card_clicked(self, question_data: dict):
         """
-        Handle question card click.
-        Forward to parent for detail display.
+        Handle question card click with selection support.
         
         Args:
             question_data: Full question data dict
         """
+        from PySide6.QtWidgets import QApplication
+        
+        # Check if Ctrl key is pressed
+        modifiers = QApplication.keyboardModifiers()
+        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
+        
+        # Find the card widget that was clicked
+        clicked_card = None
+        for group in self.accordion_groups:
+            for card in group.get_all_cards():
+                if card.question_data == question_data:
+                    clicked_card = card
+                    break
+            if clicked_card:
+                break
+        
+        if not clicked_card:
+            # Emit signal for detail display even if card not found
+            self.question_selected.emit(question_data)
+            return
+        
+        # Handle selection
+        if ctrl_pressed:
+            # Toggle selection (multi-select)
+            if clicked_card.is_selected:
+                clicked_card.set_selected(False)
+                if question_data in self.selected_questions:
+                    self.selected_questions.remove(question_data)
+            else:
+                clicked_card.set_selected(True)
+                if question_data not in self.selected_questions:
+                    self.selected_questions.append(question_data)
+        else:
+            # Single selection - clear others
+            for group in self.accordion_groups:
+                for card in group.get_all_cards():
+                    if card != clicked_card:
+                        card.set_selected(False)
+            
+            # Clear selection list and add only this one
+            self.selected_questions.clear()
+            clicked_card.set_selected(True)
+            self.selected_questions.append(question_data)
+        
+        # Emit signal for detail display
         self.question_selected.emit(question_data)
     
     def show_group_context_menu(self, group_key: str, position):
