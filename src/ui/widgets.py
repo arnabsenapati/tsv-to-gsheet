@@ -1641,42 +1641,14 @@ class DashboardView(QWidget):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(12)
         
-        # === Latest Magazine Edition ===
-        latest_mag_layout = QVBoxLayout()
-        latest_mag_layout.setContentsMargins(0, 0, 0, 0)
-        latest_mag_layout.setSpacing(4)
-        
-        latest_mag_title = QLabel("⭐ Latest Magazine Edition (Most Recent)")
-        latest_mag_title.setStyleSheet("""
-            QLabel {
-                font-size: 13px;
-                font-weight: bold;
-                color: #1e40af;
-            }
-        """)
-        latest_mag_layout.addWidget(latest_mag_title)
-        
-        # Latest mag info row
-        latest_mag_info_layout = QHBoxLayout()
-        latest_mag_info_layout.setContentsMargins(0, 0, 0, 0)
-        latest_mag_info_layout.setSpacing(20)
-        
-        self.latest_mag_name = QLabel("Magazine: -")
-        self.latest_mag_name.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
-        latest_mag_info_layout.addWidget(self.latest_mag_name)
-        
-        self.latest_mag_pages = QLabel("Pages: -")
-        self.latest_mag_pages.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
-        latest_mag_info_layout.addWidget(self.latest_mag_pages)
-        
-        self.latest_mag_questions = QLabel("Questions: 0")
-        self.latest_mag_questions.setStyleSheet("QLabel { color: #475569; font-weight: normal; }")
-        latest_mag_info_layout.addWidget(self.latest_mag_questions)
-        
-        latest_mag_info_layout.addStretch()
-        latest_mag_layout.addLayout(latest_mag_info_layout)
-        
-        scroll_layout.addLayout(latest_mag_layout)
+        # === Latest Magazine Edition Card ===
+        latest_mag_card = self._create_magazine_card(
+            "⭐ Latest Magazine Edition",
+            "Magazine: -",
+            "Pages: -",
+            "Questions: 0"
+        )
+        scroll_layout.addWidget(latest_mag_card)
         
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
@@ -1718,6 +1690,53 @@ class DashboardView(QWidget):
         
         # Store value label for updates
         card.value_label = value_label
+        return card
+    
+    def _create_magazine_card(self, title: str, name: str, pages: str, questions: str) -> QWidget:
+        """Create a magazine information card with multiple fields."""
+        card = QWidget()
+        card.setStyleSheet("""
+            QWidget {
+                background-color: transparent;
+                border: none;
+                padding: 8px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(6)
+        
+        # Title
+        title_label = QLabel(title)
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #475569;
+                font-weight: 600;
+            }
+        """)
+        card_layout.addWidget(title_label)
+        
+        # Magazine details row
+        details_layout = QHBoxLayout()
+        details_layout.setContentsMargins(0, 0, 0, 0)
+        details_layout.setSpacing(16)
+        
+        self.latest_mag_name = QLabel(name)
+        self.latest_mag_name.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
+        details_layout.addWidget(self.latest_mag_name)
+        
+        self.latest_mag_pages = QLabel(pages)
+        self.latest_mag_pages.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
+        details_layout.addWidget(self.latest_mag_pages)
+        
+        self.latest_mag_questions = QLabel(questions)
+        self.latest_mag_questions.setStyleSheet("QLabel { font-size: 11px; color: #64748b; }")
+        details_layout.addWidget(self.latest_mag_questions)
+        
+        details_layout.addStretch()
+        card_layout.addLayout(details_layout)
+        
         return card
     
     def update_dashboard_data(self, df, chapter_groups: dict[str, list[str]]) -> None:
