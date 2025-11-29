@@ -76,6 +76,7 @@ from ui.widgets import (
     GroupingChapterListWidget,
     GroupListWidget,
     NavigationSidebar,
+    QuestionCardWidget,
     QuestionTreeWidget,
     QuestionListCardView,
     TagBadge,
@@ -3054,24 +3055,24 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.information(self, "No Selection", "Please select a list first.")
             return
         
-        if not hasattr(self, 'list_question_card_view'):
+        if not hasattr(self, '_list_card_grid_layout'):
+            QMessageBox.information(self, "No Selection", "Please select questions to remove.")
             return
         
         # Get selected question indices from card view
-        # For now, we'll need to iterate through cards to find selected ones
         selected_count = 0
         if self.question_lists[self.current_list_name]:
             # Collect indices of questions to remove
             indices_to_remove = []
             
-            # Find which questions are selected by checking card selection state
-            # This requires maintaining selection state in cards
-            for group in self.list_question_card_view.accordion_groups:
-                for idx, card in enumerate(group.cards):
-                    if hasattr(card, 'is_selected') and card.is_selected:
+            # Iterate through all cards in grid layout
+            for i in range(self._list_card_grid_layout.count()):
+                widget = self._list_card_grid_layout.itemAt(i).widget()
+                if isinstance(widget, QuestionCardWidget):
+                    if hasattr(widget, 'is_selected') and widget.is_selected:
                         # Find the global index of this question
                         for q_idx, question in enumerate(self.question_lists[self.current_list_name]):
-                            if question.get('qno') == card.question_data.get('qno'):
+                            if question.get('qno') == widget.question_data.get('qno'):
                                 indices_to_remove.append(q_idx)
                                 selected_count += 1
                                 break
@@ -3091,7 +3092,7 @@ class TSVWatcherWindow(QMainWindow):
             self.log(f"Removed {selected_count} question(s) from '{self.current_list_name}'")
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
-        """Populate card view with 2-column grid of question cards from custom list."""
+        """Populate card view with 2-column grid of question cards from custom list using QuestionCardWidget."""
         if not questions:
             return
         
@@ -3103,7 +3104,7 @@ class TSVWatcherWindow(QMainWindow):
             self._list_card_grid_layout.setSpacing(12)
             self._list_card_grid_layout.setContentsMargins(0, 0, 0, 0)
             
-            # Clear the card view and add our grid widget
+            # Set the grid widget in scroll area
             self.list_question_card_view.setWidget(self._list_card_grid_widget)
         else:
             # Clear existing cards from grid
@@ -3112,9 +3113,10 @@ class TSVWatcherWindow(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
         
-        # Add question cards in 2-column grid
+        # Add question cards in 2-column grid using QuestionCardWidget
         for idx, question in enumerate(questions):
-            card = self._create_list_question_card(question)
+            card = QuestionCardWidget(question, self)
+            card.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             row = idx // 2
             col = idx % 2
             self._list_card_grid_layout.addWidget(card, row, col)
@@ -3124,65 +3126,9 @@ class TSVWatcherWindow(QMainWindow):
                                            len(questions) // 2 + 1, 0, 1, 2)
     
     def _create_list_question_card(self, question: dict) -> QWidget:
-        """Create a single question card widget for custom list."""
-        card = QWidget()
-        card.setMinimumHeight(100)
-        card.setMaximumHeight(150)
-        
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
-        
-        # Question header: Q# and metadata
-        header_layout = QHBoxLayout()
-        qno = question.get("qno", "?")
-        page = question.get("page", "?")
-        question_set = question.get("question_set_name", "Unknown")
-        magazine = question.get("magazine", "Unknown")
-        
-        header_text = f"<b>Q{qno}</b> | P{page} | {question_set[:20]}"
-        header_label = QLabel(header_text)
-        header_label.setStyleSheet("color: #1e40af; font-size: 11px; font-weight: 600;")
-        header_label.setWordWrap(False)
-        header_layout.addWidget(header_label)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
-        
-        # Question text preview (truncated)
-        text_preview = question.get("text", "No text")[:80]
-        if len(question.get("text", "")) > 80:
-            text_preview += "..."
-        text_label = QLabel(text_preview)
-        text_label.setStyleSheet("color: #475569; font-size: 10px;")
-        text_label.setWordWrap(True)
-        layout.addWidget(text_label)
-        
-        # Footer: Magazine info
-        footer_label = QLabel(f"📰 {magazine[:20]}")
-        footer_label.setStyleSheet("color: #64748b; font-size: 9px;")
-        layout.addWidget(footer_label)
-        layout.addStretch()
-        
-        # Apply card styling
-        card.setStyleSheet("""
-            QWidget {
-                background-color: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-            }
-            QWidget:hover {
-                background-color: #f1f5f9;
-                border: 1px solid #cbd5e1;
-            }
-        """)
-        
-        # Make card clickable to show details
-        def on_card_click():
-            self.on_list_question_card_selected(question)
-        
-        card.mousePressEvent = lambda event: on_card_click()
-        
-        return card
+        """Create a single question card widget for custom list (deprecated - use QuestionCardWidget directly)."""
+        # This method is deprecated - use QuestionCardWidget from widgets.py instead
+        pass
     
     def on_list_question_set_search_changed(self, text: str) -> None:
         """Handle question set search change in custom list."""
