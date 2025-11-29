@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -67,8 +68,10 @@ from services.excel_service import process_tsv
 from ui.dialogs import MultiSelectTagDialog
 from ui.widgets import (
     ChapterTableWidget,
+    DashboardView,
     GroupingChapterListWidget,
     GroupListWidget,
+    NavigationSidebar,
     QuestionTreeWidget,
     QuestionListCardView,
     TagBadge,
@@ -169,46 +172,34 @@ class TSVWatcherWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(14)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(10)
 
-        top_card = self._create_card()
-        top_layout = QVBoxLayout(top_card)
-        top_layout.setSpacing(10)
+        # Create horizontal splitter for sidebar + content
+        main_splitter = QSplitter(Qt.Horizontal)
+        root_layout.addWidget(main_splitter, 1)
 
-        self.output_edit = QLineEdit()
-        self.output_edit.editingFinished.connect(self.update_row_count)
-        output_row = QHBoxLayout()
-        output_row.addWidget(self._create_label("Workbook"))
-        output_row.addWidget(self.output_edit)
-        browse_output = QPushButton("Browse…")
-        browse_output.clicked.connect(self.select_output_file)
-        output_row.addWidget(browse_output)
-        top_layout.addLayout(output_row)
+        # Left: Navigation sidebar
+        self.sidebar = NavigationSidebar()
+        self.sidebar.navigation_changed.connect(self._on_navigation_changed)
+        main_splitter.addWidget(self.sidebar)
 
-        info_row = QHBoxLayout()
-        self.row_count_label = QLabel("Total rows: N/A")
-        self.row_count_label.setObjectName("headerLabel")
-        self.mag_summary_label = QLabel("Magazines: N/A")
-        self.mag_summary_label.setObjectName("infoLabel")
-        self.mag_missing_label = QLabel("Missing ranges: N/A")
-        self.mag_missing_label.setObjectName("infoLabel")
-        info_row.addWidget(self.row_count_label)
-        info_row.addStretch()
-        info_row.addWidget(self.mag_summary_label)
-        info_row.addWidget(self.mag_missing_label)
-        top_layout.addLayout(info_row)
-        root_layout.addWidget(top_card)
+        # Right: Stacked widget for content pages
+        self.content_stack = QStackedWidget()
+        main_splitter.addWidget(self.content_stack)
 
-        tab_widget = QTabWidget()
-        root_layout.addWidget(tab_widget, 1)
+        # Set splitter sizes (sidebar: 200px, content: remaining)
+        main_splitter.setSizes([200, 1000])
+        main_splitter.setCollapsible(0, False)  # Don't allow sidebar to collapse to 0
 
-        qa_tab = QWidget()
-        qa_layout = QVBoxLayout(qa_tab)
-        qa_tabs = QTabWidget()
-        qa_layout.addWidget(qa_tabs)
-
-        magazine_tab = QWidget()
+        # Create all view pages
+        self._create_dashboard_page()      # Index 0
+        self._create_magazine_page()        # Index 1
+        self._create_questions_page()       # Index 2
+        self._create_grouping_page()        # Index 3
+        self._create_lists_page()           # Index 4
+        self._create_import_page()          # Index 5
+        self._create_jee_page()             # Index 6
         magazine_tab_layout = QVBoxLayout(magazine_tab)
         
         # Top summary card

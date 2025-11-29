@@ -9,6 +9,11 @@ This module contains all custom widget classes used throughout the application:
 - QuestionTableWidget: Table widget for question display with drag support
 - GroupingChapterListWidget: Draggable list of chapters for grouping
 - GroupListWidget: Droppable list of groups for chapter organization
+- QuestionCardWidget: Individual question card with inline preview
+- QuestionAccordionGroup: Collapsible group for question cards
+- QuestionListCardView: Scrollable container for accordion groups
+- DashboardView: Dashboard with workbook selector and statistics
+- NavigationSidebar: Collapsible sidebar navigation for main views
 """
 
 import json
@@ -27,6 +32,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QScrollArea,
+    QLineEdit,
 )
 
 
@@ -1145,3 +1151,285 @@ class QuestionListCardView(QScrollArea):
         for group in self.accordion_groups:
             if group.is_expanded:
                 group.toggle_expanded()
+
+
+class DashboardView(QWidget):
+    """
+    Dashboard view with workbook selector and statistics.
+    
+    Displays:
+    - Workbook path selector
+    - Total row count
+    - Magazine summary
+    - Missing ranges information
+    """
+    
+    def __init__(self, parent=None):
+        """Initialize dashboard view."""
+        super().__init__(parent)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(20)
+        
+        # Title
+        title = QLabel("📊 Dashboard")
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 24px;
+                font-weight: bold;
+                color: #1e40af;
+                padding-bottom: 10px;
+            }
+        """)
+        layout.addWidget(title)
+        
+        # Card container for workbook info
+        card = QWidget()
+        card.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                padding: 16px;
+            }
+        """)
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(12)
+        
+        # Workbook selector row (will be connected by main window)
+        self.output_edit = None
+        self.browse_btn = None
+        self.row_count_label = None
+        self.mag_summary_label = None
+        self.mag_missing_label = None
+        
+        layout.addWidget(card)
+        layout.addStretch()
+
+
+class NavigationSidebar(QWidget):
+    """
+    Collapsible sidebar navigation for main application views.
+    
+    Features:
+    - 7 navigation items organized hierarchically
+    - Visual grouping for Question Analysis sub-items
+    - Collapse/expand functionality (150px ↔ 40px)
+    - Selected item highlighting
+    - Hover effects
+    - Icon-only mode when collapsed
+    
+    Navigation structure:
+        📊 Dashboard
+        📰 Magazine Editions (Question Analysis group)
+        📝 Question List (Question Analysis group)
+        📚 Chapter Grouping (Question Analysis group)
+        📋 Custom Lists (Question Analysis group)
+        📥 Data Import
+        🎓 JEE Main Papers
+    """
+    
+    navigation_changed = Signal(int)  # Emits index of selected view
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.is_expanded = True
+        self.selected_index = 0
+        self.nav_buttons = []
+        
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # Scroll area for navigation items
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: #f8fafc; }")
+        
+        # Container for nav buttons
+        nav_container = QWidget()
+        self.nav_layout = QVBoxLayout(nav_container)
+        self.nav_layout.setContentsMargins(0, 8, 0, 8)
+        self.nav_layout.setSpacing(2)
+        
+        # Navigation items: (icon, text, index, is_indented)
+        nav_items = [
+            ("📊", "Dashboard", 0, False),
+            ("📰", "Magazine Editions", 1, True),
+            ("📝", "Question List", 2, True),
+            ("📚", "Chapter Grouping", 3, True),
+            ("📋", "Custom Lists", 4, True),
+            ("📥", "Data Import", 5, False),
+            ("🎓", "JEE Main Papers", 6, False),
+        ]
+        
+        for icon, text, index, is_indented in nav_items:
+            btn = self._create_nav_button(icon, text, index, is_indented)
+            self.nav_buttons.append(btn)
+            self.nav_layout.addWidget(btn)
+        
+        self.nav_layout.addStretch()
+        scroll.setWidget(nav_container)
+        layout.addWidget(scroll, 1)
+        
+        # Collapse/expand button at bottom
+        self.toggle_btn = QPushButton("◀")
+        self.toggle_btn.setToolTip("Collapse sidebar")
+        self.toggle_btn.clicked.connect(self.toggle_collapse)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e2e8f0;
+                border: none;
+                border-top: 1px solid #cbd5e1;
+                padding: 12px;
+                font-size: 16px;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #cbd5e1;
+            }
+        """)
+        layout.addWidget(self.toggle_btn)
+        
+        # Set initial size
+        self.setMinimumWidth(200)
+        self.setMaximumWidth(200)
+        
+        # Apply sidebar styling
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #f8fafc;
+                border-right: 1px solid #e2e8f0;
+            }
+        """)
+        
+        # Set initial selection
+        self._update_button_states()
+    
+    def _create_nav_button(self, icon: str, text: str, index: int, is_indented: bool) -> QPushButton:
+        """Create a navigation button."""
+        btn = QPushButton(f"{icon}  {text}")
+        btn.setProperty("nav_index", index)
+        btn.setProperty("is_indented", is_indented)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: self._on_nav_clicked(index))
+        
+        # Calculate left padding based on indentation
+        left_padding = 24 if is_indented else 12
+        
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                border: none;
+                border-left: 3px solid transparent;
+                padding: 12px 12px 12px {left_padding}px;
+                text-align: left;
+                font-size: 13px;
+                color: #475569;
+                font-weight: 500;
+            }}
+            QPushButton:hover {{
+                background-color: #e0e7ff;
+                color: #1e40af;
+            }}
+        """)
+        
+        return btn
+    
+    def _on_nav_clicked(self, index: int):
+        """Handle navigation button click."""
+        if self.selected_index != index:
+            self.selected_index = index
+            self._update_button_states()
+            self.navigation_changed.emit(index)
+    
+    def _update_button_states(self):
+        """Update visual state of all buttons based on selection."""
+        for btn in self.nav_buttons:
+            index = btn.property("nav_index")
+            is_indented = btn.property("is_indented")
+            left_padding = 24 if is_indented else 12
+            
+            if index == self.selected_index:
+                # Selected state
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: #dbeafe;
+                        border: none;
+                        border-left: 3px solid #2563eb;
+                        padding: 12px 12px 12px {left_padding}px;
+                        text-align: left;
+                        font-size: 13px;
+                        color: #1e40af;
+                        font-weight: 600;
+                    }}
+                """)
+            else:
+                # Normal state
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: transparent;
+                        border: none;
+                        border-left: 3px solid transparent;
+                        padding: 12px 12px 12px {left_padding}px;
+                        text-align: left;
+                        font-size: 13px;
+                        color: #475569;
+                        font-weight: 500;
+                    }}
+                    QPushButton:hover {{
+                        background-color: #e0e7ff;
+                        color: #1e40af;
+                    }}
+                """)
+    
+    def toggle_collapse(self):
+        """Toggle sidebar between expanded and collapsed states."""
+        self.is_expanded = not self.is_expanded
+        
+        if self.is_expanded:
+            # Expand
+            self.setMinimumWidth(200)
+            self.setMaximumWidth(200)
+            self.toggle_btn.setText("◀")
+            self.toggle_btn.setToolTip("Collapse sidebar")
+            
+            # Show text on buttons
+            nav_items = [
+                ("📊", "Dashboard"),
+                ("📰", "Magazine Editions"),
+                ("📝", "Question List"),
+                ("📚", "Chapter Grouping"),
+                ("📋", "Custom Lists"),
+                ("📥", "Data Import"),
+                ("🎓", "JEE Main Papers"),
+            ]
+            for i, btn in enumerate(self.nav_buttons):
+                icon, text = nav_items[i]
+                btn.setText(f"{icon}  {text}")
+        else:
+            # Collapse
+            self.setMinimumWidth(50)
+            self.setMaximumWidth(50)
+            self.toggle_btn.setText("▶")
+            self.toggle_btn.setToolTip("Expand sidebar")
+            
+            # Show only icons
+            icons = ["📊", "📰", "📝", "📚", "📋", "📥", "🎓"]
+            for i, btn in enumerate(self.nav_buttons):
+                btn.setText(icons[i])
+        
+        self._update_button_states()
+    
+    def set_selected_index(self, index: int):
+        """Programmatically set selected navigation item."""
+        if 0 <= index < len(self.nav_buttons):
+            self.selected_index = index
+            self._update_button_states()
+    
+    def get_selected_index(self) -> int:
+        """Get currently selected navigation index."""
+        return self.selected_index
