@@ -125,6 +125,12 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         
+        # Custom list search/filter variables
+        self.list_question_set_search_term: str = ""
+        self.list_tag_filter_term: str = ""
+        self.list_selected_tag_filters: list[str] = []
+        self.list_copy_mode: str = "Copy: Text"  # Copy mode for custom lists
+        
         # JEE Main Papers analysis
         self.jee_papers_df: pd.DataFrame | None = None
         self.jee_papers_file: Path | None = None
@@ -732,32 +738,192 @@ class TSVWatcherWindow(QMainWindow):
         self.list_filters_label.setVisible(False)
         list_questions_layout.addWidget(self.list_filters_label)
         
-        remove_from_list_btn = QPushButton("Remove Selected from List")
+        # Search and action controls in single row (similar to Question List tab)
+        search_layout = QHBoxLayout()
+        search_layout.setSpacing(8)
+        
+        # Search controls container with visual grouping
+        search_container = QWidget()
+        search_container.setStyleSheet("""
+            QWidget {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QLabel {
+                color: #1e40af;
+                font-weight: 600;
+                background: transparent;
+            }
+            QLineEdit {
+                background-color: #ffffff;
+                border: 1px solid #cbd5e1;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #0f172a;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3b82f6;
+            }
+        """)
+        search_container_layout = QHBoxLayout(search_container)
+        search_container_layout.setContentsMargins(8, 4, 8, 4)
+        search_container_layout.setSpacing(8)
+        
+        # Question Set search
+        self.list_question_set_search = QLineEdit()
+        self.list_question_set_search.setPlaceholderText("Search by question set name")
+        self.list_question_set_search.setToolTip("Search by question set name")
+        self.list_question_set_search.setMinimumHeight(28)
+        self.list_question_set_search.setMaximumHeight(28)
+        self.list_question_set_search.textChanged.connect(self.on_list_question_set_search_changed)
+        search_container_layout.addWidget(self.list_question_set_search, 2)
+        
+        # Tags filter for custom lists
+        self.list_tag_filter_display = QLineEdit()
+        self.list_tag_filter_display.setPlaceholderText("No tags selected")
+        self.list_tag_filter_display.setToolTip("Selected tags for filtering")
+        self.list_tag_filter_display.setReadOnly(True)
+        self.list_tag_filter_display.setMinimumHeight(28)
+        self.list_tag_filter_display.setMaximumHeight(28)
+        self.list_tag_filter_display.setStyleSheet("""
+            QLineEdit {
+                background-color: #0f172a;
+                color: #ffffff;
+                border: 1px solid #334155;
+                padding: 4px 8px;
+                border-radius: 4px;
+            }
+        """)
+        search_container_layout.addWidget(self.list_tag_filter_display, 2)
+        
+        # Tag filter button
+        self.list_tag_filter_btn = QPushButton("🏷️")
+        self.list_tag_filter_btn.setToolTip("Select tags to filter questions")
+        self.list_tag_filter_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 14px;
+                min-width: 30px;
+                min-height: 28px;
+                max-height: 28px;
+            }
+            QPushButton:hover {
+                background-color: #3b82f6;
+            }
+        """)
+        self.list_tag_filter_btn.clicked.connect(self._show_list_tag_filter_dialog)
+        search_container_layout.addWidget(self.list_tag_filter_btn)
+        
+        # Clear button
+        clear_search_btn = QPushButton("✕")
+        clear_search_btn.setToolTip("Clear all search filters")
+        clear_search_btn.setMinimumHeight(28)
+        clear_search_btn.setMaximumHeight(28)
+        clear_search_btn.setMinimumWidth(32)
+        clear_search_btn.setMaximumWidth(32)
+        clear_search_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+        """)
+        clear_search_btn.clicked.connect(self.clear_list_search)
+        search_container_layout.addWidget(clear_search_btn)
+        
+        search_layout.addWidget(search_container, 1)
+        
+        # Action buttons container
+        action_container = QWidget()
+        action_container.setStyleSheet("""
+            QWidget {
+                background-color: #dbeafe;
+                border: 1px solid #93c5fd;
+                border-radius: 6px;
+                padding: 6px;
+            }
+        """)
+        action_layout = QHBoxLayout(action_container)
+        action_layout.setContentsMargins(8, 4, 8, 4)
+        action_layout.setSpacing(8)
+        
+        # Remove from list button
+        remove_from_list_btn = QPushButton("Remove Selected")
+        remove_from_list_btn.setToolTip("Remove selected questions from list")
+        remove_from_list_btn.setMinimumHeight(28)
+        remove_from_list_btn.setMaximumHeight(28)
         remove_from_list_btn.clicked.connect(self.remove_selected_from_list)
-        list_questions_layout.addWidget(remove_from_list_btn)
+        action_layout.addWidget(remove_from_list_btn)
         
-        list_question_splitter = QSplitter(Qt.Vertical)
-        self.list_question_table = QTableWidget(0, 5)
-        self.list_question_table.setHorizontalHeaderLabels(["Question No", "Page", "Question Set", "Chapter", "Magazine"])
-        self.list_question_table.horizontalHeader().setStretchLastSection(True)
-        self.list_question_table.verticalHeader().setVisible(False)
-        self.list_question_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.list_question_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.list_question_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.list_question_table.itemSelectionChanged.connect(self.on_list_question_selected)
-        list_question_splitter.addWidget(self.list_question_table)
+        # Copy mode selector for custom lists
+        action_layout.addSpacing(8)
+        self.list_copy_mode_combo = QComboBox()
+        self.list_copy_mode_combo.addItems(["Copy: Text", "Copy: Metadata", "Copy: Both"])
+        self.list_copy_mode_combo.setCurrentIndex(0)
+        self.list_copy_mode_combo.setToolTip("Select what to copy when double-clicking a question:\n"
+                                             "• Text: Only the question content\n"
+                                             "• Metadata: Only question number, page, chapter\n"
+                                             "• Both: Question text + metadata")
+        self.list_copy_mode_combo.setMinimumHeight(28)
+        self.list_copy_mode_combo.setMaximumHeight(28)
+        self.list_copy_mode_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #ffffff;
+                border: 1px solid #3b82f6;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #1e40af;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                background-color: #eff6ff;
+            }
+            QComboBox::drop-down {
+                border: none;
+                background: transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #1e40af;
+                selection-background-color: #3b82f6;
+                selection-color: #ffffff;
+            }
+        """)
+        self.list_copy_mode_combo.currentTextChanged.connect(self._on_list_copy_mode_changed)
+        action_layout.addWidget(self.list_copy_mode_combo)
         
+        action_layout.addStretch()
+        search_layout.addWidget(action_container)
+        
+        list_questions_layout.addLayout(search_layout)
+        
+        # Use QuestionListCardView for modern card-based display
+        self.list_question_card_view = QuestionListCardView(self)
+        self.list_question_card_view.question_selected.connect(self.on_list_question_card_selected)
+        self.list_question_card_view.setFocusPolicy(Qt.StrongFocus)
+        list_questions_layout.addWidget(self.list_question_card_view)
+        
+        # Question text view for selected question
         self.list_question_text_view = QTextEdit()
         self.list_question_text_view.setReadOnly(True)
         self.list_question_text_view.setAcceptRichText(True)
-        list_question_splitter.addWidget(self.list_question_text_view)
-        list_question_splitter.setStretchFactor(0, 3)
-        list_question_splitter.setStretchFactor(1, 1)
-        list_question_splitter.setSizes([400, 120])
+        self.list_question_text_view.setMaximumHeight(150)
+        list_questions_layout.addWidget(self.list_question_text_view)
         
-        list_questions_layout.addWidget(list_question_splitter)
         lists_split.addWidget(list_questions_card)
         
+
         self.content_stack.addWidget(lists_page)
 
     def _create_import_page(self):
@@ -2876,24 +3042,145 @@ class TSVWatcherWindow(QMainWindow):
     def remove_selected_from_list(self) -> None:
         """Remove selected questions from current list."""
         if not self.current_list_name:
+            QMessageBox.information(self, "No Selection", "Please select a list first.")
             return
         
-        selected_rows = self.list_question_table.selectionModel().selectedRows()
-        if not selected_rows:
-            QMessageBox.information(self, "No Selection", "Please select questions to remove.")
+        if not hasattr(self, 'list_question_card_view'):
             return
         
-        # Sort in reverse to avoid index issues
-        rows_to_remove = sorted([index.row() for index in selected_rows], reverse=True)
+        # Get selected question indices from card view
+        # For now, we'll need to iterate through cards to find selected ones
+        selected_count = 0
+        if self.question_lists[self.current_list_name]:
+            # Collect indices of questions to remove
+            indices_to_remove = []
+            
+            # Find which questions are selected by checking card selection state
+            # This requires maintaining selection state in cards
+            for group in self.list_question_card_view.accordion_groups:
+                for idx, card in enumerate(group.cards):
+                    if hasattr(card, 'is_selected') and card.is_selected:
+                        # Find the global index of this question
+                        for q_idx, question in enumerate(self.question_lists[self.current_list_name]):
+                            if question.get('qno') == card.question_data.get('qno'):
+                                indices_to_remove.append(q_idx)
+                                selected_count += 1
+                                break
+            
+            if not indices_to_remove:
+                QMessageBox.information(self, "No Selection", "Please select questions to remove.")
+                return
+            
+            # Sort in reverse to avoid index issues
+            for idx in sorted(indices_to_remove, reverse=True):
+                if 0 <= idx < len(self.question_lists[self.current_list_name]):
+                    del self.question_lists[self.current_list_name][idx]
+            
+            self._save_question_list(self.current_list_name)
+            self._load_saved_question_lists()
+            self._populate_list_question_table(self.current_list_name)
+            self.log(f"Removed {selected_count} question(s) from '{self.current_list_name}'")
+    
+    def _populate_list_card_view(self, questions: list[dict]) -> None:
+        """Populate card view with grouped questions from custom list."""
+        if not questions:
+            return
         
-        for row in rows_to_remove:
-            if 0 <= row < len(self.question_lists[self.current_list_name]):
-                del self.question_lists[self.current_list_name][row]
+        # Group questions by question set name (same as Question List tab)
+        groups = {}
+        for question in questions:
+            question_set_name = question.get("question_set_name", "Unknown")
+            group_key = self._extract_group_key(question_set_name)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(question)
         
-        self._save_question_list(self.current_list_name)
-        self._load_saved_question_lists()
-        self._populate_list_question_table(self.current_list_name)
-        self.log(f"Removed {len(rows_to_remove)} question(s) from '{self.current_list_name}'")
+        # Add grouped questions to card view
+        for group_key in sorted(groups.keys()):
+            group_questions = groups[group_key]
+            self.list_question_card_view.add_group(group_key, group_questions)
+    
+    def on_list_question_set_search_changed(self, text: str) -> None:
+        """Handle question set search change in custom list."""
+        self.list_question_set_search_term = text.strip()
+        self._apply_list_search()
+    
+    def on_list_tag_filter_changed(self) -> None:
+        """Handle tag filter change in custom list."""
+        self._apply_list_search()
+    
+    def _apply_list_search(self) -> None:
+        """Apply search/filter to custom list questions."""
+        if not self.current_list_name or not hasattr(self, 'list_question_card_view'):
+            return
+        
+        questions = self.question_lists[self.current_list_name]
+        if not questions:
+            return
+        
+        filtered = questions
+        
+        # Apply question set search
+        if self.list_question_set_search_term:
+            normalized_search = self._normalize_label(self.list_question_set_search_term)
+            filtered = [
+                q for q in filtered
+                if normalized_search in self._normalize_label(q.get("question_set_name", ""))
+            ]
+        
+        # Apply tag filters
+        if self.list_selected_tag_filters:
+            filtered = [
+                q for q in filtered
+                if any(tag in (q.get("tags", "") or "").split(",") for tag in self.list_selected_tag_filters)
+            ]
+        
+        # Clear and repopulate card view
+        self.list_question_card_view.clear()
+        self.list_question_text_view.clear()
+        
+        if filtered:
+            self._populate_list_card_view(filtered)
+    
+    def clear_list_search(self) -> None:
+        """Clear all search/filter in custom list."""
+        self.list_question_set_search.clear()
+        self.list_tag_filter_display.clear()
+        self.list_question_set_search_term = ""
+        self.list_selected_tag_filters = []
+        self._apply_list_search()
+    
+    def _show_list_tag_filter_dialog(self) -> None:
+        """Show tag filter dialog for custom list."""
+        if not self.current_list_name:
+            QMessageBox.information(self, "No List Selected", "Please select a custom list first.")
+            return
+        
+        # Collect all unique tags from questions in current list
+        all_tags = set()
+        for question in self.question_lists[self.current_list_name]:
+            tags = question.get("tags", "")
+            if tags:
+                all_tags.update(tag.strip() for tag in tags.split(","))
+        
+        if not all_tags:
+            QMessageBox.information(self, "No Tags", "No tags found in this list.")
+            return
+        
+        # Show multi-select dialog
+        dialog = MultiSelectTagDialog(sorted(all_tags), self.list_selected_tag_filters, self)
+        if dialog.exec() == QDialog.Accepted:
+            self.list_selected_tag_filters = dialog.get_selected_items()
+            # Update display
+            if self.list_selected_tag_filters:
+                self.list_tag_filter_display.setText(", ".join(self.list_selected_tag_filters))
+            else:
+                self.list_tag_filter_display.clear()
+            self.on_list_tag_filter_changed()
+    
+    def _on_list_copy_mode_changed(self, mode: str) -> None:
+        """Handle copy mode selection change in custom list."""
+        self.list_copy_mode = mode
     
     def on_saved_list_selected(self) -> None:
         """Handle selection of a saved question list."""
@@ -2919,7 +3206,7 @@ class TSVWatcherWindow(QMainWindow):
             self.drag_drop_panel.setVisible(True)
     
     def _populate_list_question_table(self, list_name: str) -> None:
-        """Populate the list question table with questions from the selected list."""
+        """Populate the list question card view with questions from the selected list."""
         if list_name not in self.question_lists:
             return
         
@@ -2949,56 +3236,50 @@ class TSVWatcherWindow(QMainWindow):
         else:
             self.list_filters_label.setVisible(False)
         
-        self.list_question_table.setRowCount(0)
+        # Clear view
+        self.list_question_card_view.clear()
         self.list_question_text_view.clear()
+        
+        # Reset search and filter states for custom lists
+        self.list_question_set_search_term = ""
+        self.list_tag_filter_term = ""
+        self.list_selected_tag_filters = []
+        self.list_question_set_search.clear()
+        self.list_tag_filter_display.clear()
+        
         if not questions:
             return
         
-        self.list_question_table.setRowCount(len(questions))
-        for row, question in enumerate(questions):
-            qno_item = QTableWidgetItem(str(question.get("qno", "")))
-            page_item = QTableWidgetItem(str(question.get("page", "")))
-            question_set_name_item = QTableWidgetItem(str(question.get("question_set_name", "")))
-            chapter_item = QTableWidgetItem(str(question.get("question_set", "")))
-            magazine_item = QTableWidgetItem(str(question.get("magazine", "")))
-            
-            self.list_question_table.setItem(row, 0, qno_item)
-            self.list_question_table.setItem(row, 1, page_item)
-            self.list_question_table.setItem(row, 2, question_set_name_item)
-            self.list_question_table.setItem(row, 3, chapter_item)
-            self.list_question_table.setItem(row, 4, magazine_item)
+        # Populate card view with grouped questions
+        self._populate_list_card_view(questions)
         
-        self.list_question_table.resizeColumnsToContents()
+        # Show drag-drop panel with existing questions
+        if list_name in self.question_lists:
+            self.drag_drop_panel.display_existing_questions(questions)
+            self.drag_drop_panel.setVisible(True)
     
     def on_list_question_selected(self) -> None:
-        """Handle selection of a question in the list question table."""
-        if not hasattr(self, "list_question_table"):
-            return
-        selection_model = self.list_question_table.selectionModel()
-        if selection_model is None:
+        """Handle selection of a question in the list question table (old method - kept for compatibility)."""
+        # This method is no longer used with card view, but kept for reference
+        pass
+    
+    def on_list_question_card_selected(self, question: dict) -> None:
+        """Handle question card click in custom list card view."""
+        if not question:
             self.list_question_text_view.clear()
             return
-        selected_rows = selection_model.selectedRows()
-        if not selected_rows:
-            self.list_question_text_view.clear()
-            return
-        row = selected_rows[0].row()
-        if 0 <= row < len(self.current_list_questions):
-            question = self.current_list_questions[row]
-            html_parts = [
-                '<div style="background-color: #0f172a; color: #e2e8f0; padding: 12px; font-family: Arial, sans-serif;">',
-                f'<p><span style="color: #60a5fa; font-weight: bold;">Question No:</span> <span style="color: #cbd5e1;">{question.get("qno", "N/A")}</span></p>',
-                f'<p><span style="color: #60a5fa; font-weight: bold;">Page:</span> <span style="color: #cbd5e1;">{question.get("page", "N/A")}</span></p>',
-                f'<p><span style="color: #60a5fa; font-weight: bold;">Question Set:</span> <span style="color: #cbd5e1;">{question.get("question_set", "N/A")}</span></p>',
-                f'<p><span style="color: #60a5fa; font-weight: bold;">Magazine:</span> <span style="color: #cbd5e1;">{question.get("magazine", "N/A")}</span></p>',
-                f'<p><span style="color: #60a5fa; font-weight: bold;">Chapter:</span> <span style="color: #cbd5e1;">{question.get("group", "N/A")}</span></p>',
-                '<hr style="border: 1px solid #475569;">',
-                f'<div style="color: #e2e8f0; line-height: 1.6;">{question.get("question_text", "No question text available")}</div>',
-                '</div>',
-            ]
-            self.list_question_text_view.setHtml("".join(html_parts))
-        else:
-            self.list_question_text_view.clear()
+        
+        html = (
+            f"<div style='background-color: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; padding: 10px;'>"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Qno:</span> <span style='color: #cbd5e1;'>{question.get('qno','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Page No:</span> <span style='color: #cbd5e1;'>{question.get('page','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Question Set:</span> <span style='color: #cbd5e1;'>{question.get('question_set_name','')}</span> &nbsp;&nbsp;"
+            f"<span style='color: #60a5fa; font-weight: bold;'>Magazine Edition:</span> <span style='color: #cbd5e1;'>{question.get('magazine','')}</span><br/>"
+            f"<hr style='border: none; border-top: 1px solid #334155; margin: 12px 0;'/>"
+            f"<div style='color: #e2e8f0; line-height: 1.7; font-size: 14px;'>{question.get('text','').replace(chr(10), '<br/>')}</div>"
+            f"</div>"
+        )
+        self.list_question_text_view.setHtml(html)
     
     def _get_active_filters(self) -> dict:
         """Get currently active filters in Question Analysis tab."""
