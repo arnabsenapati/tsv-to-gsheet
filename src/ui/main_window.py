@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -43,6 +44,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
+    QSpacerItem,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -908,10 +911,17 @@ class TSVWatcherWindow(QMainWindow):
         
         list_questions_layout.addLayout(search_layout)
         
-        # Use QuestionListCardView for modern card-based display
-        self.list_question_card_view = QuestionListCardView(self)
-        self.list_question_card_view.question_selected.connect(self.on_list_question_card_selected)
-        self.list_question_card_view.setFocusPolicy(Qt.StrongFocus)
+        # Create a simple scroll area for 2-column card grid (not accordion)
+        self.list_question_card_view = QScrollArea()
+        self.list_question_card_view.setWidgetResizable(True)
+        self.list_question_card_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.list_question_card_view.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.list_question_card_view.setStyleSheet("""
+            QScrollArea {
+                border: 1px solid #e2e8f0;
+                background-color: #ffffff;
+            }
+        """)
         list_questions_layout.addWidget(self.list_question_card_view)
         
         # Question text view for selected question
@@ -922,7 +932,6 @@ class TSVWatcherWindow(QMainWindow):
         list_questions_layout.addWidget(self.list_question_text_view)
         
         lists_split.addWidget(list_questions_card)
-        
 
         self.content_stack.addWidget(lists_page)
 
@@ -3082,23 +3091,98 @@ class TSVWatcherWindow(QMainWindow):
             self.log(f"Removed {selected_count} question(s) from '{self.current_list_name}'")
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
-        """Populate card view with grouped questions from custom list."""
+        """Populate card view with 2-column grid of question cards from custom list."""
         if not questions:
             return
         
-        # Group questions by question set name (same as Question List tab)
-        groups = {}
-        for question in questions:
-            question_set_name = question.get("question_set_name", "Unknown")
-            group_key = self._extract_group_key(question_set_name)
-            if group_key not in groups:
-                groups[group_key] = []
-            groups[group_key].append(question)
+        # Clear existing layout
+        if not hasattr(self, '_list_card_grid_widget'):
+            # Create a new grid widget for 2-column layout
+            self._list_card_grid_widget = QWidget()
+            self._list_card_grid_layout = QGridLayout(self._list_card_grid_widget)
+            self._list_card_grid_layout.setSpacing(12)
+            self._list_card_grid_layout.setContentsMargins(0, 0, 0, 0)
+            
+            # Clear the card view and add our grid widget
+            self.list_question_card_view.setWidget(self._list_card_grid_widget)
+        else:
+            # Clear existing cards from grid
+            while self._list_card_grid_layout.count():
+                item = self._list_card_grid_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
         
-        # Add grouped questions to card view
-        for group_key in sorted(groups.keys()):
-            group_questions = groups[group_key]
-            self.list_question_card_view.add_group(group_key, group_questions)
+        # Add question cards in 2-column grid
+        for idx, question in enumerate(questions):
+            card = self._create_list_question_card(question)
+            row = idx // 2
+            col = idx % 2
+            self._list_card_grid_layout.addWidget(card, row, col)
+        
+        # Add stretch to push cards to top
+        self._list_card_grid_layout.addItem(QSpacerItem(0, 0, QSizePolicy.Minimum, QSizePolicy.Expanding), 
+                                           len(questions) // 2 + 1, 0, 1, 2)
+    
+    def _create_list_question_card(self, question: dict) -> QWidget:
+        """Create a single question card widget for custom list."""
+        card = QWidget()
+        card.setMinimumHeight(100)
+        card.setMaximumHeight(150)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+        
+        # Question header: Q# and metadata
+        header_layout = QHBoxLayout()
+        qno = question.get("qno", "?")
+        page = question.get("page", "?")
+        question_set = question.get("question_set_name", "Unknown")
+        magazine = question.get("magazine", "Unknown")
+        
+        header_text = f"<b>Q{qno}</b> | P{page} | {question_set[:20]}"
+        header_label = QLabel(header_text)
+        header_label.setStyleSheet("color: #1e40af; font-size: 11px; font-weight: 600;")
+        header_label.setWordWrap(False)
+        header_layout.addWidget(header_label)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+        
+        # Question text preview (truncated)
+        text_preview = question.get("text", "No text")[:80]
+        if len(question.get("text", "")) > 80:
+            text_preview += "..."
+        text_label = QLabel(text_preview)
+        text_label.setStyleSheet("color: #475569; font-size: 10px;")
+        text_label.setWordWrap(True)
+        layout.addWidget(text_label)
+        
+        # Footer: Magazine info
+        footer_label = QLabel(f"📰 {magazine[:20]}")
+        footer_label.setStyleSheet("color: #64748b; font-size: 9px;")
+        layout.addWidget(footer_label)
+        layout.addStretch()
+        
+        # Apply card styling
+        card.setStyleSheet("""
+            QWidget {
+                background-color: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
+            }
+            QWidget:hover {
+                background-color: #f1f5f9;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+        
+        # Make card clickable to show details
+        def on_card_click():
+            self.on_list_question_card_selected(question)
+        
+        card.mousePressEvent = lambda event: on_card_click()
+        
+        return card
     
     def on_list_question_set_search_changed(self, text: str) -> None:
         """Handle question set search change in custom list."""
@@ -3236,8 +3320,13 @@ class TSVWatcherWindow(QMainWindow):
         else:
             self.list_filters_label.setVisible(False)
         
-        # Clear view
-        self.list_question_card_view.clear()
+        # Clear existing card grid
+        if hasattr(self, '_list_card_grid_layout'):
+            while self._list_card_grid_layout.count():
+                item = self._list_card_grid_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+        
         self.list_question_text_view.clear()
         
         # Reset search and filter states for custom lists
@@ -3250,7 +3339,7 @@ class TSVWatcherWindow(QMainWindow):
         if not questions:
             return
         
-        # Populate card view with grouped questions
+        # Populate card view with 2-column grid
         self._populate_list_card_view(questions)
         
         # Show drag-drop panel with existing questions
