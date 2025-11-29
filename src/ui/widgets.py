@@ -1598,36 +1598,16 @@ class QuestionChip(QWidget):
         group_key = question_data.get("group_key", "")
         self.bg_color = "#60a5fa"  # Default lighter blue
         
-        # Debug logging for chip color selection
-        print(f"\n=== CHIP COLOR SELECTION DEBUG ===")
-        print(f"Question: Q{question_data.get('qno', '?')} | Page {question_data.get('page', '?')}")
-        print(f"Group Key: {group_key}")
-        print(f"Question Set Name: {question_data.get('question_set_name', 'Unknown')}")
-        print(f"All question_data keys: {list(question_data.keys())}")
-        
         # Load tag data directly from tags.cfg
         group_tags, tag_colors = self._load_tag_data()
-        print(f"Group tags keys: {list(group_tags.keys())}")
-        print(f"Tag colors: {tag_colors}")
         
         if group_key:
             tags = group_tags.get(group_key, [])
-            print(f"Tags for group_key '{group_key}': {tags}")
             if tags and tag_colors:
                 first_tag = tags[0] if tags else ""
-                print(f"First tag: '{first_tag}'")
                 if first_tag in tag_colors:
                     self.bg_color = tag_colors[first_tag]
-                    print(f"Matched color: {self.bg_color}")
-                else:
-                    print(f"No color match for tag '{first_tag}'")
-            else:
-                print(f"No tags found for group_key or no tag_colors defined")
-        else:
-            print(f"No group_key found in question_data")
-        
-        print(f"Final bg_color: {self.bg_color}")
-        print(f"=================================\n")
+
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
@@ -2030,9 +2010,16 @@ class DragDropQuestionPanel(QWidget):
                     if isinstance(widget, QuestionChip):
                         widget.set_highlighted(widget.question_data == question_data)
         
-        # Emit signal to highlight question card in main view
-        if hasattr(self.parent(), '_highlight_question_card'):
-            self.parent()._highlight_question_card(question_data)
+        # Find main window by traversing up the widget hierarchy
+        main_window = self.parent()
+        while main_window:
+            if hasattr(main_window, '_highlight_question_card'):
+                main_window._highlight_question_card(question_data)
+                return
+            parent_widget = main_window.parent() if hasattr(main_window, 'parent') else None
+            if parent_widget is None or parent_widget == main_window:
+                break
+            main_window = parent_widget
     
     def _rebuild_chip_layout(self):
         """Rebuild chip layout after removal to maintain proper row structure."""
