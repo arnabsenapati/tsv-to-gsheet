@@ -279,6 +279,14 @@ class TSVWatcherWindow(QMainWindow):
         output_row.addWidget(browse_output)
         workbook_layout.addLayout(output_row)
         
+        # Create compatibility labels (hidden, used for logging/status updates)
+        self.row_count_label = QLabel("Total rows: N/A")
+        self.row_count_label.setVisible(False)
+        self.mag_summary_label = QLabel("Magazines: N/A")
+        self.mag_summary_label.setVisible(False)
+        self.mag_missing_label = QLabel("Missing ranges: N/A")
+        self.mag_missing_label.setVisible(False)
+        
         dashboard_layout.addWidget(workbook_card)
         
         # Add the new DashboardView for statistics
