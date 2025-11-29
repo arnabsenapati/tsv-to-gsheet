@@ -306,14 +306,14 @@ class QuestionTreeWidget(QTreeWidget):
 
 class ChapterCardWidget(QWidget):
     """
-    Simple rectangular chapter row card with text and question count badge.
+    Simple rectangular chapter row card with integrated badge.
     
     Features:
-    - Rectangular row layout (text + badge)
-    - Small rounded rectangle badge for question count
-    - Hover size animation (height increase)
+    - Single rectangle containing chapter text and question badge
+    - Badge is proper badge styling (right-aligned)
+    - Hover: background color change + height increase
     - Click signal emission
-    - Minimal gap between cards (single column stack)
+    - Hairline gaps between cards
     """
     
     clicked = Signal(str)  # Signal emits chapter_key when clicked
@@ -335,7 +335,7 @@ class ChapterCardWidget(QWidget):
         # Main layout - horizontal row
         layout = QHBoxLayout()
         layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
         
         # Chapter name label (left side, takes most space)
         self.name_label = QLabel(chapter_name)
@@ -344,23 +344,24 @@ class ChapterCardWidget(QWidget):
                 font-size: 13px;
                 color: #1e293b;
                 font-weight: 500;
+                background: transparent;
             }
         """)
         self.name_label.setWordWrap(False)
         self.name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(self.name_label, 1)
         
-        # Question count badge (right side, small rounded rectangle)
+        # Question count badge (right side, proper badge styling)
         self.count_badge = QLabel(str(question_count))
         self.count_badge.setStyleSheet("""
             QLabel {
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: bold;
                 color: white;
                 background: #3b82f6;
-                border-radius: 6px;
-                padding: 4px 10px;
-                min-width: 40px;
+                border-radius: 10px;
+                padding: 2px 8px;
+                min-width: 28px;
                 text-align: center;
             }
         """)
@@ -371,10 +372,13 @@ class ChapterCardWidget(QWidget):
         self._update_style()
     
     def _update_style(self):
-        """Update card styling based on selection state"""
+        """Update card styling based on selection/hover state"""
         if self.is_selected:
             bg_color = "#e0e7ff"  # Light indigo
             border = "1px solid #3b82f6"
+        elif self.is_hovered:
+            bg_color = "#f0f4f8"  # Slightly darker on hover
+            border = "1px solid #cbd5e1"
         else:
             bg_color = "#f8fafc"  # Very light gray
             border = "1px solid #e2e8f0"  # Light border
@@ -393,17 +397,19 @@ class ChapterCardWidget(QWidget):
         self._update_style()
     
     def enterEvent(self, event):
-        """Handle mouse enter - increase size"""
+        """Handle mouse enter - change background and increase size"""
         self.is_hovered = True
         self.setMinimumHeight(self.hover_height)
         self.setMaximumHeight(self.hover_height)
+        self._update_style()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        """Handle mouse leave - reset size"""
+        """Handle mouse leave - reset background and size"""
         self.is_hovered = False
         self.setMinimumHeight(self.base_height)
         self.setMaximumHeight(self.base_height)
+        self._update_style()
         super().leaveEvent(event)
     
     def mousePressEvent(self, event):
@@ -419,7 +425,7 @@ class ChapterCardView(QWidget):
     
     Features:
     - Single column vertical layout
-    - Very thin gaps between cards
+    - Hairline gaps between cards (0px)
     - Hover scale animation (15% increase)
     - Click selection with visual feedback
     - Emits chapter_selected signal when card is clicked
@@ -435,7 +441,7 @@ class ChapterCardView(QWidget):
         # Main layout
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(2)  # Very thin gap between cards
+        main_layout.setSpacing(0)  # Hairline gap between cards
         
         # Scroll area for card stack
         scroll_area = QScrollArea()
@@ -446,7 +452,7 @@ class ChapterCardView(QWidget):
         container = QWidget()
         self.cards_layout = QVBoxLayout()
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
-        self.cards_layout.setSpacing(2)  # Very thin gap
+        self.cards_layout.setSpacing(0)  # Hairline gap
         
         container.setLayout(self.cards_layout)
         scroll_area.setWidget(container)
