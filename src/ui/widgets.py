@@ -1692,15 +1692,30 @@ class DashboardView(QWidget):
         scroll_layout.addWidget(chapters_title)
         
         # Scrollable container for chapter cards
-        self.chapters_container = QWidget()
-        self.chapters_layout = QVBoxLayout(self.chapters_container)
-        self.chapters_layout.setContentsMargins(0, 0, 0, 0)
-        self.chapters_layout.setSpacing(8)
-        scroll_layout.addWidget(self.chapters_container)
+        # === Loading Indicator ===
+        self.loading_label = QLabel("⏳ Loading workbook data...")
+        self.loading_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #64748b;
+                padding: 16px;
+                text-align: center;
+            }
+        """)
+        self.loading_label.setVisible(False)
+        scroll_layout.addWidget(self.loading_label)
         
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
         layout.addWidget(scroll, 1)
+    
+    def show_loading(self) -> None:
+        """Show loading indicator."""
+        self.loading_label.setVisible(True)
+    
+    def hide_loading(self) -> None:
+        """Hide loading indicator."""
+        self.loading_label.setVisible(False)
     
     def _create_stat_card(self, title: str, value: str, color: str) -> QWidget:
         """Create a statistics card with title and value."""
@@ -1749,6 +1764,8 @@ class DashboardView(QWidget):
             df: Pandas DataFrame with workbook data
             chapter_groups: Dict mapping group names to chapter lists
         """
+        self.hide_loading()  # Hide loading indicator when data arrives
+        
         if df is None or df.empty:
             return
         
@@ -1826,131 +1843,6 @@ class DashboardView(QWidget):
             self.latest_mag_name.setText(f"📰 Magazine: {latest_magazine}")
             self.latest_mag_pages.setText(f"📄 Pages: {page_range}")
             self.latest_mag_questions.setText(f"❓ Questions: {latest_mag_count}")
-        
-        # === Update Chapter-wise Statistics ===
-        self._update_chapter_statistics(df, chapter_groups)
-    
-    def _update_chapter_statistics(self, df, chapter_groups: dict[str, list[str]]) -> None:
-        """Update chapter-wise question count display."""
-        
-        # Clear existing chapter cards
-        while self.chapters_layout.count():
-            item = self.chapters_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        
-        if not chapter_groups or df is None or df.empty:
-            no_data_label = QLabel("No chapter data available")
-            no_data_label.setStyleSheet("color: #94a3b8;")
-            self.chapters_layout.addWidget(no_data_label)
-            return
-        
-        # Find chapter column dynamically
-        chapter_col = None
-        if 'Chapter' in df.columns:
-            chapter_col = 'Chapter'
-        elif 'chapter' in df.columns:
-            chapter_col = 'chapter'
-        elif 'High level chapter from IIT JEE' in df.columns:  # Fallback for JEE papers
-            chapter_col = 'High level chapter from IIT JEE'
-        elif 'Subject' in df.columns:
-            chapter_col = 'Subject'
-        
-        if not chapter_col:
-            return
-        
-        # Get chapter to group mapping (reverse of chapter_groups)
-        chapter_to_group = {}
-        for group_name, chapters in chapter_groups.items():
-            for chapter in chapters:
-                chapter_to_group[chapter] = group_name
-        
-        # Calculate questions per group
-        group_counts = {}
-        for _, row in df.iterrows():
-            chapter = row.get(chapter_col, 'Unknown')
-            group = chapter_to_group.get(chapter, 'Others')
-            group_counts[group] = group_counts.get(group, 0) + 1
-        
-        # Sort by count (descending)
-        sorted_groups = sorted(group_counts.items(), key=lambda x: x[1], reverse=True)
-        
-        # Create progress bar for each group (top 10)
-        for group_name, count in sorted_groups[:10]:
-            group_card = self._create_chapter_progress_card(group_name, count, len(df))
-            self.chapters_layout.addWidget(group_card)
-        
-        # Add stretch at end
-        self.chapters_layout.addStretch()
-    
-    def _create_chapter_progress_card(self, group_name: str, count: int, total: int) -> QWidget:
-        """Create a progress bar card for chapter group."""
-        card = QWidget()
-        card.setStyleSheet("""
-            QWidget {
-                background-color: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 12px;
-            }
-        """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 10, 12, 10)
-        card_layout.setSpacing(8)
-        
-        # Title row
-        title_row = QHBoxLayout()
-        group_label = QLabel(f"📚 {group_name}")
-        group_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                font-weight: bold;
-                color: #1e40af;
-            }
-        """)
-        title_row.addWidget(group_label)
-        
-        count_label = QLabel(f"{count}/{total} ({round(100*count/total)}%)")
-        count_label.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
-                color: #64748b;
-                font-weight: 600;
-            }
-        """)
-        title_row.addWidget(count_label)
-        title_row.addStretch()
-        card_layout.addLayout(title_row)
-        
-        # Progress bar
-        progress_bar = QWidget()
-        progress_bar.setStyleSheet("""
-            QWidget {
-                background-color: #e2e8f0;
-                border-radius: 3px;
-            }
-        """)
-        progress_bar.setFixedHeight(6)
-        progress_layout = QHBoxLayout(progress_bar)
-        progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.setSpacing(0)
-        
-        fill_ratio = count / total if total > 0 else 0
-        fill_widget = QWidget()
-        fill_widget.setStyleSheet("""
-            QWidget {
-                background-color: #3b82f6;
-                border-radius: 3px;
-            }
-        """)
-        fill_widget.setFixedHeight(6)
-        progress_layout.addWidget(fill_widget, int(fill_ratio * 100))
-        progress_layout.addStretch()
-        
-        card_layout.addWidget(progress_bar)
-        card.setMaximumHeight(60)
-        
-        return card
 
 
 class NavigationSidebar(QWidget):
