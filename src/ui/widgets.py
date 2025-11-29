@@ -1630,24 +1630,7 @@ class DashboardView(QWidget):
         summary_layout.addStretch()
         layout.addLayout(summary_layout)
         
-        # Scroll area for content below stats
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        
-        scroll_container = QWidget()
-        scroll_layout = QVBoxLayout(scroll_container)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(12)
-        
-        # === Latest Magazine Edition Card ===
-        self.latest_mag_card = self._create_stat_card("⭐ Questions in Latest Magazine", "0", "#10b981")
-        scroll_layout.addWidget(self.latest_mag_card)
-        
-        scroll_layout.addStretch()
-        scroll.setWidget(scroll_container)
-        layout.addWidget(scroll, 1)
+        layout.addStretch()
     
     def _create_stat_card(self, title: str, value: str, color: str) -> QWidget:
         """Create a statistics card with title and value."""
@@ -1769,9 +1752,7 @@ class DashboardView(QWidget):
             else:
                 page_range = "N/A"
             
-            latest_mag_count = len(mag_df)
-            
-            self.latest_mag_card.value_label.setText(str(latest_mag_count))
+
 
 
 class NavigationSidebar(QWidget):
