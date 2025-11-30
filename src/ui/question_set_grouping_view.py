@@ -6,6 +6,7 @@ question set groupings with a modern two-column split panel design.
 """
 
 import json
+import math
 
 from PySide6.QtCore import Qt, Signal, QMimeData, QSize, QEvent, QPoint
 from PySide6.QtGui import QDrag, QColor, QFont, QPainter, QPixmap
@@ -583,8 +584,11 @@ class QuestionSetListWidget(QListWidget):
         painter.drawText(pixmap.rect(), Qt.AlignCenter, text)
         painter.end()
         drag.setPixmap(pixmap)
-        # Place hotspot near the center with a small offset so it just touches the pointer
-        drag.setHotSpot(QPoint(int(pixmap.width() * 0.55), int(pixmap.height() * 0.55)))
+        # Place hotspot so pointer tip is 0.7 * radius away from center (at 45 degrees)
+        radius = diameter / 2
+        offset = radius * 0.7 / math.sqrt(2)  # components along x/y for 45°
+        hotspot = QPoint(int(pixmap.width() / 2 + offset), int(pixmap.height() / 2 + offset))
+        drag.setHotSpot(hotspot)
         drag.exec(supported_actions)
     
     def dragEnterEvent(self, event):
