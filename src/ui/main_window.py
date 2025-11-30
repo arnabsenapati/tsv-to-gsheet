@@ -2133,14 +2133,16 @@ class TSVWatcherWindow(QMainWindow):
         total_editions = 0
         total_sets = 0
 
+        normalized_mag_name = normalize_text(entry.get("display_name", ""))
         for ed in editions:
             normalized = ed.get("normalized", "")
             parsed = self._parse_normalized_month(normalized)
             if not parsed:
                 continue
-            page_min, page_max = page_ranges.get(normalized, ("", ""))
+            normalized_full = f"{normalized_mag_name}|{normalized}" if normalized else normalized_mag_name
+            page_min, page_max = page_ranges.get(normalized_full, ("", ""))
             edition_dates[(parsed.year, parsed.month)] = {
-                "normalized": normalized,
+                "normalized": normalized_full,
                 "display": ed.get("display", ""),
                 "question_sets": ed.get("question_sets", []),
                 "page_range": (page_min, page_max),
