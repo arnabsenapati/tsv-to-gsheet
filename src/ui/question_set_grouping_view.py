@@ -24,6 +24,9 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QSizePolicy,
 )
+from config.constants import TAGS_CONFIG_FILE, TAG_COLORS
+from ui.dialogs import MultiSelectTagDialog
+from ui.widgets import TagBadge
 
 
 class QuestionSetGroupingView(QWidget):
@@ -56,9 +59,12 @@ class QuestionSetGroupingView(QWidget):
         self.group_service = None  # Will be set by main window
         self.all_question_sets = []  # All question sets from workbook
         self.selected_group = None  # Currently selected group
+        self.group_tags: dict[str, list[str]] = {}
+        self.tag_colors: dict[str, str] = {}
         
         # Setup UI
         self._setup_ui()
+        self._load_tags_config()
     
     def _setup_ui(self):
         """Setup the user interface with two-column layout."""
@@ -299,8 +305,8 @@ class QuestionSetGroupingView(QWidget):
         # Get all groups
         groups = self.group_service.get_all_groups()
         
-        # Add saved groups
-        for group_name, group_data in groups.items():
+        # Add saved groups sorted by name (case-insensitive)
+        for group_name, group_data in sorted(groups.items(), key=lambda kv: kv[0].lower()):
             question_sets = group_data.get("question_sets", [])
             count = len(question_sets)
             
@@ -350,14 +356,19 @@ class QuestionSetGroupingView(QWidget):
             # Clear selection if we deleted the selected group
             if self.selected_group == group_name:
                 self.selected_group = None
+            if group_name in self.group_tags:
+                del self.group_tags[group_name]
+                self._save_tags_config()
             self._refresh_groups_list()
     
     def _style_group_item(self, item: QListWidgetItem, group_name: str, count: int, color: str):
         """Style a group item with name, badge count, and hover action buttons."""
         # Create widget for custom rendering
-        widget = GroupItemWidget(group_name, count, color, self)
+        tags = self.group_tags.get(group_name, [])
+        widget = GroupItemWidget(group_name, count, color, tags, self.tag_colors, self)
         widget.rename_clicked.connect(lambda name=group_name: self._on_rename_group(name))
         widget.delete_clicked.connect(lambda name=group_name: self._on_delete_group(name))
+        widget.tag_edit_clicked.connect(lambda name=group_name: self._on_edit_tags(name))
         
         # Set widget for item with proper sizing
         item.setSizeHint(widget.sizeHint())
@@ -496,6 +507,10 @@ class QuestionSetGroupingView(QWidget):
                 # Update selected group if it was the one being renamed
                 if self.selected_group == group_name:
                     self.selected_group = new_name
+                # Rename tags mapping
+                if group_name in self.group_tags:
+                    self.group_tags[new_name] = self.group_tags.pop(group_name)
+                    self._save_tags_config()
                 
                 # Refresh the list
                 self._refresh_groups_list()
@@ -522,6 +537,56 @@ class QuestionSetGroupingView(QWidget):
                         if item and item.data(Qt.UserRole) == current_group:
                             self.groups_list.setCurrentRow(idx)
                             break
+
+    def _on_edit_tags(self, group_name: str):
+        """Open tag selection dialog for a group."""
+        existing_tags = sorted(set(self.tag_colors.keys()) | set(sum(self.group_tags.values(), [])))
+        selected_tags = self.group_tags.get(group_name, [])
+        dialog = MultiSelectTagDialog(
+            existing_tags=existing_tags,
+            selected_tags=selected_tags,
+            title=f"Tags for '{group_name}'",
+            tag_colors=self.tag_colors,
+            available_colors=TAG_COLORS,
+            parent=self,
+        )
+        if dialog.exec():
+            chosen = dialog.get_selected_tags()
+            self.tag_colors.update(dialog.tag_colors)
+            if chosen:
+                self.group_tags[group_name] = chosen
+            elif group_name in self.group_tags:
+                del self.group_tags[group_name]
+            self._save_tags_config()
+            self._refresh_groups_list()
+
+    def _load_tags_config(self):
+        """Load tags and group-tag mapping from tags.cfg."""
+        if not TAGS_CONFIG_FILE.exists():
+            return
+        try:
+            data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
+            self.tag_colors = data.get("tag_colors", {})
+            self.group_tags = data.get("question_set_group_tags", {})
+            if not self.tag_colors:
+                self.tag_colors = {}
+        except json.JSONDecodeError:
+            self.tag_colors = {}
+            self.group_tags = {}
+
+    def _save_tags_config(self):
+        """Persist tag colors and question set group tags without clobbering other data."""
+        try:
+            existing = {}
+            if TAGS_CONFIG_FILE.exists():
+                existing = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+
+        existing["tag_colors"] = self.tag_colors
+        existing["question_set_group_tags"] = self.group_tags
+        TAGS_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TAGS_CONFIG_FILE.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
 
 class QuestionSetListWidget(QListWidget):
@@ -636,6 +701,7 @@ class GroupListWidget(QListWidget):
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DropOnly)
         self.setDefaultDropAction(Qt.MoveAction)
+        self._drag_item = None
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
@@ -645,14 +711,20 @@ class GroupListWidget(QListWidget):
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
+            self._highlight_item_under(event.position().toPoint())
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._clear_highlight()
+        super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
         if not event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
             event.ignore()
             return
+        self._clear_highlight()
 
         # Determine target group from drop position
         item = self.itemAt(event.position().toPoint())
@@ -675,6 +747,28 @@ class GroupListWidget(QListWidget):
         else:
             event.ignore()
 
+    def _highlight_item_under(self, pos):
+        item = self.itemAt(pos)
+        if item is self._drag_item:
+            return
+        # Clear previous
+        if self._drag_item:
+            widget = self.itemWidget(self._drag_item)
+            if widget:
+                widget.set_drag_over(False)
+        self._drag_item = item
+        if item:
+            widget = self.itemWidget(item)
+            if widget:
+                widget.set_drag_over(True)
+
+    def _clear_highlight(self):
+        if self._drag_item:
+            widget = self.itemWidget(self._drag_item)
+            if widget:
+                widget.set_drag_over(False)
+        self._drag_item = None
+
 
 class GroupItemWidget(QWidget):
     """
@@ -684,25 +778,35 @@ class GroupItemWidget(QWidget):
     
     rename_clicked = Signal()  # Emitted when rename button is clicked
     delete_clicked = Signal()  # Emitted when delete button is clicked (when count == 0)
+    tag_edit_clicked = Signal()  # Emitted when tag edit is requested
     
-    def __init__(self, group_name: str, count: int, color: str, parent=None):
+    def __init__(self, group_name: str, count: int, color: str, tags: list[str], tag_colors: dict[str, str], parent=None):
         """Initialize the group item widget."""
         super().__init__(parent)
         self.group_name = group_name
         self.count = count
         self.color = color
+        self.tags = tags or []
+        self.tag_colors = tag_colors or {}
         self.setMouseTracking(True)  # Enable mouse tracking for hover
         self.setObjectName("groupItemWidget")
         self.setAutoFillBackground(True)
         self.selected = False
         self.hovered = False
         self.can_delete = count == 0 and group_name != "Others"
+        self.drag_over = False
         
         # Main layout
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
         layout.setSpacing(6)
         layout.setAlignment(Qt.AlignVCenter)
+        
+        # Container holding label + badge with shared background
+        self.pill_container = QWidget()
+        pill_layout = QHBoxLayout(self.pill_container)
+        pill_layout.setContentsMargins(10, 8, 10, 8)
+        pill_layout.setSpacing(6)
         
         # Group name label
         self.name_label = QLabel(group_name)
@@ -712,28 +816,43 @@ class GroupItemWidget(QWidget):
                 color: #1e40af;
                 font-weight: 500;
                 background: transparent;
+                border: none;
             }}
         """)
         self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        layout.addWidget(self.name_label)
+        pill_layout.addWidget(self.name_label)
         
         # Count badge
         self.badge_label = QLabel(str(count))
         self.badge_label.setStyleSheet(f"""
             QLabel {{
-                background-color: #ffffff;
+                background-color: transparent;
                 color: {color};
                 border: 1px solid {color};
-                border-radius: 10px;
-                padding: 2px 6px;
+                border-radius: 12px;
+                padding: 2px 8px;
                 font-size: 10px;
                 font-weight: bold;
-                min-width: 20px;
+                min-width: 22px;
                 text-align: center;
             }}
         """)
         self.badge_label.setFixedWidth(32)
-        layout.addWidget(self.badge_label, alignment=Qt.AlignRight | Qt.AlignVCenter)
+
+        # Tag badges
+        self.tag_container = QWidget()
+        self.tag_container.setStyleSheet("background: transparent;")
+        self.tag_layout = QHBoxLayout(self.tag_container)
+        self.tag_layout.setContentsMargins(0, 0, 0, 0)
+        self.tag_layout.setSpacing(4)
+        pill_layout.addWidget(self.tag_container)
+        self._render_tags()
+
+        # Push count badge to the far right: tags before, then stretch, then badge
+        pill_layout.addStretch()
+        pill_layout.addWidget(self.badge_label, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        
+        layout.addWidget(self.pill_container, 1)
         
         # Rename button (hidden by default, shown on hover)
         self.rename_btn = QPushButton("✏️")
@@ -778,26 +897,67 @@ class GroupItemWidget(QWidget):
         self.delete_btn.hide()
         self.delete_btn.clicked.connect(self.delete_clicked.emit)
         layout.addWidget(self.delete_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
+
+        # Tag edit button
+        self.tag_btn = QPushButton("🏷")
+        self.tag_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 0px 2px;
+                min-width: 24px;
+                min-height: 24px;
+                max-width: 24px;
+                max-height: 24px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e0f2fe;
+                border-radius: 3px;
+            }
+        """)
+        self.tag_btn.hide()
+        self.tag_btn.clicked.connect(self.tag_edit_clicked.emit)
+        layout.addWidget(self.tag_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
         
         # Set minimum height
-        self.setMinimumHeight(32)
-        self.setMaximumHeight(32)  # Constrain height to prevent button escape
+        self.setMinimumHeight(38)
+        self.setMaximumHeight(38)  # Slightly taller for pill spacing
         self._update_background()
-    
+
     def sizeHint(self):
         """Return the preferred size of the widget."""
-        return QSize(200, 32)
+        return QSize(200, 38)
+
+    def _render_tags(self):
+        """Render tag badges inside the pill."""
+        # clear existing
+        while self.tag_layout.count():
+            item = self.tag_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for tag in self.tags[:3]:  # show up to 3
+            color = self.tag_colors.get(tag, "#2563eb")
+            badge = TagBadge(tag, color)
+            self.tag_layout.addWidget(badge)
+        self.tag_layout.addStretch()
 
     def set_selected(self, selected: bool):
         """Update selection state and refresh background."""
         self.selected = selected
         self._update_background()
+
+    def set_tags(self, tags: list[str]):
+        """Update displayed tags."""
+        self.tags = tags or []
+        self._render_tags()
     
     def enterEvent(self, event):
         """Show action buttons on hover."""
         self.rename_btn.show()
         if self.can_delete:
             self.delete_btn.show()
+        self.tag_btn.show()
         self.hovered = True
         self._update_background()
         self.update()
@@ -807,6 +967,7 @@ class GroupItemWidget(QWidget):
         """Hide action buttons when not hovering."""
         self.rename_btn.hide()
         self.delete_btn.hide()
+        self.tag_btn.hide()
         self.hovered = False
         self._update_background()
         self.update()
@@ -814,7 +975,9 @@ class GroupItemWidget(QWidget):
 
     def _update_background(self):
         """Apply hover/selection background without relying on QListWidget painting."""
-        if self.selected:
+        if self.drag_over:
+            bg = "#dbeafe"
+        elif self.selected:
             bg = "#e0f2fe"
         elif self.hovered:
             bg = "#f0f9ff"
@@ -822,7 +985,21 @@ class GroupItemWidget(QWidget):
             bg = "transparent"
         self.setStyleSheet(f"""
             QWidget#{self.objectName()} {{
-                background-color: {bg};
+                background-color: transparent;
                 border-radius: 6px;
             }}
         """)
+        # pill background
+        pill_bg = "#eef2ff" if not self.drag_over else "#dbeafe"
+        self.pill_container.setStyleSheet(f"""
+            QWidget {{
+                background-color: {pill_bg};
+                border-radius: 12px;
+                border: none;
+            }}
+        """)
+
+    def set_drag_over(self, active: bool):
+        """Highlight when a drag is hovering over the item."""
+        self.drag_over = active
+        self._update_background()
