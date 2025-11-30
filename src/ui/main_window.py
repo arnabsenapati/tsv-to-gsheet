@@ -94,6 +94,7 @@ from utils.helpers import (
     _find_question_set_name_column,
     _find_question_text_column,
     normalize_magazine_edition,
+    normalize_text,
 )
 
 
