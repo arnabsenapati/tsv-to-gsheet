@@ -133,6 +133,8 @@ class TSVWatcherWindow(QMainWindow):
         self.question_set_group_tags: dict[str, list[str]] = {}  # question set group name -> tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
+        self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
+        self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -320,35 +322,23 @@ class TSVWatcherWindow(QMainWindow):
         mag_split = QSplitter(Qt.Horizontal)
         magazine_tab_layout.addWidget(mag_split, 1)
         
-        # Left side - Magazine tree with search
-        mag_tree_card = self._create_card()
-        mag_tree_layout = QVBoxLayout(mag_tree_card)
-        mag_tree_layout.addWidget(self._create_label("Magazine Editions"))
+        # Left side - Magazine heatmap
+        mag_heatmap_card = self._create_card()
+        mag_heatmap_layout = QVBoxLayout(mag_heatmap_card)
+        mag_heatmap_layout.addWidget(self._create_label("Magazine Editions (Heatmap)"))
         
-        # Search box for magazine tree
-        mag_search_layout = QHBoxLayout()
-        mag_search_layout.addWidget(QLabel("Search:"))
-        self.mag_tree_search = QLineEdit()
-        self.mag_tree_search.setPlaceholderText("Filter magazines or editions...")
-        self.mag_tree_search.textChanged.connect(self.on_mag_tree_search_changed)
-        mag_search_layout.addWidget(self.mag_tree_search)
-        clear_mag_search_btn = QPushButton("Clear")
-        clear_mag_search_btn.setMaximumWidth(80)
-        clear_mag_search_btn.clicked.connect(lambda: self.mag_tree_search.clear())
-        mag_search_layout.addWidget(clear_mag_search_btn)
-        mag_tree_layout.addLayout(mag_search_layout)
-        
-        # Use QTreeWidget for editions with parent-child structure
-        self.mag_tree = QTreeWidget()
-        self.mag_tree.setColumnCount(2)
-        self.mag_tree.setHeaderLabels(["Edition", "Sets"])
-        self.mag_tree.setRootIsDecorated(True)
-        self.mag_tree.setAlternatingRowColors(True)
-        self.mag_tree.itemSelectionChanged.connect(self.on_magazine_select)
-        self.mag_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.mag_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        mag_tree_layout.addWidget(self.mag_tree)
-        mag_split.addWidget(mag_tree_card)
+        # Heatmap table
+        self.mag_heatmap = QTableWidget()
+        self.mag_heatmap.setColumnCount(12)
+        self.mag_heatmap.setHorizontalHeaderLabels(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"])
+        self.mag_heatmap.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.mag_heatmap.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.mag_heatmap.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.mag_heatmap.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.mag_heatmap.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.mag_heatmap.cellClicked.connect(self._on_mag_heatmap_clicked)
+        mag_heatmap_layout.addWidget(self.mag_heatmap)
+        mag_split.addWidget(mag_heatmap_card)
 
         # Right side - Question sets detail with tree
         detail_card = self._create_card()
@@ -361,42 +351,9 @@ class TSVWatcherWindow(QMainWindow):
         )
         detail_layout.addWidget(self.question_label)
         
-        # Use QSplitter to add question text view
-        mag_question_splitter = QSplitter(Qt.Vertical)
-        
-        # Use QTreeWidget instead of QListWidget for expandable question sets
-        self.question_sets_tree = QTreeWidget()
-        self.question_sets_tree.setHeaderLabels(["Question Set / Question", "Qno", "Page"])
-        self.question_sets_tree.setAlternatingRowColors(True)
-        self.question_sets_tree.setColumnWidth(0, 400)
-        self.question_sets_tree.itemSelectionChanged.connect(self.on_mag_question_selected)
-        self.question_sets_tree.setStyleSheet(
-            """
-            QTreeWidget {
-                font-size: 13px;
-            }
-            QTreeWidget::item {
-                padding: 6px;
-                border-bottom: 1px solid #e2e8f0;
-            }
-            QTreeWidget::item:hover {
-                background-color: #f8fafc;
-            }
-            """
-        )
-        mag_question_splitter.addWidget(self.question_sets_tree)
-        
-        # Question text view for magazine editions
-        self.mag_question_text_view = QTextEdit()
-        self.mag_question_text_view.setReadOnly(True)
-        self.mag_question_text_view.setAcceptRichText(True)
-        mag_question_splitter.addWidget(self.mag_question_text_view)
-        
-        mag_question_splitter.setStretchFactor(0, 3)
-        mag_question_splitter.setStretchFactor(1, 1)
-        mag_question_splitter.setSizes([400, 120])
-        
-        detail_layout.addWidget(mag_question_splitter)
+        # Accordion-style question view (reuse card view)
+        self.mag_question_card_view = QuestionListCardView(self)
+        detail_layout.addWidget(self.mag_question_card_view)
         mag_split.addWidget(detail_card)
         
         mag_split.setSizes([500, 400])
@@ -1486,7 +1443,7 @@ class TSVWatcherWindow(QMainWindow):
         self.magazine_search_term = ""
         
         # Clear UI elements
-        self._populate_magazine_tree([])
+        self._populate_magazine_heatmap([], {})
         self._populate_question_sets([])
         self._populate_chapter_list({})
         
@@ -1626,6 +1583,135 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
         return details, warnings
+
+    def _compute_page_ranges_for_editions(self, df: pd.DataFrame, details: list[dict]) -> dict[str, tuple[str, str]]:
+        """Compute page ranges per normalized edition."""
+        ranges: dict[str, tuple[str, str]] = {}
+        if df is None or df.empty:
+            return ranges
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+        try:
+            magazine_col = _find_magazine_column(header_row)
+            page_col = _find_page_column(header_row)
+        except ValueError:
+            return ranges
+
+        magazine_series = df.iloc[:, magazine_col - 1]
+        page_series = df.iloc[:, page_col - 1]
+        for mag_value, page_value in zip(magazine_series, page_series):
+            if pd.isna(mag_value) or pd.isna(page_value):
+                continue
+            normalized = normalize_magazine_edition(str(mag_value))
+            page_text = str(page_value).strip()
+            if not page_text:
+                continue
+            # Attempt to parse page numbers; allow strings
+            try:
+                page_num = int(float(page_text))
+            except ValueError:
+                page_num = None
+            low, high = ranges.get(normalized, ("", ""))
+            if page_num is None:
+                continue
+            if not low or page_num < int(low):
+                low = str(page_num)
+            if not high or page_num > int(high):
+                high = str(page_num)
+            ranges[normalized] = (low, high)
+        return ranges
+
+    def _on_mag_heatmap_clicked(self, row: int, column: int) -> None:
+        """Handle heatmap cell click to show questions grouped by QuestionSetGroup.json."""
+        if not hasattr(self, "mag_heatmap"):
+            return
+        item = self.mag_heatmap.item(row, column)
+        if not item:
+            return
+        info = item.data(Qt.UserRole)
+        if not info:
+            self.question_label.setText("Select a populated edition cell to view question sets")
+            self.mag_question_card_view.clear()
+            return
+        normalized = info.get("normalized", "")
+        display = info.get("display", "")
+        page_min, page_max = info.get("page_range", ("", ""))
+        page_text = f" · pp. {page_min}-{page_max}" if page_min and page_max else ""
+        self.question_label.setText(f"{display}{page_text}")
+        self._load_magazine_questions(normalized, display)
+
+    def _load_magazine_questions(self, normalized_edition: str, display_label: str) -> None:
+        """Load questions for a magazine edition and group using QuestionSetGroup.json."""
+        self.mag_question_card_view.clear()
+        if not normalized_edition or self.workbook_df is None:
+            return
+
+        df = self.workbook_df
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+
+        try:
+            qno_col = _find_qno_column(header_row)
+            page_col = _find_page_column(header_row)
+            question_set_col = _find_question_set_column(header_row)
+            question_text_col = _find_question_text_column(header_row)
+            magazine_col = _find_magazine_column(header_row)
+        except ValueError:
+            self.question_label.setText(f"{display_label} · columns missing")
+            return
+
+        questions: list[dict] = []
+        magazine_series = df.iloc[:, magazine_col - 1]
+        qset_series = df.iloc[:, question_set_col - 1]
+        qno_series = df.iloc[:, qno_col - 1]
+        page_series = df.iloc[:, page_col - 1]
+        qtext_series = df.iloc[:, question_text_col - 1]
+
+        for mag_value, qset_value, qno_value, page_value, qtext_value in zip(
+            magazine_series, qset_series, qno_series, page_series, qtext_series
+        ):
+            if pd.isna(mag_value) or pd.isna(qset_value):
+                continue
+            if normalize_magazine_edition(str(mag_value)) != normalized_edition:
+                continue
+            qs_name = str(qset_value).strip()
+            questions.append(
+                {
+                    "qno": str(qno_value).strip() if not pd.isna(qno_value) else "",
+                    "page": str(page_value).strip() if not pd.isna(page_value) else "",
+                    "question_text": str(qtext_value).strip() if not pd.isna(qtext_value) else "",
+                    "question_set_name": qs_name,
+                    "magazine": display_label,
+                }
+            )
+
+        # Group using QuestionSetGroup.json
+        group_mapping = {}
+        group_order = []
+        if hasattr(self, "question_set_group_service") and self.question_set_group_service:
+            groups = self.question_set_group_service.get_all_groups()
+            group_order = list(groups.keys())
+            for gname, gdata in groups.items():
+                for qs in gdata.get("question_sets", []):
+                    group_mapping[qs] = gname
+
+        grouped: dict[str, list[dict]] = {}
+        for q in questions:
+            group_name = group_mapping.get(q["question_set_name"], "Others")
+            grouped.setdefault(group_name, []).append(q)
+
+        ordered_keys: list[str] = []
+        if "Others" in grouped:
+            ordered_keys.append("Others")
+        for g in group_order:
+            if g in grouped and g != "Others":
+                ordered_keys.append(g)
+        for g in sorted(grouped.keys()):
+            if g not in ordered_keys:
+                ordered_keys.append(g)
+
+        for group_key in ordered_keys:
+            qlist = grouped.get(group_key, [])
+            tags = self.question_set_group_tags.get(group_key, [])
+            self.mag_question_card_view.add_group(group_key, qlist, tags, self.tag_colors)
 
     def _collect_question_analysis_data(
         self, df: pd.DataFrame
@@ -2003,6 +2089,81 @@ class TSVWatcherWindow(QMainWindow):
             magazine_parent.setExpanded(True)
         
         # Update summary statistics
+        if hasattr(self, "mag_total_editions_label"):
+            self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
+        if hasattr(self, "mag_total_sets_label"):
+            self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
+
+    def _populate_magazine_heatmap(self, details: list[dict], page_ranges: dict[str, tuple[str, str]]) -> None:
+        """Populate magazine editions heatmap grid."""
+        if not hasattr(self, "mag_heatmap"):
+            return
+        self.mag_heatmap_data.clear()
+        self.mag_heatmap.clearContents()
+        self.mag_heatmap.setRowCount(0)
+
+        if not details:
+            if hasattr(self, "mag_total_editions_label"):
+                self.mag_total_editions_label.setText("Total Editions: 0")
+            if hasattr(self, "mag_total_sets_label"):
+                self.mag_total_sets_label.setText("Question Sets: 0")
+            return
+
+        entry = details[0]
+        editions = entry.get("editions", [])
+        edition_dates: dict[tuple[int, int], dict] = {}
+        total_editions = 0
+        total_sets = 0
+
+        for ed in editions:
+            normalized = ed.get("normalized", "")
+            parsed = self._parse_normalized_month(normalized)
+            if not parsed:
+                continue
+            page_min, page_max = page_ranges.get(normalized, ("", ""))
+            edition_dates[(parsed.year, parsed.month)] = {
+                "normalized": normalized,
+                "display": ed.get("display", ""),
+                "question_sets": ed.get("question_sets", []),
+                "page_range": (page_min, page_max),
+            }
+            total_editions += 1
+            total_sets += len(ed.get("question_sets", []))
+
+        missing_dates = set(self._expand_missing_ranges(entry.get("missing_ranges", [])))
+        all_dates = set(dt.date(y, m, 1) for (y, m) in edition_dates.keys()) | missing_dates
+        if not all_dates:
+            return
+
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        years = list(range(max_date.year, min_date.year - 1, -1))
+
+        self.mag_heatmap.setRowCount(len(years))
+        self.mag_heatmap.setVerticalHeaderLabels([str(y) for y in years])
+
+        for r, year in enumerate(years):
+            for month in range(1, 13):
+                item = QTableWidgetItem("")
+                item.setData(Qt.UserRole, None)
+                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                date_key = (year, month)
+                cell_date = dt.date(year, month, 1)
+                if date_key in edition_dates:
+                    info = edition_dates[date_key]
+                    page_min, page_max = info.get("page_range", ("", ""))
+                    page_text = f"{page_min}-{page_max}" if page_min and page_max else ""
+                    item.setText(f"{cell_date.strftime('%b')}\n{page_text}")
+                    item.setBackground(QColor("#e0f2fe"))
+                    item.setData(Qt.UserRole, info)
+                elif cell_date in missing_dates:
+                    item.setText(f"{cell_date.strftime('%b')}\n—")
+                    item.setBackground(QColor("#fee2e2"))
+                else:
+                    item.setText(cell_date.strftime("%b"))
+                    item.setBackground(QColor("#f8fafc"))
+                self.mag_heatmap.setItem(r, month - 1, item)
+
         if hasattr(self, "mag_total_editions_label"):
             self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
         if hasattr(self, "mag_total_sets_label"):
@@ -3578,7 +3739,8 @@ class TSVWatcherWindow(QMainWindow):
                     f"Magazines loaded: {len(details)}",
                     f"Tracked editions: {total_editions}",
                 )
-                self._populate_magazine_tree(details)
+                self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
+                self._populate_magazine_heatmap(details, self.mag_page_ranges)
                 self._populate_question_sets([])
                 missing_qset_warning = next(
                     (msg for msg in warnings if "question set" in msg.lower()), None
@@ -3613,7 +3775,7 @@ class TSVWatcherWindow(QMainWindow):
                 self.high_level_column_index = None
                 self.row_count_label.setText("Total rows: Error")
                 self._set_magazine_summary("Magazines: Error", "Missing ranges: Error")
-                self._populate_magazine_tree([])
+                self._populate_magazine_heatmap([], {})
                 self._populate_question_sets([])
                 self._populate_chapter_list({})
                 self._refresh_grouping_ui()
