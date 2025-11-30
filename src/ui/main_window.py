@@ -328,23 +328,17 @@ class TSVWatcherWindow(QMainWindow):
         mag_heatmap_layout = QVBoxLayout(mag_heatmap_card)
         mag_heatmap_layout.addWidget(self._create_label("Magazine Editions (Heatmap)"))
         
-        # Heatmap table
-        self.mag_heatmap = QTableWidget()
-        self.mag_heatmap.setColumnCount(12)
-        self.mag_heatmap.setHorizontalHeaderLabels(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"])
-        self.mag_heatmap.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.mag_heatmap.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.mag_heatmap.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.mag_heatmap.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.mag_heatmap.setSelectionBehavior(QAbstractItemView.SelectItems)
-        self.mag_heatmap.cellClicked.connect(self._on_mag_heatmap_clicked)
-        self.mag_heatmap.setStyleSheet("""
-            QTableWidget {
-                gridline-color: #e2e8f0;
-                font-size: 12px;
-            }
-        """)
-        mag_heatmap_layout.addWidget(self.mag_heatmap)
+        # Heatmap scroll area
+        self.mag_heatmap_scroll = QScrollArea()
+        self.mag_heatmap_scroll.setWidgetResizable(True)
+        self.mag_heatmap_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.mag_heatmap_container = QWidget()
+        self.mag_heatmap_layout = QVBoxLayout(self.mag_heatmap_container)
+        self.mag_heatmap_layout.setContentsMargins(0, 0, 0, 0)
+        self.mag_heatmap_layout.setSpacing(12)
+        self.mag_heatmap_layout.addStretch()
+        self.mag_heatmap_scroll.setWidget(self.mag_heatmap_container)
+        mag_heatmap_layout.addWidget(self.mag_heatmap_scroll)
         mag_split.addWidget(mag_heatmap_card)
 
         # Right side - Question sets detail with tree
@@ -1627,14 +1621,12 @@ class TSVWatcherWindow(QMainWindow):
             ranges[normalized] = (low, high)
         return ranges
 
-    def _on_mag_heatmap_clicked(self, row: int, column: int) -> None:
-        """Handle heatmap cell click to show questions grouped by QuestionSetGroup.json."""
-        if not hasattr(self, "mag_heatmap"):
+    def _on_mag_heatmap_button_clicked(self) -> None:
+        """Handle heatmap button click to show questions grouped by QuestionSetGroup.json."""
+        btn = self.sender()
+        if not btn:
             return
-        item = self.mag_heatmap.item(row, column)
-        if not item:
-            return
-        info = item.data(Qt.UserRole)
+        info = btn.property("info")
         if not info:
             self.question_label.setText("Select a populated edition cell to view question sets")
             self.mag_question_card_view.clear()
@@ -2106,12 +2098,14 @@ class TSVWatcherWindow(QMainWindow):
 
     def _populate_magazine_heatmap(self, details: list[dict], page_ranges: dict[str, tuple[str, str]]) -> None:
         """Populate magazine editions heatmap grid."""
-        if not hasattr(self, "mag_heatmap"):
+        if not hasattr(self, "mag_heatmap_layout"):
             return
         self.mag_heatmap_data.clear()
-        self.mag_heatmap.clearContents()
-        self.mag_heatmap.setRowCount(0)
-        self.mag_heatmap.setColumnHidden(0, False)  # ensure headers reset
+        # Clear existing year sections
+        while self.mag_heatmap_layout.count() > 1:
+            item = self.mag_heatmap_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
         if not details:
             if hasattr(self, "mag_total_editions_label"):
@@ -2152,35 +2146,84 @@ class TSVWatcherWindow(QMainWindow):
         max_date = max(all_dates)
         years = list(range(max_date.year, min_date.year - 1, -1))
 
-        self.mag_heatmap.setRowCount(len(years))
-        self.mag_heatmap.setVerticalHeaderLabels([str(y) for y in years])
+        for year in years:
+            year_widget = QWidget()
+            year_layout = QVBoxLayout(year_widget)
+            year_layout.setContentsMargins(0, 0, 0, 0)
+            year_layout.setSpacing(6)
+            year_header = QLabel(f"{year}")
+            year_header.setStyleSheet("font-weight: bold; color: #1e293b;")
+            year_layout.addWidget(year_header)
 
-        for r, year in enumerate(years):
-            for month in range(1, 13):
-                item = QTableWidgetItem("")
-                item.setData(Qt.UserRole, None)
-                item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                date_key = (year, month)
+            grid = QGridLayout()
+            grid.setSpacing(8)
+            for idx, month in enumerate(range(1, 13)):
                 cell_date = dt.date(year, month, 1)
+                date_key = (year, month)
+                btn = QPushButton()
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setFixedSize(110, 72)
+                btn.setProperty("year", year)
+                btn.setProperty("month", month)
+                btn.setStyleSheet("""
+                    QPushButton {
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        background: #f8fafc;
+                        color: #1e293b;
+                        text-align: left;
+                        padding: 6px;
+                        font-size: 11px;
+                    }
+                    QPushButton:hover {
+                        border: 2px solid #93c5fd;
+                        background: #eef2ff;
+                        color: #0f172a;
+                    }
+                    QPushButton:pressed {
+                        border: 2px solid #3b82f6;
+                        background: #e0f2fe;
+                        color: #0f172a;
+                    }
+                """)
+
                 if date_key in edition_dates:
                     info = edition_dates[date_key]
                     self.mag_heatmap_data[(year, month)] = info
                     page_min, page_max = info.get("page_range", ("", ""))
-                    page_text = f"{page_min}-{page_max}" if page_min and page_max else ""
-                    item.setText(f"{cell_date.strftime('%b')}\n{page_text}")
-                    item.setBackground(QColor("#e0f2fe"))
+                    page_text = f"{page_min}-{page_max}" if page_min and page_max else "pp —"
                     sets_count = len(info.get("question_sets", []))
-                    item.setToolTip(f"{info.get('display','')} • {sets_count} set(s)\nPages: {page_text or '—'}")
-                    item.setData(Qt.UserRole, info)
+                    btn.setText(f"{cell_date.strftime('%b')}\n{page_text}\n{sets_count} set(s)")
+                    btn.setToolTip(f"{info.get('display','')} • {sets_count} set(s)\nPages: {page_text}")
+                    btn.setProperty("info", info)
+                    btn.setStyleSheet(btn.styleSheet() + """
+                        QPushButton {
+                            border: 1px solid #bfdbfe;
+                            background: #e0f2fe;
+                            color: #0f172a;
+                        }
+                    """)
                 elif cell_date in missing_dates:
-                    item.setText(f"{cell_date.strftime('%b')}\n—")
-                    item.setBackground(QColor("#fee2e2"))
-                    item.setToolTip("Missing edition")
+                    btn.setText(f"{cell_date.strftime('%b')}\nMissing")
+                    btn.setToolTip("Missing edition")
+                    btn.setProperty("info", None)
+                    btn.setStyleSheet(btn.styleSheet() + """
+                        QPushButton {
+                            border: 2px dashed #ef4444;
+                            background: #fef2f2;
+                            color: #b91c1c;
+                        }
+                    """)
                 else:
-                    item.setText(cell_date.strftime("%b"))
-                    item.setBackground(QColor("#f8fafc"))
-                    item.setToolTip("No data")
-                self.mag_heatmap.setItem(r, month - 1, item)
+                    btn.setText(f"{cell_date.strftime('%b')}\nNo data")
+                    btn.setToolTip("No data")
+                    btn.setProperty("info", None)
+
+                btn.clicked.connect(self._on_mag_heatmap_button_clicked)
+                grid.addWidget(btn, idx // 4, idx % 4)
+
+            year_layout.addLayout(grid)
+            self.mag_heatmap_layout.insertWidget(self.mag_heatmap_layout.count() - 1, year_widget)
 
         if hasattr(self, "mag_total_editions_label"):
             self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
