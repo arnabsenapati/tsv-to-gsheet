@@ -5,8 +5,10 @@ This module contains the QuestionSetGroupingView widget for managing
 question set groupings with a modern two-column split panel design.
 """
 
-from PySide6.QtCore import Qt, Signal, QMimeData, QSize, QEvent
-from PySide6.QtGui import QDrag, QColor, QFont
+import json
+
+from PySide6.QtCore import Qt, Signal, QMimeData, QSize, QEvent, QPoint
+from PySide6.QtGui import QDrag, QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -257,6 +259,7 @@ class QuestionSetGroupingView(QWidget):
         """)
         self.question_sets_list.setAcceptDrops(True)
         self.question_sets_list.setDragDropMode(QAbstractItemView.DragDrop)
+        self.question_sets_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         
         sets_container_layout.addWidget(self.question_sets_list)
         
@@ -386,9 +389,9 @@ class QuestionSetGroupingView(QWidget):
         self._refresh_question_sets_list()
         self._update_group_item_selection()
 
-    def _on_question_set_drop_on_group(self, qs_name: str, from_group: str, target_group: str, event):
-        """Handle drop of a question set onto a group item."""
-        if not self.group_service or not target_group:
+    def _on_question_set_drop_on_group(self, qs_names: list[str], from_group: str, target_group: str, event):
+        """Handle drop of one or more question sets onto a group item."""
+        if not self.group_service or not target_group or not qs_names:
             event.ignore()
             return
 
@@ -397,23 +400,22 @@ class QuestionSetGroupingView(QWidget):
             event.ignore()
             return
 
-        # Dropping to Others: just remove from the source group (if not already in Others)
+        current_group = self.selected_group
+        moved_any = False
+
         if target_group == "Others":
             if from_group and from_group != "Others":
-                if self.group_service.remove_question_set_from_group(from_group, qs_name):
+                for qs_name in qs_names:
+                    if self.group_service.remove_question_set_from_group(from_group, qs_name):
+                        self.question_set_moved.emit(qs_name, from_group, target_group)
+                        moved_any = True
+        else:
+            for qs_name in qs_names:
+                if self.group_service.move_question_set(qs_name, from_group, target_group):
                     self.question_set_moved.emit(qs_name, from_group, target_group)
-                    self._refresh_groups_list()
-                    self._refresh_question_sets_list()
-                    event.acceptProposedAction()
-                    return
-            event.ignore()
-            return
+                    moved_any = True
 
-        # Move between regular groups
-        if self.group_service.move_question_set(qs_name, from_group, target_group):
-            # Stay on current selection; just refresh counts
-            current_group = self.selected_group
-            self.question_set_moved.emit(qs_name, from_group, target_group)
+        if moved_any:
             self._refresh_groups_list()
             # Restore selection to the original group to keep its list visible
             if current_group:
@@ -448,19 +450,29 @@ class QuestionSetGroupingView(QWidget):
             item.setData(Qt.UserRole, qs_name)  # Store actual name without emoji
             self.question_sets_list.addItem(item)
     
-    def _on_question_set_dropped_internal(self, qs_name: str, from_group: str, event):
-        """Handle drop event when dragging question set between groups."""
-        # Only allow drop to regular groups (not "Others")
-        if self.selected_group and self.group_service:
-            if self.selected_group != "Others":
-                # Move from source group to this group
-                if self.group_service.move_question_set(qs_name, from_group, self.selected_group):
-                    self.question_set_moved.emit(qs_name, from_group, self.selected_group)
-                    self._refresh_groups_list()
-                    self._refresh_question_sets_list()
-                    event.accept()
-                    return
-        
+    def _on_question_sets_dropped_internal(self, qs_names: list[str], from_group: str, event):
+        """Handle drop event when dragging question sets onto the current list."""
+        if not qs_names or not self.group_service or not self.selected_group:
+            event.ignore()
+            return
+
+        # Can't drop into Others list
+        if self.selected_group == "Others":
+            event.ignore()
+            return
+
+        moved_any = False
+        for qs_name in qs_names:
+            if self.group_service.move_question_set(qs_name, from_group, self.selected_group):
+                self.question_set_moved.emit(qs_name, from_group, self.selected_group)
+                moved_any = True
+
+        if moved_any:
+            self._refresh_groups_list()
+            self._refresh_question_sets_list()
+            event.accept()
+            return
+
         event.ignore()
     
     def _on_rename_group(self, group_name: str):
@@ -525,28 +537,45 @@ class QuestionSetListWidget(QListWidget):
         # Drag/drop mode is set by parent during setup
     
     def startDrag(self, supported_actions):
-        """Start drag operation for question set."""
-        current_item = self.currentItem()
-        if not current_item:
+        """Start drag operation for one or more question sets."""
+        items = self.selectedItems()
+        if not items:
             return
         
-        # Get question set name
-        qs_name = current_item.data(Qt.UserRole)
+        qs_names = [i.data(Qt.UserRole) for i in items if i.data(Qt.UserRole)]
+        if not qs_names:
+            return
         
-        # Create mime data
+        # Create mime data with JSON payload
         mime_data = QMimeData()
-        # Store format: "question_set_name|from_group"
-        if self.parent_view:
-            from_group = self.parent_view.selected_group or ""
-            mime_data.setText(f"{qs_name}|{from_group}")
-        
+        from_group = self.parent_view.selected_group if self.parent_view else ""
+        payload = {"question_sets": qs_names, "from_group": from_group}
+        mime_data.setText(json.dumps(payload))
         mime_data.setData(self.MIME_TYPE, b"drag")
         
-        # Create drag object
         drag = QDrag(self)
         drag.setMimeData(mime_data)
-        
-        # Set visual feedback (use default which is text)
+        # Visual: show how many items are being moved
+        count = len(qs_names)
+        text = f"{count} item" if count == 1 else f"{count} items"
+        diameter = 36
+        pixmap = QPixmap(diameter, diameter)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor("#2563eb"))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(pixmap.rect().adjusted(1, 1, -1, -1))
+        painter.setPen(Qt.white)
+        font = painter.font()
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignCenter, text)
+        painter.end()
+        drag.setPixmap(pixmap)
+        # Shift slightly left/up so the circle sits near the pointer tip
+        drag.setHotSpot(QPoint(pixmap.width() // 2 - 6, pixmap.height() // 2 - 6))
         drag.exec(supported_actions)
     
     def dragEnterEvent(self, event):
@@ -571,17 +600,15 @@ class QuestionSetListWidget(QListWidget):
         
         # Parse mime data
         try:
-            data = event.mimeData().text()
-            source_info = data.split("|")
-            qs_name = source_info[0]
-            from_group = source_info[1] if len(source_info) > 1 else None
-        except:
+            payload = json.loads(event.mimeData().text())
+            qs_names = payload.get("question_sets", [])
+            from_group = payload.get("from_group")
+        except Exception:
             event.ignore()
             return
         
-        # Call parent view's drop handler
         if self.parent_view:
-            self.parent_view._on_question_set_dropped_internal(qs_name, from_group, event)
+            self.parent_view._on_question_sets_dropped_internal(qs_names, from_group, event)
         else:
             event.ignore()
 
@@ -630,7 +657,7 @@ class GroupListWidget(QListWidget):
             return
 
         if self.parent_view:
-            self.parent_view._on_question_set_drop_on_group(qs_name, from_group, target_group, event)
+            self.parent_view._on_question_set_drop_on_group(qs_names, from_group, target_group, event)
         else:
             event.ignore()
 
