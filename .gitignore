@@ -10,3 +10,7 @@ __pycache__/
 sample_jee_papers.xlsx
 sample_jee_papers.tsv
 create_sample_jee_excel.py
+TSVWatcher.spec
+build/
+dist/
+*.spec
