@@ -148,7 +148,7 @@ class QuestionSetGroupingView(QWidget):
         groups_container_layout.setContentsMargins(12, 12, 12, 12)
         groups_container_layout.setSpacing(8)
         
-        self.groups_list = QListWidget()
+        self.groups_list = GroupListWidget(self)
         self.groups_list.setStyleSheet("""
             QListWidget {
                 border: none;
@@ -385,7 +385,49 @@ class QuestionSetGroupingView(QWidget):
         # Update question sets list
         self._refresh_question_sets_list()
         self._update_group_item_selection()
-    
+
+    def _on_question_set_drop_on_group(self, qs_name: str, from_group: str, target_group: str, event):
+        """Handle drop of a question set onto a group item."""
+        if not self.group_service or not target_group:
+            event.ignore()
+            return
+
+        # No-op if dropping onto the same group
+        if target_group == from_group:
+            event.ignore()
+            return
+
+        # Dropping to Others: just remove from the source group (if not already in Others)
+        if target_group == "Others":
+            if from_group and from_group != "Others":
+                if self.group_service.remove_question_set_from_group(from_group, qs_name):
+                    self.question_set_moved.emit(qs_name, from_group, target_group)
+                    self._refresh_groups_list()
+                    self._refresh_question_sets_list()
+                    event.acceptProposedAction()
+                    return
+            event.ignore()
+            return
+
+        # Move between regular groups
+        if self.group_service.move_question_set(qs_name, from_group, target_group):
+            # Stay on current selection; just refresh counts
+            current_group = self.selected_group
+            self.question_set_moved.emit(qs_name, from_group, target_group)
+            self._refresh_groups_list()
+            # Restore selection to the original group to keep its list visible
+            if current_group:
+                for idx in range(self.groups_list.count()):
+                    item = self.groups_list.item(idx)
+                    if item and item.data(Qt.UserRole) == current_group:
+                        self.groups_list.setCurrentRow(idx)
+                        break
+            self._refresh_question_sets_list()
+            event.acceptProposedAction()
+            return
+
+        event.ignore()
+
     def _refresh_question_sets_list(self):
         """Refresh the question sets list for selected group."""
         self.question_sets_list.clear()
@@ -532,6 +574,55 @@ class QuestionSetListWidget(QListWidget):
         # Call parent view's drop handler
         if self.parent_view:
             self.parent_view._on_question_set_dropped_internal(qs_name, from_group, event)
+        else:
+            event.ignore()
+
+class GroupListWidget(QListWidget):
+    """
+    Custom list widget for groups that accepts drops of question sets.
+    """
+
+    def __init__(self, parent_view=None):
+        super().__init__(parent_view)
+        self.parent_view = parent_view
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DropOnly)
+        self.setDefaultDropAction(Qt.MoveAction)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
+            event.ignore()
+            return
+
+        # Determine target group from drop position
+        item = self.itemAt(event.position().toPoint())
+        if not item:
+            event.ignore()
+            return
+        target_group = item.data(Qt.UserRole)
+
+        # Parse dragged data
+        try:
+            data = event.mimeData().text()
+            qs_name, from_group = data.split("|", 1)
+        except Exception:
+            event.ignore()
+            return
+
+        if self.parent_view:
+            self.parent_view._on_question_set_drop_on_group(qs_name, from_group, target_group, event)
         else:
             event.ignore()
 
