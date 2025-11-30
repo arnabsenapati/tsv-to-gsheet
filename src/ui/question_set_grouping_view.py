@@ -549,12 +549,13 @@ class GroupItemWidget(QWidget):
                 border-radius: 3px;
             }
         """)
-        self.rename_btn.setVisible(False)
+        self.rename_btn.hide()  # Hide by default
         self.rename_btn.clicked.connect(self.rename_clicked.emit)
         layout.addWidget(self.rename_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
         
         # Set minimum height
         self.setMinimumHeight(32)
+        self.setMaximumHeight(32)  # Constrain height to prevent button escape
     
     def sizeHint(self):
         """Return the preferred size of the widget."""
@@ -562,10 +563,12 @@ class GroupItemWidget(QWidget):
     
     def enterEvent(self, event):
         """Show action buttons on hover."""
-        self.rename_btn.setVisible(True)
+        self.rename_btn.show()
+        self.update()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
         """Hide action buttons when not hovering."""
-        self.rename_btn.setVisible(False)
+        self.rename_btn.hide()
+        self.update()
         super().leaveEvent(event)
