@@ -355,11 +355,6 @@ class QuestionSetGroupingView(QWidget):
             item = QListWidgetItem()
             item.setText(f"📝 {qs_name}")
             item.setData(Qt.UserRole, qs_name)  # Store actual name without emoji
-            item.setStyleSheet("""
-                QListWidgetItem {
-                    padding: 6px 0px;
-                }
-            """)
             self.question_sets_list.addItem(item)
     
     def _on_question_set_dropped_internal(self, qs_name: str, from_group: str, event):
