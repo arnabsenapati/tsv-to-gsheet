@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QFrame,
+    QAbstractItemView,
 )
 
 
@@ -163,7 +164,7 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         self.question_sets_list.setAcceptDrops(True)
-        self.question_sets_list.setDragDropMode(self.question_sets_list.DragDrop)
+        self.question_sets_list.setDragDropMode(QAbstractItemView.DragDrop)
         
         right_layout.addWidget(self.question_sets_list)
         
@@ -333,7 +334,7 @@ class QuestionSetListWidget(QListWidget):
         """Initialize the question set list widget."""
         super().__init__(parent)
         self.parent_view = parent
-        self.setDragDropMode(self.DragDrop)
+        # Drag/drop mode is set by parent during setup
     
     def startDrag(self, supported_actions):
         """Start drag operation for question set."""
