@@ -332,12 +332,28 @@ class QuestionSetGroupingView(QWidget):
 
         # Reapply selection highlight to match current selection
         self._update_group_item_selection()
+
+    def _on_delete_group(self, group_name: str):
+        """Delete a group when empty."""
+        if not self.group_service or group_name == "Others":
+            return
+        group_data = self.group_service.get_group(group_name)
+        if not group_data:
+            return
+        if group_data.get("question_sets"):
+            return  # Safety: only allow delete when empty
+        if self.group_service.delete_group(group_name):
+            # Clear selection if we deleted the selected group
+            if self.selected_group == group_name:
+                self.selected_group = None
+            self._refresh_groups_list()
     
     def _style_group_item(self, item: QListWidgetItem, group_name: str, count: int, color: str):
         """Style a group item with name, badge count, and hover action buttons."""
         # Create widget for custom rendering
         widget = GroupItemWidget(group_name, count, color, self)
         widget.rename_clicked.connect(lambda name=group_name: self._on_rename_group(name))
+        widget.delete_clicked.connect(lambda name=group_name: self._on_delete_group(name))
         
         # Set widget for item with proper sizing
         item.setSizeHint(widget.sizeHint())
@@ -527,6 +543,7 @@ class GroupItemWidget(QWidget):
     """
     
     rename_clicked = Signal()  # Emitted when rename button is clicked
+    delete_clicked = Signal()  # Emitted when delete button is clicked (when count == 0)
     
     def __init__(self, group_name: str, count: int, color: str, parent=None):
         """Initialize the group item widget."""
@@ -539,6 +556,7 @@ class GroupItemWidget(QWidget):
         self.setAutoFillBackground(True)
         self.selected = False
         self.hovered = False
+        self.can_delete = count == 0 and group_name != "Others"
         
         # Main layout
         layout = QHBoxLayout(self)
@@ -598,6 +616,28 @@ class GroupItemWidget(QWidget):
         self.rename_btn.hide()  # Hide by default
         self.rename_btn.clicked.connect(self.rename_clicked.emit)
         layout.addWidget(self.rename_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
+
+        # Delete button (only relevant when count == 0)
+        self.delete_btn = QPushButton("🗑")
+        self.delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 0px 2px;
+                min-width: 24px;
+                min-height: 24px;
+                max-width: 24px;
+                max-height: 24px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #fee2e2;
+                border-radius: 3px;
+            }
+        """)
+        self.delete_btn.hide()
+        self.delete_btn.clicked.connect(self.delete_clicked.emit)
+        layout.addWidget(self.delete_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
         
         # Set minimum height
         self.setMinimumHeight(32)
@@ -616,6 +656,8 @@ class GroupItemWidget(QWidget):
     def enterEvent(self, event):
         """Show action buttons on hover."""
         self.rename_btn.show()
+        if self.can_delete:
+            self.delete_btn.show()
         self.hovered = True
         self._update_background()
         self.update()
@@ -624,6 +666,7 @@ class GroupItemWidget(QWidget):
     def leaveEvent(self, event):
         """Hide action buttons when not hovering."""
         self.rename_btn.hide()
+        self.delete_btn.hide()
         self.hovered = False
         self._update_background()
         self.update()
