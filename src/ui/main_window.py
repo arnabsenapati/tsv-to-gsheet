@@ -337,6 +337,12 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_heatmap.setSelectionMode(QAbstractItemView.SingleSelection)
         self.mag_heatmap.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.mag_heatmap.cellClicked.connect(self._on_mag_heatmap_clicked)
+        self.mag_heatmap.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #e2e8f0;
+                font-size: 12px;
+            }
+        """)
         mag_heatmap_layout.addWidget(self.mag_heatmap)
         mag_split.addWidget(mag_heatmap_card)
 
@@ -2101,6 +2107,7 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_heatmap_data.clear()
         self.mag_heatmap.clearContents()
         self.mag_heatmap.setRowCount(0)
+        self.mag_heatmap.setColumnHidden(0, False)  # ensure headers reset
 
         if not details:
             if hasattr(self, "mag_total_editions_label"):
@@ -2151,17 +2158,22 @@ class TSVWatcherWindow(QMainWindow):
                 cell_date = dt.date(year, month, 1)
                 if date_key in edition_dates:
                     info = edition_dates[date_key]
+                    self.mag_heatmap_data[(year, month)] = info
                     page_min, page_max = info.get("page_range", ("", ""))
                     page_text = f"{page_min}-{page_max}" if page_min and page_max else ""
                     item.setText(f"{cell_date.strftime('%b')}\n{page_text}")
                     item.setBackground(QColor("#e0f2fe"))
+                    sets_count = len(info.get("question_sets", []))
+                    item.setToolTip(f"{info.get('display','')} • {sets_count} set(s)\nPages: {page_text or '—'}")
                     item.setData(Qt.UserRole, info)
                 elif cell_date in missing_dates:
                     item.setText(f"{cell_date.strftime('%b')}\n—")
                     item.setBackground(QColor("#fee2e2"))
+                    item.setToolTip("Missing edition")
                 else:
                     item.setText(cell_date.strftime("%b"))
                     item.setBackground(QColor("#f8fafc"))
+                    item.setToolTip("No data")
                 self.mag_heatmap.setItem(r, month - 1, item)
 
         if hasattr(self, "mag_total_editions_label"):
