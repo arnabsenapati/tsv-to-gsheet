@@ -395,6 +395,7 @@ class QuestionSetGroupingView(QWidget):
         if not self.group_service or not target_group or not qs_names:
             event.ignore()
             return
+        print(f"[Drop->GroupHandler] target={target_group} from={from_group} qs={qs_names}", flush=True)
 
         # No-op if dropping onto the same group
         if target_group == from_group:
@@ -456,6 +457,7 @@ class QuestionSetGroupingView(QWidget):
         if not qs_names or not self.group_service or not self.selected_group:
             event.ignore()
             return
+        print(f"[Drop->CurrentList] target={self.selected_group} from={from_group} qs={qs_names}", flush=True)
 
         # Can't drop into Others list
         if self.selected_group == "Others":
@@ -553,6 +555,7 @@ class QuestionSetListWidget(QListWidget):
         payload = {"question_sets": qs_names, "from_group": from_group}
         mime_data.setText(json.dumps(payload))
         mime_data.setData(self.MIME_TYPE, b"drag")
+        print(f"[Drag] start from '{from_group}' with {qs_names}", flush=True)
         
         drag = QDrag(self)
         drag.setMimeData(mime_data)
@@ -663,11 +666,15 @@ class GroupListWidget(QListWidget):
 
         # Parse dragged data
         try:
-            data = event.mimeData().text()
-            qs_name, from_group = data.split("|", 1)
+            payload = json.loads(event.mimeData().text())
+            qs_names = payload.get("question_sets", [])
+            from_group = payload.get("from_group")
         except Exception:
+            print("[Drop->GroupList] Failed to parse payload", flush=True)
             event.ignore()
             return
+
+        print(f"[Drop->GroupList] target={target_group} from={from_group} qs={qs_names}", flush=True)
 
         if self.parent_view:
             self.parent_view._on_question_set_drop_on_group(qs_names, from_group, target_group, event)
