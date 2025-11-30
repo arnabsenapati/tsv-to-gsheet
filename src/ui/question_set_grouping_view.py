@@ -471,7 +471,7 @@ class QuestionSetGroupingView(QWidget):
         if moved_any:
             self._refresh_groups_list()
             self._refresh_question_sets_list()
-            event.accept()
+            event.acceptProposedAction()
             return
 
         event.ignore()
