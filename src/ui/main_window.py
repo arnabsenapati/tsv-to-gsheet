@@ -130,6 +130,7 @@ class TSVWatcherWindow(QMainWindow):
         self.current_selected_chapter: str | None = None  # Track selected chapter for filtering
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
         self.group_tags: dict[str, list[str]] = {}  # group_key -> list of tags
+        self.question_set_group_tags: dict[str, list[str]] = {}  # question set group name -> tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         
@@ -1270,15 +1271,18 @@ class TSVWatcherWindow(QMainWindow):
         try:
             data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
             self.group_tags = data.get("group_tags", {})
+            self.question_set_group_tags = data.get("question_set_group_tags", {})
             self.tag_colors = data.get("tag_colors", {})
         except json.JSONDecodeError:
             self.group_tags = {}
+            self.question_set_group_tags = {}
             self.tag_colors = {}
 
     def _save_group_tags(self) -> None:
         """Save group tags to tags.cfg file."""
         payload = {
             "group_tags": self.group_tags,
+            "question_set_group_tags": self.question_set_group_tags,
             "tag_colors": self.tag_colors,
         }
         TAGS_CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -2212,32 +2216,54 @@ class TSVWatcherWindow(QMainWindow):
         if not filtered:
             return
         
-        # Group questions by similar question set names
+        # Build mapping of question set -> group from QuestionSetGroup.json
         groups = {}
+        qs_to_group = {}
+        group_order = []
+        if hasattr(self, "question_set_group_service") and self.question_set_group_service:
+            config_groups = self.question_set_group_service.get_all_groups()
+            group_order = list(config_groups.keys())
+            for g_name, g_data in config_groups.items():
+                for qs in g_data.get("question_sets", []):
+                    qs_to_group[qs] = g_name
+
+        # Determine all question set names to compute Others
+        all_qs_names = {q.get("question_set_name", "Unknown") for q in self.all_questions} if hasattr(self, "all_questions") else set()
+        others_sets = all_qs_names - set(qs_to_group.keys())
+
+        # Group questions using mapping; unmapped go to Others
         for question in filtered:
-            question_set_name = question.get("question_set_name", "Unknown")
-            group_key = self._extract_group_key(question_set_name)
-            if group_key not in groups:
-                groups[group_key] = []
-            groups[group_key].append(question)
-        
+            qs_name = question.get("question_set_name", "Unknown")
+            group_key = qs_to_group.get(qs_name, "Others")
+            groups.setdefault(group_key, []).append(question)
+
         # Apply tag filtering (multiple tags)
         if self.selected_tag_filters:
             filtered_groups = {}
             for group_key, group_questions in groups.items():
-                tags = self.group_tags.get(group_key, [])
+                tags = self.question_set_group_tags.get(group_key, [])
                 # Check if any of the selected filter tags match any of the group's tags
                 if any(filter_tag in tags for filter_tag in self.selected_tag_filters):
                     filtered_groups[group_key] = group_questions
             groups = filtered_groups
         
-        # Sort groups by number of questions (descending) then by name
-        sorted_groups = sorted(groups.items(), key=lambda x: (-len(x[1]), x[0]))
+        # Build display order: Others first, then config order, then any remaining groups alpha
+        ordered_keys = []
+        if "Others" in groups:
+            ordered_keys.append("Others")
+        for g in group_order:
+            if g in groups and g != "Others":
+                ordered_keys.append(g)
+        # Add any remaining groups not in config
+        for g in sorted(groups.keys()):
+            if g not in ordered_keys:
+                ordered_keys.append(g)
         
         # Populate card view with accordion groups
         if hasattr(self, "question_card_view"):
-            for group_key, group_questions in sorted_groups:
-                tags = self.group_tags.get(group_key, [])
+            for group_key in ordered_keys:
+                group_questions = groups.get(group_key, [])
+                tags = self.question_set_group_tags.get(group_key, [])
                 self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors)
         
         # Restore scroll position if it was saved
@@ -2272,7 +2298,7 @@ class TSVWatcherWindow(QMainWindow):
     def _show_tag_filter_dialog(self) -> None:
         """Show dialog to select multiple tags for filtering."""
         # Get all existing tags across all groups
-        all_tags = sorted(set(tag for tags in self.group_tags.values() for tag in tags))
+        all_tags = sorted(set(tag for tags in self.question_set_group_tags.values() for tag in tags))
         
         if not all_tags:
             QMessageBox.information(self, "No Tags", "No tags have been created yet. Assign tags to groups first.")
@@ -2614,7 +2640,7 @@ class TSVWatcherWindow(QMainWindow):
         add_tag_action = menu.addAction("🏷️ Assign Tag to Group")
         
         # Remove tag submenu (if tags exist)
-        existing_tags = self.group_tags.get(group_key, [])
+        existing_tags = self.question_set_group_tags.get(group_key, [])
         if existing_tags:
             remove_tag_menu = menu.addMenu("🗑️ Remove Tag from Group")
             for tag in existing_tags:
@@ -2751,10 +2777,10 @@ class TSVWatcherWindow(QMainWindow):
     def _assign_tag_to_group(self, group_key: str) -> None:
         """Show dialog to assign multiple tags to a group."""
         # Get all existing tags across all groups
-        all_tags = sorted(set(tag for tags in self.group_tags.values() for tag in tags))
+        all_tags = sorted(set(tag for tags in self.question_set_group_tags.values() for tag in tags))
         
         # Get currently assigned tags for this group
-        current_tags = self.group_tags.get(group_key, [])
+        current_tags = self.question_set_group_tags.get(group_key, [])
         
         # Show multi-select dialog
         dialog = MultiSelectTagDialog(
@@ -2769,17 +2795,17 @@ class TSVWatcherWindow(QMainWindow):
         if dialog.exec() == QDialog.Accepted:
             selected_tags = dialog.get_selected_tags()
             if selected_tags:
-                self.group_tags[group_key] = selected_tags
-                self._save_group_tags()
-                self._apply_question_search(preserve_scroll=True)  # Refresh tree to show new tags
+                self.question_set_group_tags[group_key] = selected_tags
+            self._save_group_tags()
+            self._apply_question_search(preserve_scroll=True)  # Refresh tree to show new tags
 
     def _remove_tag_from_group(self, group_key: str, tag: str) -> None:
         """Remove a tag from a group."""
-        if group_key in self.group_tags and tag in self.group_tags[group_key]:
-            self.group_tags[group_key].remove(tag)
-            if not self.group_tags[group_key]:
+        if group_key in self.question_set_group_tags and tag in self.question_set_group_tags[group_key]:
+            self.question_set_group_tags[group_key].remove(tag)
+            if not self.question_set_group_tags[group_key]:
                 # Remove empty tag list
-                del self.group_tags[group_key]
+                del self.question_set_group_tags[group_key]
             self._save_group_tags()
             self._apply_question_search(preserve_scroll=True)  # Refresh tree to update display
         else:
