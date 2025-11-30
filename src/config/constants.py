@@ -23,6 +23,7 @@ MATHEMATICS_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "Mathematics
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
 QUESTION_LIST_DIR = GOOGLE_DRIVE_BASE / "CustomLists"
 TAGS_CONFIG_FILE = GOOGLE_DRIVE_BASE / "TagsConfig" / "tags.cfg"
+QUESTION_SET_GROUP_FILE = GOOGLE_DRIVE_BASE / "QuestionSetGroup.json"
 
 
 # ============================================================================

@@ -66,9 +66,12 @@ from config.constants import (
     QUESTION_LIST_DIR,
     TAGS_CONFIG_FILE,
     TAG_COLORS,
+    QUESTION_SET_GROUP_FILE,
 )
 from services.excel_service import process_tsv
+from services.question_set_group_service import QuestionSetGroupService
 from ui.dialogs import MultiSelectTagDialog
+from ui.question_set_grouping_view import QuestionSetGroupingView
 from ui.widgets import (
     ChapterCardView,
     ChapterTableWidget,
@@ -203,13 +206,14 @@ class TSVWatcherWindow(QMainWindow):
         main_splitter.setCollapsible(0, False)  # Don't allow sidebar to collapse to 0
 
         # Create all view pages
-        self._create_dashboard_page()      # Index 0
-        self._create_magazine_page()        # Index 1
-        self._create_questions_page()       # Index 2
-        self._create_grouping_page()        # Index 3
-        self._create_lists_page()           # Index 4
-        self._create_import_page()          # Index 5
-        self._create_jee_page()             # Index 6
+        self._create_dashboard_page()           # Index 0
+        self._create_magazine_page()            # Index 1
+        self._create_questions_page()           # Index 2
+        self._create_grouping_page()            # Index 3
+        self._create_lists_page()               # Index 4
+        self._create_question_set_grouping_page()  # Index 5
+        self._create_import_page()              # Index 6
+        self._create_jee_page()                 # Index 7
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -911,8 +915,31 @@ class TSVWatcherWindow(QMainWindow):
 
         self.content_stack.addWidget(import_page)
 
+    def _create_question_set_grouping_page(self):
+        """Create Question Set Grouping page (index 5)."""
+        grouping_page = QWidget()
+        grouping_layout = QVBoxLayout(grouping_page)
+        grouping_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Initialize the Question Set Group Service
+        self.question_set_group_service = QuestionSetGroupService(QUESTION_SET_GROUP_FILE)
+        
+        # Create the Question Set Grouping View
+        self.question_set_grouping_view = QuestionSetGroupingView()
+        self.question_set_grouping_view.set_group_service(self.question_set_group_service)
+        self.question_set_grouping_view.question_set_moved.connect(self._on_question_set_moved)
+        
+        grouping_layout.addWidget(self.question_set_grouping_view, 1)
+        
+        self.content_stack.addWidget(grouping_page)
+    
+    def _on_question_set_moved(self, qs_name: str, from_group: str, to_group: str):
+        """Handle when a question set is moved between groups."""
+        # The view already updates internally, but we can add additional logic here
+        pass
+
     def _create_jee_page(self):
-        """Create JEE Main Papers page (index 6)."""
+        """Create JEE Main Papers page (index 7)."""
         jee_page = QWidget()
         jee_layout = QVBoxLayout(jee_page)
         jee_layout.setSpacing(8)
@@ -3515,6 +3542,10 @@ class TSVWatcherWindow(QMainWindow):
                 # Update dashboard with statistics
                 if hasattr(self, 'dashboard_view') and hasattr(self, 'workbook_df'):
                     self.dashboard_view.update_dashboard_data(self.workbook_df, self.chapter_groups)
+                
+                # Update question set grouping view with question sets from workbook
+                if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'question_sets'):
+                    self.question_set_grouping_view.update_from_workbook(self.question_sets)
                 
                 for warning in warnings:
                     self.log(warning)

@@ -1832,8 +1832,9 @@ class NavigationSidebar(QWidget):
             ("📝", "Question List", 2, True),
             ("📚", "Chapter Grouping", 3, True),
             ("📋", "Custom Lists", 4, True),
-            ("📥", "Data Import", 5, False),
-            ("🎓", "JEE Main Papers", 6, False),
+            ("🔗", "Question Set Groups", 5, True),
+            ("📥", "Data Import", 6, False),
+            ("🎓", "JEE Main Papers", 7, False),
         ]
         
         for icon, text, index, is_indented in nav_items:
