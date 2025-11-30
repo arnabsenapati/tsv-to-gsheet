@@ -5,7 +5,7 @@ This module contains the QuestionSetGroupingView widget for managing
 question set groupings with a modern two-column split panel design.
 """
 
-from PySide6.QtCore import Qt, Signal, QMimeData, QSize
+from PySide6.QtCore import Qt, Signal, QMimeData, QSize, QEvent
 from PySide6.QtGui import QDrag, QColor, QFont
 from PySide6.QtWidgets import (
     QWidget,
@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QFrame,
     QAbstractItemView,
+    QPushButton,
+    QInputDialog,
 )
 
 
@@ -115,6 +117,26 @@ class QuestionSetGroupingView(QWidget):
         """)
         left_header_layout.addWidget(left_title)
         left_header_layout.addStretch()
+        
+        # Add Group button
+        add_group_btn = QPushButton("➕")
+        add_group_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: white;
+                font-size: 14px;
+                padding: 0px 4px;
+                min-width: 20px;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+                border-radius: 3px;
+            }
+        """)
+        add_group_btn.clicked.connect(self._on_add_new_group)
+        left_header_layout.addWidget(add_group_btn)
         
         left_layout.addWidget(left_header)
         
@@ -283,45 +305,13 @@ class QuestionSetGroupingView(QWidget):
         self.groups_list.addItem(item)
     
     def _style_group_item(self, item: QListWidgetItem, group_name: str, count: int, color: str):
-        """Style a group item with name and badge count."""
+        """Style a group item with name, badge count, and hover action buttons."""
         # Create widget for custom rendering
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(8)
-        
-        # Group name label
-        name_label = QLabel(group_name)
-        name_label.setStyleSheet(f"""
-            QLabel {{
-                font-size: 12px;
-                color: #1e40af;
-                font-weight: 500;
-            }}
-        """)
-        layout.addWidget(name_label)
-        
-        # Stretch
-        layout.addStretch()
-        
-        # Count badge
-        badge_label = QLabel(str(count))
-        badge_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {color};
-                color: white;
-                border-radius: 10px;
-                padding: 2px 8px;
-                font-size: 11px;
-                font-weight: bold;
-                min-width: 24px;
-                text-align: center;
-            }}
-        """)
-        layout.addWidget(badge_label)
+        widget = GroupItemWidget(group_name, count, color, self)
+        widget.rename_clicked.connect(lambda: self._on_rename_group(group_name))
         
         # Set widget for item
-        item.setSizeHint(QSize(0, 32))
+        item.setSizeHint(QSize(0, 40))
         self.groups_list.setItemWidget(item, widget)
     
     def _on_group_selected(self):
@@ -371,6 +361,45 @@ class QuestionSetGroupingView(QWidget):
                     return
         
         event.ignore()
+    
+    def _on_rename_group(self, group_name: str):
+        """Handle renaming a group."""
+        if group_name == "Others":
+            # Can't rename the Others group
+            return
+        
+        # Show input dialog
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Group",
+            f"Enter new name for '{group_name}':",
+            text=group_name
+        )
+        
+        if ok and new_name and new_name != group_name:
+            # Rename in service
+            if self.group_service.rename_group(group_name, new_name):
+                # Update selected group if it was the one being renamed
+                if self.selected_group == group_name:
+                    self.selected_group = new_name
+                
+                # Refresh the list
+                self._refresh_groups_list()
+    
+    def _on_add_new_group(self):
+        """Handle adding a new group."""
+        # Show input dialog
+        group_name, ok = QInputDialog.getText(
+            self,
+            "Add New Group",
+            "Enter group name:",
+        )
+        
+        if ok and group_name:
+            # Create new group in service
+            if self.group_service.create_group(group_name):
+                # Refresh the list
+                self._refresh_groups_list()
 
 
 class QuestionSetListWidget(QListWidget):
@@ -446,3 +475,84 @@ class QuestionSetListWidget(QListWidget):
             self.parent_view._on_question_set_dropped_internal(qs_name, from_group, event)
         else:
             event.ignore()
+
+
+class GroupItemWidget(QWidget):
+    """
+    Custom widget for displaying a group item with hover action buttons.
+    Shows rename button on hover.
+    """
+    
+    rename_clicked = Signal()  # Emitted when rename button is clicked
+    
+    def __init__(self, group_name: str, count: int, color: str, parent=None):
+        """Initialize the group item widget."""
+        super().__init__(parent)
+        self.group_name = group_name
+        self.count = count
+        self.color = color
+        
+        # Main layout
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(8)
+        
+        # Group name label
+        name_label = QLabel(group_name)
+        name_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 12px;
+                color: #1e40af;
+                font-weight: 500;
+            }}
+        """)
+        layout.addWidget(name_label)
+        
+        # Stretch
+        layout.addStretch()
+        
+        # Count badge
+        badge_label = QLabel(str(count))
+        badge_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {color};
+                color: white;
+                border-radius: 10px;
+                padding: 2px 8px;
+                font-size: 11px;
+                font-weight: bold;
+                min-width: 24px;
+                text-align: center;
+            }}
+        """)
+        layout.addWidget(badge_label)
+        
+        # Rename button (hidden by default, shown on hover)
+        self.rename_btn = QPushButton("✏️")
+        self.rename_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 2px 4px;
+                min-width: 24px;
+                min-height: 24px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e0e7ff;
+                border-radius: 3px;
+            }
+        """)
+        self.rename_btn.setVisible(False)
+        self.rename_btn.clicked.connect(self.rename_clicked.emit)
+        layout.addWidget(self.rename_btn)
+    
+    def enterEvent(self, event):
+        """Show action buttons on hover."""
+        self.rename_btn.setVisible(True)
+        super().enterEvent(event)
+    
+    def leaveEvent(self, event):
+        """Hide action buttons when not hovering."""
+        self.rename_btn.setVisible(False)
+        super().leaveEvent(event)
