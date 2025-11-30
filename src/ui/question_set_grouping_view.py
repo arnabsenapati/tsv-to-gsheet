@@ -86,20 +86,45 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(12, 12, 12, 12)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(0)
         
-        left_title = QLabel("Groups")
-        left_title.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                font-weight: 600;
-                color: #475569;
+        # Left Panel Header (Banner)
+        left_header = QWidget()
+        left_header_layout = QHBoxLayout(left_header)
+        left_header_layout.setContentsMargins(12, 10, 12, 10)
+        left_header_layout.setSpacing(8)
+        left_header.setStyleSheet("""
+            QWidget {
+                background-color: #1e40af;
+                border-radius: 4px 4px 0px 0px;
             }
         """)
-        left_layout.addWidget(left_title)
         
-        # Groups list widget
+        left_icon = QLabel("📂")
+        left_icon.setStyleSheet("font-size: 18px;")
+        left_header_layout.addWidget(left_icon)
+        
+        left_title = QLabel("Question Set Groups")
+        left_title.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                font-weight: bold;
+                color: white;
+            }
+        """)
+        left_header_layout.addWidget(left_title)
+        left_header_layout.addStretch()
+        
+        left_layout.addWidget(left_header)
+        
+        # Container for groups list with padding
+        groups_container = QWidget()
+        groups_container.setStyleSheet("background-color: transparent;")
+        groups_container_layout = QVBoxLayout(groups_container)
+        groups_container_layout.setContentsMargins(12, 12, 12, 12)
+        groups_container_layout.setSpacing(8)
+        
         self.groups_list = QListWidget()
         self.groups_list.setStyleSheet("""
             QListWidget {
@@ -120,7 +145,9 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         self.groups_list.itemSelectionChanged.connect(self._on_group_selected)
-        left_layout.addWidget(self.groups_list)
+        groups_container_layout.addWidget(self.groups_list)
+        
+        left_layout.addWidget(groups_container)
         
         content_layout.addWidget(left_panel, 40)
         
@@ -134,18 +161,44 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        
+        # Right Panel Header (Banner)
+        right_header = QWidget()
+        right_header_layout = QHBoxLayout(right_header)
+        right_header_layout.setContentsMargins(12, 10, 12, 10)
+        right_header_layout.setSpacing(8)
+        right_header.setStyleSheet("""
+            QWidget {
+                background-color: #7c3aed;
+                border-radius: 4px 4px 0px 0px;
+            }
+        """)
+        
+        right_icon = QLabel("📝")
+        right_icon.setStyleSheet("font-size: 18px;")
+        right_header_layout.addWidget(right_icon)
         
         right_title = QLabel("Question Sets")
         right_title.setStyleSheet("""
             QLabel {
-                font-size: 12px;
-                font-weight: 600;
-                color: #475569;
+                font-size: 13px;
+                font-weight: bold;
+                color: white;
             }
         """)
-        right_layout.addWidget(right_title)
+        right_header_layout.addWidget(right_title)
+        right_header_layout.addStretch()
+        
+        right_layout.addWidget(right_header)
+        
+        # Container for question sets list with padding
+        sets_container = QWidget()
+        sets_container.setStyleSheet("background-color: transparent;")
+        sets_container_layout = QVBoxLayout(sets_container)
+        sets_container_layout.setContentsMargins(12, 12, 12, 12)
+        sets_container_layout.setSpacing(0)
         
         # Question sets list widget with drag support
         self.question_sets_list = QuestionSetListWidget(self)
@@ -166,7 +219,9 @@ class QuestionSetGroupingView(QWidget):
         self.question_sets_list.setAcceptDrops(True)
         self.question_sets_list.setDragDropMode(QAbstractItemView.DragDrop)
         
-        right_layout.addWidget(self.question_sets_list)
+        sets_container_layout.addWidget(self.question_sets_list)
+        
+        right_layout.addWidget(sets_container)
         
         content_layout.addWidget(right_panel, 60)
         

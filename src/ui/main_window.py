@@ -1506,6 +1506,35 @@ class TSVWatcherWindow(QMainWindow):
             if magazine_key in normalized:
                 return magazine_key
         return ""
+    
+    def _extract_unique_question_sets(self, df: pd.DataFrame) -> list[str]:
+        """
+        Extract unique question set names from workbook DataFrame.
+        
+        Returns:
+            List of unique question set names
+        """
+        if df.empty:
+            return []
+        
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+        try:
+            question_set_col = _find_question_set_column(header_row)
+        except ValueError:
+            # No question set column found
+            return []
+        
+        # Extract unique question sets
+        question_sets = set()
+        if question_set_col is not None:
+            question_series = df.iloc[:, question_set_col - 1]
+            for value in question_series:
+                if pd.notna(value):
+                    qs_name = str(value).strip()
+                    if qs_name:
+                        question_sets.add(qs_name)
+        
+        return sorted(list(question_sets))
 
     def _collect_magazine_details(self, df: pd.DataFrame) -> tuple[list[dict], list[str]]:
         warnings: list[str] = []
@@ -3544,8 +3573,10 @@ class TSVWatcherWindow(QMainWindow):
                     self.dashboard_view.update_dashboard_data(self.workbook_df, self.chapter_groups)
                 
                 # Update question set grouping view with question sets from workbook
-                if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'question_sets'):
-                    self.question_set_grouping_view.update_from_workbook(self.question_sets)
+                if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'workbook_df'):
+                    # Extract unique question sets from workbook
+                    question_sets = self._extract_unique_question_sets(self.workbook_df)
+                    self.question_set_grouping_view.update_from_workbook(question_sets)
                 
                 for warning in warnings:
                     self.log(warning)
