@@ -310,8 +310,8 @@ class QuestionSetGroupingView(QWidget):
         widget = GroupItemWidget(group_name, count, color, self)
         widget.rename_clicked.connect(lambda: self._on_rename_group(group_name))
         
-        # Set widget for item
-        item.setSizeHint(QSize(0, 40))
+        # Set widget for item with proper sizing
+        item.setSizeHint(widget.sizeHint())
         self.groups_list.setItemWidget(item, widget)
     
     def _on_group_selected(self):
@@ -491,41 +491,44 @@ class GroupItemWidget(QWidget):
         self.group_name = group_name
         self.count = count
         self.color = color
+        self.setMouseTracking(True)  # Enable mouse tracking for hover
         
         # Main layout
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignVCenter)
         
         # Group name label
-        name_label = QLabel(group_name)
-        name_label.setStyleSheet(f"""
+        self.name_label = QLabel(group_name)
+        self.name_label.setStyleSheet(f"""
             QLabel {{
                 font-size: 12px;
                 color: #1e40af;
                 font-weight: 500;
+                background: transparent;
             }}
         """)
-        layout.addWidget(name_label)
-        
-        # Stretch
-        layout.addStretch()
+        self.name_label.setSizePolicy(QWidget.Expanding, QWidget.Preferred)
+        layout.addWidget(self.name_label)
         
         # Count badge
-        badge_label = QLabel(str(count))
-        badge_label.setStyleSheet(f"""
+        self.badge_label = QLabel(str(count))
+        self.badge_label.setStyleSheet(f"""
             QLabel {{
                 background-color: {color};
                 color: white;
                 border-radius: 10px;
-                padding: 2px 8px;
-                font-size: 11px;
+                padding: 2px 6px;
+                font-size: 10px;
                 font-weight: bold;
-                min-width: 24px;
+                min-width: 20px;
                 text-align: center;
+                background: transparent;
             }}
         """)
-        layout.addWidget(badge_label)
+        self.badge_label.setFixedWidth(32)
+        layout.addWidget(self.badge_label, alignment=Qt.AlignRight | Qt.AlignVCenter)
         
         # Rename button (hidden by default, shown on hover)
         self.rename_btn = QPushButton("✏️")
@@ -533,19 +536,28 @@ class GroupItemWidget(QWidget):
             QPushButton {
                 background-color: transparent;
                 border: none;
-                padding: 2px 4px;
+                padding: 0px 2px;
                 min-width: 24px;
                 min-height: 24px;
+                max-width: 24px;
+                max-height: 24px;
                 font-size: 12px;
             }
             QPushButton:hover {
-                background-color: #e0e7ff;
+                background-color: #dbeafe;
                 border-radius: 3px;
             }
         """)
         self.rename_btn.setVisible(False)
         self.rename_btn.clicked.connect(self.rename_clicked.emit)
-        layout.addWidget(self.rename_btn)
+        layout.addWidget(self.rename_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        
+        # Set minimum height
+        self.setMinimumHeight(32)
+    
+    def sizeHint(self):
+        """Return the preferred size of the widget."""
+        return QSize(200, 32)
     
     def enterEvent(self, event):
         """Show action buttons on hover."""
