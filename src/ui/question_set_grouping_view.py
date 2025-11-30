@@ -499,8 +499,16 @@ class QuestionSetGroupingView(QWidget):
         if ok and group_name:
             # Create new group in service
             if self.group_service.create_group(group_name):
+                current_group = self.selected_group
                 # Refresh the list
                 self._refresh_groups_list()
+                # Restore previous selection
+                if current_group:
+                    for idx in range(self.groups_list.count()):
+                        item = self.groups_list.item(idx)
+                        if item and item.data(Qt.UserRole) == current_group:
+                            self.groups_list.setCurrentRow(idx)
+                            break
 
 
 class QuestionSetListWidget(QListWidget):
