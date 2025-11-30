@@ -558,7 +558,7 @@ class QuestionSetListWidget(QListWidget):
         # Visual: show how many items are being moved
         count = len(qs_names)
         text = str(count)
-        diameter = 16  # 60% smaller than previous 40px
+        diameter = 32  # doubled from the previous size
         pixmap = QPixmap(diameter, diameter)
         pixmap.fill(Qt.transparent)
         painter = QPainter(pixmap)
@@ -567,25 +567,24 @@ class QuestionSetListWidget(QListWidget):
         # Shadow
         painter.setBrush(QColor(0, 0, 0, 60))
         painter.setPen(Qt.NoPen)
-        painter.drawEllipse(pixmap.rect().translated(1, 2).adjusted(1, 1, -1, -1))
+        painter.drawEllipse(pixmap.rect().translated(2, 3).adjusted(1, 1, -1, -1))
         # Main circle with gradient
         gradient_color = QColor("#2563eb")
         painter.setBrush(QColor(gradient_color.red(), gradient_color.green(), gradient_color.blue(), 235))
         painter.drawEllipse(pixmap.rect().adjusted(1, 1, -2, -2))
         # Highlight
         painter.setBrush(QColor(255, 255, 255, 60))
-        painter.drawEllipse(pixmap.rect().adjusted(4, 3, -8, -10))
+        painter.drawEllipse(pixmap.rect().adjusted(6, 5, -12, -14))
         painter.setPen(Qt.white)
         font = painter.font()
-        font.setPointSize(8)
+        font.setPointSize(11)
         font.setBold(True)
         painter.setFont(font)
         painter.drawText(pixmap.rect(), Qt.AlignCenter, text)
         painter.end()
         drag.setPixmap(pixmap)
-        # Shift left/up by its radius so it sits near the pointer tip
-        radius = diameter // 2
-        drag.setHotSpot(QPoint(pixmap.width() // 2 - radius, pixmap.height() // 2 - radius))
+        # Place hotspot near the center with a small offset so it just touches the pointer
+        drag.setHotSpot(QPoint(int(pixmap.width() * 0.55), int(pixmap.height() * 0.55)))
         drag.exec(supported_actions)
     
     def dragEnterEvent(self, event):
