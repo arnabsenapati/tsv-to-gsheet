@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QFrame,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
