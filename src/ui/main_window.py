@@ -2153,8 +2153,8 @@ class TSVWatcherWindow(QMainWindow):
             year_layout.setContentsMargins(0, 0, 0, 0)
             year_layout.setSpacing(8)
 
-            # Year label vertically oriented on the left
-            year_label = QLabel(f"{year}")
+            # Year label vertically oriented using stacked digits
+            year_label = QLabel("\n".join(str(year)))
             year_label.setStyleSheet("""
                 font-weight: bold;
                 color: #0f172a;
@@ -2165,8 +2165,6 @@ class TSVWatcherWindow(QMainWindow):
             year_label.setAlignment(Qt.AlignCenter)
             year_label.setMinimumWidth(28)
             year_label.setMaximumWidth(28)
-            year_label.setWordWrap(True)
-            year_label.setStyleSheet(year_label.styleSheet() + "writing-mode: vertical-rl; transform: rotate(180deg);")
             year_layout.addWidget(year_label)
 
             # Container for months + separator
