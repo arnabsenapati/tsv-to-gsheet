@@ -1595,14 +1595,12 @@ class TSVWatcherWindow(QMainWindow):
         """Compute page ranges per normalized edition."""
         ranges: dict[str, tuple[str, str]] = {}
         if df is None or df.empty:
-            self.log("[Heatmap] No DataFrame for page ranges")
             return ranges
         header_row = [None if pd.isna(col) else str(col) for col in df.columns]
         try:
             magazine_col = _find_magazine_column(header_row)
             page_col = _find_page_column(header_row)
         except ValueError:
-            self.log("[Heatmap] Missing magazine/page columns for ranges")
             return ranges
 
         magazine_series = df.iloc[:, magazine_col - 1]
@@ -1627,7 +1625,6 @@ class TSVWatcherWindow(QMainWindow):
             if not high or page_num > int(high):
                 high = str(page_num)
             ranges[normalized] = (low, high)
-        self.log(f"[Heatmap] Page ranges computed for {len(ranges)} editions: {ranges}")
         return ranges
 
     def _on_mag_heatmap_clicked(self, row: int, column: int) -> None:
@@ -1647,7 +1644,6 @@ class TSVWatcherWindow(QMainWindow):
         page_min, page_max = info.get("page_range", ("", ""))
         page_text = f" · pp. {page_min}-{page_max}" if page_min and page_max else ""
         self.question_label.setText(f"{display}{page_text}")
-        self.log(f"[Heatmap] Clicked {normalized} ({display})")
         self._load_magazine_questions(normalized, display)
 
     def _load_magazine_questions(self, normalized_edition: str, display_label: str) -> None:
@@ -1667,7 +1663,6 @@ class TSVWatcherWindow(QMainWindow):
             magazine_col = _find_magazine_column(header_row)
         except ValueError:
             self.question_label.setText(f"{display_label} · columns missing")
-            self.log("[Heatmap] Required columns missing for question load")
             return
 
         questions: list[dict] = []
@@ -1694,8 +1689,6 @@ class TSVWatcherWindow(QMainWindow):
                     "magazine": display_label,
                 }
             )
-        self.log(f"[Heatmap] Loaded {len(questions)} questions for edition {normalized_edition}")
-
         # Group using QuestionSetGroup.json
         group_mapping = {}
         group_order = []
@@ -2110,7 +2103,6 @@ class TSVWatcherWindow(QMainWindow):
             self.mag_total_editions_label.setText(f"Total Editions: {total_editions}")
         if hasattr(self, "mag_total_sets_label"):
             self.mag_total_sets_label.setText(f"Question Sets: {total_sets}")
-        self.log(f"[Heatmap] Rendered {total_editions} editions across {len(years)} years")
 
     def _populate_magazine_heatmap(self, details: list[dict], page_ranges: dict[str, tuple[str, str]]) -> None:
         """Populate magazine editions heatmap grid."""
