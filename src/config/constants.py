@@ -12,14 +12,17 @@ from pathlib import Path
 # Base directory of the application
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+# Google Drive configuration files directory
+GOOGLE_DRIVE_BASE = Path("G:/My Drive/Aditya/IITJEE/QuestionAnalysisJsons")
+
 # Configuration files
 PHYSICS_CHAPTER_FILE = BASE_DIR / "physicsCHapters.txt"
-PHYSICS_GROUPING_FILE = BASE_DIR / "PhysicsChapterGrouping.json"
-CHEMISTRY_GROUPING_FILE = BASE_DIR / "ChemistryChapterGrouping.json"
-MATHEMATICS_GROUPING_FILE = BASE_DIR / "MathematicsChapterGrouping.json"
+PHYSICS_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "PhysicsChapterGrouping.json"
+CHEMISTRY_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "ChemistryChapterGrouping.json"
+MATHEMATICS_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "MathematicsChapterGrouping.json"
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
-QUESTION_LIST_DIR = BASE_DIR / "QuestionList"
-TAGS_CONFIG_FILE = BASE_DIR / "tags.cfg"
+QUESTION_LIST_DIR = GOOGLE_DRIVE_BASE / "CustomLists"
+TAGS_CONFIG_FILE = GOOGLE_DRIVE_BASE / "TagsConfig" / "tags.cfg"
 
 
 # ============================================================================

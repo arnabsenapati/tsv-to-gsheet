@@ -162,7 +162,7 @@ class TSVWatcherWindow(QMainWindow):
         ]
 
         # Ensure QuestionList directory exists
-        QUESTION_LIST_DIR.mkdir(exist_ok=True)
+        QUESTION_LIST_DIR.mkdir(parents=True, exist_ok=True)
         
         # Status bar animation state
         self.status_animation_frame = 0
