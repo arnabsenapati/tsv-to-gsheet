@@ -2152,7 +2152,13 @@ class TSVWatcherWindow(QMainWindow):
             year_layout.setContentsMargins(0, 0, 0, 0)
             year_layout.setSpacing(6)
             year_header = QLabel(f"{year}")
-            year_header.setStyleSheet("font-weight: bold; color: #1e293b;")
+            year_header.setStyleSheet("""
+                font-weight: bold;
+                color: #0f172a;
+                background: #e2e8f0;
+                padding: 4px 8px;
+                border-radius: 6px;
+            """)
             year_layout.addWidget(year_header)
 
             grid = QGridLayout()
