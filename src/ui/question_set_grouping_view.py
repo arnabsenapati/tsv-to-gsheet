@@ -153,20 +153,36 @@ class QuestionSetGroupingView(QWidget):
             QListWidget {
                 border: none;
                 background-color: transparent;
+                outline: 0;
+                selection-background-color: transparent;
             }
             QListWidget::item {
                 padding: 6px 0px;
                 border: none;
+                outline: 0;
+                selection-background-color: transparent;
             }
             QListWidget::item:selected {
-                background-color: #e0f2fe;
-                border-radius: 4px;
+                background-color: transparent;
+                outline: none;
+                border: none;
+                selection-background-color: transparent;
             }
             QListWidget::item:hover:!selected {
-                background-color: #f0f9ff;
-                border-radius: 4px;
+                background-color: transparent;
+            }
+            QListWidget::item:selected:active {
+                background-color: transparent;
+                outline: none;
+                border: none;
+            }
+            QListWidget::item:selected:!active {
+                background-color: transparent;
+                outline: none;
+                border: none;
             }
         """)
+        self.groups_list.setFocusPolicy(Qt.NoFocus)
         self.groups_list.itemSelectionChanged.connect(self._on_group_selected)
         groups_container_layout.addWidget(self.groups_list)
         
@@ -286,35 +302,60 @@ class QuestionSetGroupingView(QWidget):
             
             # Create group item with badge
             item = QListWidgetItem()
-            item.setText(group_name)
+            # Leave text empty because custom widget renders the name
+            item.setText("")
             item.setData(Qt.UserRole, group_name)  # Store group name
             item.setData(Qt.UserRole + 1, count)  # Store count
             
+            self.groups_list.addItem(item)
             # Style with badge
             self._style_group_item(item, group_name, count, group_data.get("color", "#3b82f6"))
-            self.groups_list.addItem(item)
         
         # Add "Others" group
         others_group = self.group_service.get_others_group(self.all_question_sets)
         others_count = len(others_group["question_sets"])
         
         item = QListWidgetItem()
-        item.setText("Others")
+        item.setText("")
         item.setData(Qt.UserRole, "Others")
         item.setData(Qt.UserRole + 1, others_count)
-        self._style_group_item(item, "Others", others_count, "#94a3b8")
         self.groups_list.addItem(item)
+        self._style_group_item(item, "Others", others_count, "#94a3b8")
+
+        # Restore selection to previously selected group if available
+        if self.selected_group:
+            for idx in range(self.groups_list.count()):
+                item = self.groups_list.item(idx)
+                if item and item.data(Qt.UserRole) == self.selected_group:
+                    self.groups_list.setCurrentRow(idx)
+                    break
+
+        # Reapply selection highlight to match current selection
+        self._update_group_item_selection()
     
     def _style_group_item(self, item: QListWidgetItem, group_name: str, count: int, color: str):
         """Style a group item with name, badge count, and hover action buttons."""
         # Create widget for custom rendering
         widget = GroupItemWidget(group_name, count, color, self)
-        widget.rename_clicked.connect(lambda: self._on_rename_group(group_name))
+        widget.rename_clicked.connect(lambda name=group_name: self._on_rename_group(name))
         
         # Set widget for item with proper sizing
         item.setSizeHint(widget.sizeHint())
         self.groups_list.setItemWidget(item, widget)
-    
+
+        # Set initial selection state
+        is_selected = self.groups_list.currentItem() is item or group_name == self.selected_group
+        widget.set_selected(is_selected)
+
+    def _update_group_item_selection(self):
+        """Sync custom group widgets with QListWidget selection."""
+        current_item = self.groups_list.currentItem()
+        for index in range(self.groups_list.count()):
+            item = self.groups_list.item(index)
+            widget = self.groups_list.itemWidget(item)
+            if widget:
+                widget.set_selected(item is current_item)
+
     def _on_group_selected(self):
         """Handle group selection and update question sets list."""
         current_item = self.groups_list.currentItem()
@@ -327,6 +368,7 @@ class QuestionSetGroupingView(QWidget):
         
         # Update question sets list
         self._refresh_question_sets_list()
+        self._update_group_item_selection()
     
     def _refresh_question_sets_list(self):
         """Refresh the question sets list for selected group."""
@@ -493,6 +535,10 @@ class GroupItemWidget(QWidget):
         self.count = count
         self.color = color
         self.setMouseTracking(True)  # Enable mouse tracking for hover
+        self.setObjectName("groupItemWidget")
+        self.setAutoFillBackground(True)
+        self.selected = False
+        self.hovered = False
         
         # Main layout
         layout = QHBoxLayout(self)
@@ -517,15 +563,15 @@ class GroupItemWidget(QWidget):
         self.badge_label = QLabel(str(count))
         self.badge_label.setStyleSheet(f"""
             QLabel {{
-                background-color: {color};
-                color: white;
+                background-color: #ffffff;
+                color: {color};
+                border: 1px solid {color};
                 border-radius: 10px;
                 padding: 2px 6px;
                 font-size: 10px;
                 font-weight: bold;
                 min-width: 20px;
                 text-align: center;
-                background: transparent;
             }}
         """)
         self.badge_label.setFixedWidth(32)
@@ -556,19 +602,44 @@ class GroupItemWidget(QWidget):
         # Set minimum height
         self.setMinimumHeight(32)
         self.setMaximumHeight(32)  # Constrain height to prevent button escape
+        self._update_background()
     
     def sizeHint(self):
         """Return the preferred size of the widget."""
         return QSize(200, 32)
+
+    def set_selected(self, selected: bool):
+        """Update selection state and refresh background."""
+        self.selected = selected
+        self._update_background()
     
     def enterEvent(self, event):
         """Show action buttons on hover."""
         self.rename_btn.show()
+        self.hovered = True
+        self._update_background()
         self.update()
         super().enterEvent(event)
     
     def leaveEvent(self, event):
         """Hide action buttons when not hovering."""
         self.rename_btn.hide()
+        self.hovered = False
+        self._update_background()
         self.update()
         super().leaveEvent(event)
+
+    def _update_background(self):
+        """Apply hover/selection background without relying on QListWidget painting."""
+        if self.selected:
+            bg = "#e0f2fe"
+        elif self.hovered:
+            bg = "#f0f9ff"
+        else:
+            bg = "transparent"
+        self.setStyleSheet(f"""
+            QWidget#{self.objectName()} {{
+                background-color: {bg};
+                border-radius: 6px;
+            }}
+        """)
