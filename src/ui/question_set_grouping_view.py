@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QPushButton,
     QInputDialog,
+    QSizePolicy,
 )
 
 
@@ -509,7 +510,7 @@ class GroupItemWidget(QWidget):
                 background: transparent;
             }}
         """)
-        self.name_label.setSizePolicy(QWidget.Expanding, QWidget.Preferred)
+        self.name_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         layout.addWidget(self.name_label)
         
         # Count badge
