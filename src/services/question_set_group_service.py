@@ -86,18 +86,9 @@ class QuestionSetGroupService:
         try:
             data = json.loads(self.config_file.read_text(encoding="utf-8"))
             self.groups = data.get("groups", {})
-            
-            # Ensure all default groups exist
-            for i, group_name in enumerate(self.DEFAULT_GROUPS):
-                if group_name not in self.groups:
-                    self.groups[group_name] = {
-                        "display_name": group_name,
-                        "question_sets": [],
-                        "color": self.GROUP_COLORS[i % len(self.GROUP_COLORS)],
-                    }
-            
-            # Save if we added missing groups
-            if len(self.groups) > len(self._get_saved_groups_from_file()):
+            # If file exists but is empty or missing groups, initialize defaults once
+            if not self.groups:
+                self._initialize_default_groups()
                 self.save_groups()
         
         except json.JSONDecodeError:
