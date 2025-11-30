@@ -2148,18 +2148,35 @@ class TSVWatcherWindow(QMainWindow):
 
         for year in years:
             year_widget = QWidget()
-            year_layout = QVBoxLayout(year_widget)
+            year_layout = QHBoxLayout(year_widget)
             year_layout.setContentsMargins(0, 0, 0, 0)
-            year_layout.setSpacing(6)
-            year_header = QLabel(f"{year}")
-            year_header.setStyleSheet("""
+            year_layout.setSpacing(8)
+
+            # Year label vertically oriented on the left
+            year_label = QLabel(f"{year}")
+            year_label.setStyleSheet("""
                 font-weight: bold;
                 color: #0f172a;
                 background: #e2e8f0;
-                padding: 4px 8px;
+                padding: 8px 6px;
                 border-radius: 6px;
             """)
-            year_layout.addWidget(year_header)
+            year_label.setAlignment(Qt.AlignCenter)
+            year_label.setMinimumWidth(28)
+            year_label.setMaximumWidth(28)
+            year_label.setWordWrap(True)
+            year_layout.addWidget(year_label)
+
+            # Container for months + separator
+            months_container = QWidget()
+            months_layout = QVBoxLayout(months_container)
+            months_layout.setContentsMargins(0, 0, 0, 0)
+            months_layout.setSpacing(6)
+
+            sep = QFrame()
+            sep.setFrameShape(QFrame.HLine)
+            sep.setStyleSheet("color: #e5e7eb;")
+            months_layout.addWidget(sep)
 
             grid = QGridLayout()
             grid.setSpacing(8)
@@ -2228,7 +2245,8 @@ class TSVWatcherWindow(QMainWindow):
                 btn.clicked.connect(self._on_mag_heatmap_button_clicked)
                 grid.addWidget(btn, idx // 4, idx % 4)
 
-            year_layout.addLayout(grid)
+            months_layout.addLayout(grid)
+            year_layout.addWidget(months_container)
             self.mag_heatmap_layout.insertWidget(self.mag_heatmap_layout.count() - 1, year_widget)
 
         if hasattr(self, "mag_total_editions_label"):
