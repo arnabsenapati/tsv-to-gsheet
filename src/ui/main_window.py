@@ -2166,6 +2166,7 @@ class TSVWatcherWindow(QMainWindow):
             year_label.setMinimumWidth(28)
             year_label.setMaximumWidth(28)
             year_label.setWordWrap(True)
+            year_label.setStyleSheet(year_label.styleSheet() + "writing-mode: vertical-rl; transform: rotate(180deg);")
             year_layout.addWidget(year_label)
 
             # Container for months + separator
