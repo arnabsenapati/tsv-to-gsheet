@@ -147,7 +147,7 @@ class QuestionSetGroupingView(QWidget):
         right_layout.addWidget(right_title)
         
         # Question sets list widget with drag support
-        self.question_sets_list = QuestionSetListWidget()
+        self.question_sets_list = QuestionSetListWidget(self)
         self.question_sets_list.setStyleSheet("""
             QListWidget {
                 border: none;
@@ -164,7 +164,6 @@ class QuestionSetGroupingView(QWidget):
         """)
         self.question_sets_list.setAcceptDrops(True)
         self.question_sets_list.setDragDropMode(self.question_sets_list.DragDrop)
-        self.question_sets_list.dropEvent.connect(self._on_question_set_dropped)
         
         right_layout.addWidget(self.question_sets_list)
         
@@ -307,25 +306,9 @@ class QuestionSetGroupingView(QWidget):
             """)
             self.question_sets_list.addItem(item)
     
-    def _on_question_set_dropped(self, event):
+    def _on_question_set_dropped_internal(self, qs_name: str, from_group: str, event):
         """Handle drop event when dragging question set between groups."""
-        # Get source and destination info
-        mime_data = event.mimeData()
-        if not mime_data.hasFormat(self.MIME_TYPE):
-            event.ignore()
-            return
-        
-        # Parse mime data
-        try:
-            data = mime_data.text()
-            source_info = data.split("|")
-            qs_name = source_info[0]
-            from_group = source_info[1] if len(source_info) > 1 else None
-        except:
-            event.ignore()
-            return
-        
-        # Only allow drop to "Others" is handled specially (remove from group)
+        # Only allow drop to regular groups (not "Others")
         if self.selected_group and self.group_service:
             if self.selected_group != "Others":
                 # Move from source group to this group
@@ -349,6 +332,7 @@ class QuestionSetListWidget(QListWidget):
     def __init__(self, parent=None):
         """Initialize the question set list widget."""
         super().__init__(parent)
+        self.parent_view = parent
         self.setDragDropMode(self.DragDrop)
     
     def startDrag(self, supported_actions):
@@ -363,13 +347,9 @@ class QuestionSetListWidget(QListWidget):
         # Create mime data
         mime_data = QMimeData()
         # Store format: "question_set_name|from_group"
-        parent_view = self.parent()
-        while parent_view:
-            if isinstance(parent_view, QuestionSetGroupingView):
-                from_group = parent_view.selected_group or ""
-                mime_data.setText(f"{qs_name}|{from_group}")
-                break
-            parent_view = parent_view.parent()
+        if self.parent_view:
+            from_group = self.parent_view.selected_group or ""
+            mime_data.setText(f"{qs_name}|{from_group}")
         
         mime_data.setData(self.MIME_TYPE, b"drag")
         
@@ -379,3 +359,39 @@ class QuestionSetListWidget(QListWidget):
         
         # Set visual feedback (use default which is text)
         drag.exec(supported_actions)
+    
+    def dragEnterEvent(self, event):
+        """Accept drag events with question set data."""
+        if event.mimeData().hasFormat(self.MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+    
+    def dragMoveEvent(self, event):
+        """Allow dragging over the list."""
+        if event.mimeData().hasFormat(self.MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+    
+    def dropEvent(self, event):
+        """Handle drop event when dragging question set."""
+        if not event.mimeData().hasFormat(self.MIME_TYPE):
+            event.ignore()
+            return
+        
+        # Parse mime data
+        try:
+            data = event.mimeData().text()
+            source_info = data.split("|")
+            qs_name = source_info[0]
+            from_group = source_info[1] if len(source_info) > 1 else None
+        except:
+            event.ignore()
+            return
+        
+        # Call parent view's drop handler
+        if self.parent_view:
+            self.parent_view._on_question_set_dropped_internal(qs_name, from_group, event)
+        else:
+            event.ignore()

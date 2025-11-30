@@ -5,6 +5,7 @@ Contains:
 - excel_service: Excel workbook operations (read TSV, append rows, detect duplicates)
 - tag_service: Tag management (load/save tags, color assignment, filtering)
 - data_service: Data management (chapter groupings, question organization)
+- question_set_group_service: Question set grouping management
 """
 
 from .excel_service import (
@@ -17,6 +18,7 @@ from .excel_service import (
 )
 from .tag_service import TagService, get_tag_service
 from .data_service import DataService, get_data_service, set_data_service
+from .question_set_group_service import QuestionSetGroupService
 
 __all__ = [
     'read_tsv_rows',
