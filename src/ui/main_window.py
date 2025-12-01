@@ -137,6 +137,7 @@ class TSVWatcherWindow(QMainWindow):
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
+        self.question_set_groups_dirty: bool = False  # Track if groupings changed
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -267,6 +268,11 @@ class TSVWatcherWindow(QMainWindow):
     def _on_navigation_changed(self, index: int):
         """Handle navigation sidebar item selection."""
         self.content_stack.setCurrentIndex(index)
+        
+        # If question set groupings were updated, refresh the question list grouping
+        if index == 2 and self.question_set_groups_dirty:
+            self._apply_question_search(preserve_scroll=True)
+            self.question_set_groups_dirty = False
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -958,8 +964,11 @@ class TSVWatcherWindow(QMainWindow):
     
     def _on_question_set_moved(self, qs_name: str, from_group: str, to_group: str):
         """Handle when a question set is moved between groups."""
-        # The view already updates internally, but we can add additional logic here
-        pass
+        # Mark groupings dirty and refresh immediately if on the Question List tab
+        self.question_set_groups_dirty = True
+        if self.content_stack.currentIndex() == 2:
+            self._apply_question_search(preserve_scroll=True)
+            self.question_set_groups_dirty = False
 
     def _create_jee_page(self):
         """Create JEE Main Papers page (index 7)."""
