@@ -140,6 +140,8 @@ class TSVWatcherWindow(QMainWindow):
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
+        self.comparison_target: str | None = None  # List name selected for comparison
+        self.comparison_common_ids: set[str] = set()
         
         # JEE Main Papers analysis
         self.jee_papers_df: pd.DataFrame | None = None
@@ -689,6 +691,67 @@ class TSVWatcherWindow(QMainWindow):
         )
         self.list_filters_label.setVisible(False)
         list_questions_layout.addWidget(self.list_filters_label)
+
+        # Comparison controls to highlight overlaps with another list
+        compare_container = QWidget()
+        compare_container.setStyleSheet("""
+            QWidget {
+                background-color: #ecfeff;
+                border: 1px dashed #06b6d4;
+                border-radius: 8px;
+                padding: 8px;
+            }
+            QLabel {
+                color: #0f172a;
+                background: transparent;
+            }
+        """)
+        compare_layout = QHBoxLayout(compare_container)
+        compare_layout.setContentsMargins(8, 4, 8, 4)
+        compare_layout.setSpacing(8)
+        
+        compare_label = QLabel("Compare with:")
+        compare_label.setStyleSheet("font-weight: 600;")
+        compare_layout.addWidget(compare_label)
+        
+        self.compare_list_combo = QComboBox()
+        self.compare_list_combo.setMinimumHeight(28)
+        self.compare_list_combo.setMaximumHeight(28)
+        self.compare_list_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #ffffff;
+                border: 1px solid #0ea5e9;
+                border-radius: 4px;
+                padding: 4px 8px;
+                color: #0f172a;
+                font-weight: 600;
+            }
+            QComboBox:hover {
+                background-color: #e0f2fe;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #ffffff;
+                color: #0f172a;
+                selection-background-color: #bae6fd;
+                selection-color: #0f172a;
+            }
+        """)
+        self.compare_list_combo.currentIndexChanged.connect(self.on_compare_list_changed)
+        compare_layout.addWidget(self.compare_list_combo, 1)
+        
+        self.compare_status_label = QLabel("Select another list to highlight common questions.")
+        self.compare_status_label.setWordWrap(True)
+        self.compare_status_label.setStyleSheet(
+            "color: #0f172a; font-size: 12px; padding: 2px 6px; background-color: #cffafe; border-radius: 4px;"
+        )
+        self.compare_status_label.setVisible(False)
+        compare_layout.addWidget(self.compare_status_label, 1)
+        
+        list_questions_layout.addWidget(compare_container)
         
         # Search and action controls in single row (similar to Question List tab)
         search_layout = QHBoxLayout()
@@ -3099,6 +3162,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # Update drag-drop panel dropdown with loaded lists
         self.drag_drop_panel.update_list_selector(self.question_lists)
+        self._refresh_compare_options()
     
     def _save_question_list(self, list_name: str, save_filters: bool = False) -> None:
         """Save a question list to file.
@@ -3354,6 +3418,10 @@ class TSVWatcherWindow(QMainWindow):
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
+            
+            if self._is_common_question(question):
+                self._mark_card_as_common(card_wrapper)
+            
             row = idx // 2
             col = idx % 2
             self._list_card_grid_layout.addWidget(card_wrapper, row, col)
@@ -3404,6 +3472,122 @@ class TSVWatcherWindow(QMainWindow):
         if filtered:
             self._populate_list_card_view(filtered)
     
+    def _refresh_compare_options(self) -> None:
+        """Populate comparison dropdown with other available lists."""
+        if not hasattr(self, "compare_list_combo"):
+            return
+        
+        current_list = self.current_list_name
+        previous_target = self.comparison_target if self.comparison_target != current_list else None
+        
+        self.compare_list_combo.blockSignals(True)
+        self.compare_list_combo.clear()
+        self.compare_list_combo.addItem("No comparison", None)
+        
+        for name in sorted(self.question_lists.keys()):
+            if name == current_list:
+                continue
+            self.compare_list_combo.addItem(name, name)
+        
+        # Restore previous target if still valid
+        target_index = 0
+        if previous_target:
+            for idx in range(self.compare_list_combo.count()):
+                if self.compare_list_combo.itemData(idx) == previous_target:
+                    target_index = idx
+                    break
+        
+        self.compare_list_combo.setCurrentIndex(target_index)
+        self.compare_list_combo.blockSignals(False)
+        
+        self.comparison_target = self.compare_list_combo.currentData()
+        self.comparison_common_ids.clear()
+        self.compare_status_label.setVisible(False)
+    
+    def on_compare_list_changed(self, index: int) -> None:
+        """Handle selection of comparison list."""
+        if not self.current_list_name:
+            self.compare_status_label.setText("Select a list on the left to compare.")
+            self.compare_status_label.setVisible(True)
+            return
+        
+        self.comparison_target = self.compare_list_combo.itemData(index)
+        self._update_comparison_results()
+    
+    def _update_comparison_results(self) -> None:
+        """Compute and highlight questions common with the comparison list."""
+        self.comparison_common_ids.clear()
+        
+        if not self.current_list_name or not self.comparison_target:
+            self.compare_status_label.setVisible(False)
+            if hasattr(self, "_list_card_grid_layout"):
+                self._apply_list_search()
+            return
+        
+        base_questions = self.question_lists.get(self.current_list_name, [])
+        target_questions = self.question_lists.get(self.comparison_target, [])
+        
+        target_ids = {self._get_question_identity(q) for q in target_questions}
+        self.comparison_common_ids = {
+            self._get_question_identity(q) for q in base_questions
+            if self._get_question_identity(q) in target_ids
+        }
+        
+        self.compare_status_label.setText(
+            f"Common with '{self.comparison_target}': {len(self.comparison_common_ids)} highlighted."
+        )
+        self.compare_status_label.setVisible(True)
+        
+        # Repaint cards to show highlights
+        self._apply_list_search()
+    
+    def _get_question_identity(self, question: dict) -> str:
+        """Return a stable identifier for a question for comparisons."""
+        row_number = question.get("row_number")
+        if row_number is not None:
+            return f"row-{row_number}"
+        
+        qno = question.get("qno", question.get("question_no", ""))
+        question_set = self._normalize_label(question.get("question_set_name", ""))
+        magazine = self._normalize_label(question.get("magazine", ""))
+        return f"{qno}|{question_set}|{magazine}"
+    
+    def _is_common_question(self, question: dict) -> bool:
+        """Check if question is common with comparison target."""
+        if not self.comparison_common_ids:
+            return False
+        return self._get_question_identity(question) in self.comparison_common_ids
+    
+    def _mark_card_as_common(self, card_wrapper: QuestionCardWithRemoveButton) -> None:
+        """Visually distinguish a card that exists in both lists."""
+        badge_text = f"Common with {self.comparison_target}" if self.comparison_target else "Common question"
+        badge = QLabel(badge_text)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet(
+            "background-color: #06b6d4; color: white; border-radius: 10px; padding: 4px 10px; font-weight: 600;"
+        )
+        badge.setMaximumHeight(26)
+        
+        # Insert badge above the card
+        layout = card_wrapper.layout()
+        layout.insertWidget(0, badge)
+        
+        # Apply a teal highlight style to the underlying card
+        card_wrapper.card.setStyleSheet("""
+            QLabel {
+                background-color: #ecfeff;
+                border: 2px dashed #0ea5e9;
+                border-radius: 10px;
+                padding: 12px;
+                margin: 4px;
+            }
+            QLabel:hover {
+                background-color: #cffafe;
+                border: 2px solid #0284c7;
+            }
+        """)
+        card_wrapper.card.setToolTip(badge_text)
+    
     def clear_list_search(self) -> None:
         """Clear search in custom list."""
         self.list_question_set_search.clear()
@@ -3428,7 +3612,9 @@ class TSVWatcherWindow(QMainWindow):
         
         list_name = current_item.data(Qt.UserRole)
         self.current_list_name = list_name
+        self._refresh_compare_options()
         self._populate_list_question_table(list_name)
+        self._update_comparison_results()
         
         # Display existing questions in drag-drop panel
         if list_name in self.question_lists:
