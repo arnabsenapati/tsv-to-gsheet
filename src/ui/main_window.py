@@ -3277,8 +3277,15 @@ class TSVWatcherWindow(QMainWindow):
         del self.question_lists[list_name]
         self._load_saved_question_lists()
         self.drag_drop_panel.update_list_selector(self.question_lists)
-        self.list_question_table.setRowCount(0)
+        self.current_list_name = None
         self.list_name_label.setText("Select a list to view questions")
+        self.list_filters_label.setVisible(False)
+        if hasattr(self, "_list_card_grid_layout"):
+            while self._list_card_grid_layout.count():
+                item = self._list_card_grid_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+        self._refresh_compare_options()
         self.log(f"Deleted question list: {list_name}")
     
     def add_selected_to_list(self) -> None:
@@ -3446,7 +3453,11 @@ class TSVWatcherWindow(QMainWindow):
     
     def _apply_list_search(self) -> None:
         """Apply search/filter to custom list questions."""
-        if not self.current_list_name or not hasattr(self, '_list_card_grid_layout'):
+        if (
+            not self.current_list_name
+            or self.current_list_name not in self.question_lists
+            or not hasattr(self, '_list_card_grid_layout')
+        ):
             return
         
         questions = self.question_lists[self.current_list_name]
@@ -3518,7 +3529,11 @@ class TSVWatcherWindow(QMainWindow):
         """Compute and highlight questions common with the comparison list."""
         self.comparison_common_ids.clear()
         
-        if not self.current_list_name or not self.comparison_target:
+        if (
+            not self.current_list_name
+            or self.current_list_name not in self.question_lists
+            or not self.comparison_target
+        ):
             self.compare_status_label.setVisible(False)
             if hasattr(self, "_list_card_grid_layout"):
                 self._apply_list_search()
@@ -3602,12 +3617,18 @@ class TSVWatcherWindow(QMainWindow):
         """Handle selection of a saved question list."""
         current_item = self.saved_lists_widget.currentItem()
         if not current_item:
-            self.list_question_table.setRowCount(0)
             self.list_name_label.setText("Select a list to view questions")
             self.current_list_name = None
+            self.list_filters_label.setVisible(False)
+            if hasattr(self, "_list_card_grid_layout"):
+                while self._list_card_grid_layout.count():
+                    item = self._list_card_grid_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
             self.drag_drop_panel.display_existing_questions([])
             # Hide panel if no list selected
             self.drag_drop_panel.setVisible(False)
+            self._refresh_compare_options()
             return
         
         list_name = current_item.data(Qt.UserRole)
