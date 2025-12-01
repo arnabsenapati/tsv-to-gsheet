@@ -138,6 +138,7 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         self.question_set_groups_dirty: bool = False  # Track if groupings changed
+        self.pending_auto_watch: bool = False  # Defer watching until workbook loads on startup
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -1276,7 +1277,10 @@ class TSVWatcherWindow(QMainWindow):
         input_folder = data.get("input_folder", "")
         if input_folder:
             self.input_edit.setText(input_folder)
-            self._auto_start_watching()  # Auto-start watching if both paths are valid
+        
+        # If both paths are valid on startup, load workbook first, then start watching after load completes
+        if workbook_path and input_folder and Path(workbook_path).is_file() and Path(input_folder).is_dir():
+            self.pending_auto_watch = True
         jee_papers_file = data.get("jee_papers_file", "")
         if jee_papers_file and Path(jee_papers_file).exists():
             self.jee_papers_file = Path(jee_papers_file)
@@ -4040,11 +4044,11 @@ class TSVWatcherWindow(QMainWindow):
                     f"Magazines loaded: {len(details)}",
                     f"Tracked editions: {total_editions}",
                 )
-                self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
-                self._populate_magazine_heatmap(details, self.mag_page_ranges)
-                self._populate_question_sets([])
-                missing_qset_warning = next(
-                    (msg for msg in warnings if "question set" in msg.lower()), None
+            self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
+            self._populate_magazine_heatmap(details, self.mag_page_ranges)
+            self._populate_question_sets([])
+            missing_qset_warning = next(
+                (msg for msg in warnings if "question set" in msg.lower()), None
                 )
                 if missing_qset_warning:
                     label_message = missing_qset_warning
@@ -4065,10 +4069,15 @@ class TSVWatcherWindow(QMainWindow):
                 if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'workbook_df'):
                     # Extract unique question sets from workbook
                     question_sets = self._extract_unique_question_sets(self.workbook_df)
-                    self.question_set_grouping_view.update_from_workbook(question_sets)
-                
-                for warning in warnings:
-                    self.log(warning)
+                self.question_set_grouping_view.update_from_workbook(question_sets)
+            
+            for warning in warnings:
+                self.log(warning)
+            
+            # If startup requested auto-watch, start it only after workbook loads successfully
+            if self.pending_auto_watch:
+                self._auto_start_watching()
+                self.pending_auto_watch = False
             elif event_type == "metrics_error":
                 _, req_id, error_message = event
                 if req_id != self.metrics_request_id:
