@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QSpinBox,
     QSplitter,
+    QStackedLayout,
     QStackedWidget,
     QTabWidget,
     QTableWidget,
@@ -139,6 +140,8 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         self.question_set_groups_dirty: bool = False  # Track if groupings changed
         self.pending_auto_watch: bool = False  # Defer watching until workbook loads on startup
+        self._question_tab_controls: list[QWidget] = []  # widgets to disable during question reload
+        self.current_magazine_display_name: str = ""  # Human-friendly magazine name for UI
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -270,9 +273,9 @@ class TSVWatcherWindow(QMainWindow):
         """Handle navigation sidebar item selection."""
         self.content_stack.setCurrentIndex(index)
         
-        # If question set groupings were updated, refresh the question list grouping
-        if index == 2 and self.question_set_groups_dirty:
-            self._apply_question_search(preserve_scroll=True)
+        # If returning to Question List and a rebuild is needed, show loading overlay and refresh
+        if index == 2 and (self.question_set_groups_dirty or not self.current_questions):
+            self._refresh_question_tab_with_loading()
             self.question_set_groups_dirty = False
 
     def _create_dashboard_page(self):
@@ -389,7 +392,9 @@ class TSVWatcherWindow(QMainWindow):
         chapter_layout.addWidget(self.chapter_view)
         analysis_split.addWidget(chapter_card)
 
+        # Wrap the question card in a stacked layout to show a loading overlay when rebuilding
         question_card = self._create_card()
+        self.question_card = question_card
         question_layout = QVBoxLayout(question_card)
         
         # Search and action controls in single row
@@ -613,8 +618,53 @@ class TSVWatcherWindow(QMainWindow):
         self.question_text_view.setReadOnly(True)
         self.question_text_view.setAcceptRichText(True)
         
-        analysis_split.addWidget(question_card)
+        # Keep references to disable during loading
+        self._question_tab_controls = [
+            self.chapter_view,
+            self.question_set_search,
+            self.tag_filter_display,
+            self.tag_filter_btn,
+            self.magazine_search,
+            clear_search_btn,
+            add_to_list_btn,
+            create_random_list_btn,
+            self.copy_mode_combo,
+            self.question_card_view,
+            self.drag_drop_panel,
+        ]
         
+        # Build loading overlay page for the question tab
+        self.question_loading_overlay = QWidget()
+        self.question_loading_overlay.setStyleSheet("background-color: rgba(15, 23, 42, 0.35);")
+        overlay_layout = QVBoxLayout(self.question_loading_overlay)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_layout.setSpacing(8)
+        overlay_layout.addStretch()
+        overlay_label = QLabel("Loading questions...")
+        overlay_label.setAlignment(Qt.AlignCenter)
+        overlay_label.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-size: 16px;
+                font-weight: 700;
+                padding: 12px 24px;
+                background-color: rgba(37, 99, 235, 0.9);
+                border-radius: 10px;
+            }
+        """)
+        overlay_layout.addWidget(overlay_label)
+        overlay_layout.addStretch()
+        
+        # Stacked layout to swap between content and overlay
+        question_card_container = QWidget()
+        self.question_card_stack = QStackedLayout(question_card_container)
+        self.question_card_stack.setStackingMode(QStackedLayout.StackAll)
+        self.question_card_stack.addWidget(question_card)
+        self.question_card_stack.addWidget(self.question_loading_overlay)
+        self.question_card_stack.setCurrentWidget(question_card)
+
+        analysis_split.addWidget(question_card_container)
+
         self.content_stack.addWidget(questions_page)
 
     def _create_grouping_page(self):
@@ -968,7 +1018,7 @@ class TSVWatcherWindow(QMainWindow):
         # Mark groupings dirty and refresh immediately if on the Question List tab
         self.question_set_groups_dirty = True
         if self.content_stack.currentIndex() == 2:
-            self._apply_question_search(preserve_scroll=True)
+            self._refresh_question_tab_with_loading()
             self.question_set_groups_dirty = False
 
     def _create_jee_page(self):
@@ -1479,6 +1529,10 @@ class TSVWatcherWindow(QMainWindow):
                     self.canonical_chapters = self._load_canonical_chapters(grouping_file)
                     self.chapter_groups = self._load_chapter_grouping(grouping_file)
                 
+                self.current_magazine_display_name = self._resolve_magazine_display_name(
+                    magazine_details, detected_magazine
+                )
+                
                 # Now analyze questions with proper grouping loaded
                 chapter_data, qa_warnings, question_col, raw_chapter_inputs = self._collect_question_analysis_data(df)
                 warnings.extend(qa_warnings)
@@ -1519,6 +1573,7 @@ class TSVWatcherWindow(QMainWindow):
         self.all_questions.clear()
         self.question_set_search_term = ""
         self.magazine_search_term = ""
+        self.current_magazine_display_name = ""
         
         # Clear UI elements
         self._populate_magazine_heatmap([], {})
@@ -1545,6 +1600,16 @@ class TSVWatcherWindow(QMainWindow):
             if magazine_key in normalized:
                 return magazine_key
         return ""
+
+    def _resolve_magazine_display_name(self, details: list[dict], normalized_key: str) -> str:
+        """Return human-friendly magazine display name matching the normalized key."""
+        if not normalized_key:
+            return ""
+        for entry in details:
+            display = entry.get("display_name", "")
+            if self._normalize_label(display) == normalized_key:
+                return display
+        return normalized_key.title()
     
     def _extract_unique_question_sets(self, df: pd.DataFrame) -> list[str]:
         """
@@ -2497,6 +2562,30 @@ class TSVWatcherWindow(QMainWindow):
             return
         self.all_questions = questions or []
         self._apply_question_search()
+
+    def _refresh_question_tab_with_loading(self) -> None:
+        """Show a loading overlay while rebuilding the question list tab."""
+        self._set_question_tab_loading(True)
+        QTimer.singleShot(0, self._finish_question_tab_refresh)
+
+    def _finish_question_tab_refresh(self) -> None:
+        try:
+            self._apply_question_search(preserve_scroll=True)
+        finally:
+            self._set_question_tab_loading(False)
+
+    def _set_question_tab_loading(self, is_loading: bool) -> None:
+        """Toggle loading overlay and disable question tab controls."""
+        if not hasattr(self, "question_card_stack"):
+            return
+        if is_loading:
+            self.question_card_stack.setCurrentWidget(self.question_loading_overlay)
+        else:
+            self.question_card_stack.setCurrentWidget(self.question_card)
+        
+        for widget in getattr(self, "_question_tab_controls", []):
+            if widget:
+                widget.setEnabled(not is_loading)
 
     def _apply_question_search(self, preserve_scroll: bool = False) -> None:
         """Apply normalized search terms and update the question card view."""
@@ -4040,15 +4129,19 @@ class TSVWatcherWindow(QMainWindow):
                 # Show success status after workbook loads
                 self.set_status(f'Loaded workbook "{self.current_workbook_path.name}"', "success")
                 total_editions = sum(len(entry["editions"]) for entry in details)
+                mag_display = self.current_magazine_display_name or (
+                    self.current_magazine_name.title() if self.current_magazine_name else "Unknown"
+                )
                 self._set_magazine_summary(
-                    f"Magazines loaded: {len(details)}",
+                    f"Magazine: {mag_display}",
                     f"Tracked editions: {total_editions}",
                 )
-            self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
-            self._populate_magazine_heatmap(details, self.mag_page_ranges)
-            self._populate_question_sets([])
-            missing_qset_warning = next(
-                (msg for msg in warnings if "question set" in msg.lower()), None
+                
+                self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
+                self._populate_magazine_heatmap(details, self.mag_page_ranges)
+                self._populate_question_sets([])
+                missing_qset_warning = next(
+                    (msg for msg in warnings if "question set" in msg.lower()), None
                 )
                 if missing_qset_warning:
                     label_message = missing_qset_warning
@@ -4063,21 +4156,27 @@ class TSVWatcherWindow(QMainWindow):
                 
                 # Update dashboard with statistics
                 if hasattr(self, 'dashboard_view') and hasattr(self, 'workbook_df'):
-                    self.dashboard_view.update_dashboard_data(self.workbook_df, self.chapter_groups)
+                    self.dashboard_view.update_dashboard_data(
+                        self.workbook_df,
+                        self.chapter_groups,
+                        magazine_details=details,
+                        mag_display_name=self.current_magazine_display_name,
+                        mag_page_ranges=self.mag_page_ranges,
+                    )
                 
                 # Update question set grouping view with question sets from workbook
                 if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'workbook_df'):
                     # Extract unique question sets from workbook
                     question_sets = self._extract_unique_question_sets(self.workbook_df)
-                self.question_set_grouping_view.update_from_workbook(question_sets)
-            
-            for warning in warnings:
-                self.log(warning)
-            
-            # If startup requested auto-watch, start it only after workbook loads successfully
-            if self.pending_auto_watch:
-                self._auto_start_watching()
-                self.pending_auto_watch = False
+                    self.question_set_grouping_view.update_from_workbook(question_sets)
+                
+                for warning in warnings:
+                    self.log(warning)
+                
+                # If startup requested auto-watch, start it only after workbook loads successfully
+                if self.pending_auto_watch:
+                    self._auto_start_watching()
+                    self.pending_auto_watch = False
             elif event_type == "metrics_error":
                 _, req_id, error_message = event
                 if req_id != self.metrics_request_id:

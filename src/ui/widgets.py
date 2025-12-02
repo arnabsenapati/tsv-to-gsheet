@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QApplication,
 )
+from utils.helpers import normalize_magazine_edition
 
 
 class TagBadge(QLabel):
@@ -1691,13 +1692,23 @@ class DashboardView(QWidget):
     
 
     
-    def update_dashboard_data(self, df, chapter_groups: dict[str, list[str]]) -> None:
+    def update_dashboard_data(
+        self,
+        df,
+        chapter_groups: dict[str, list[str]],
+        magazine_details: list[dict] | None = None,
+        mag_display_name: str = "",
+        mag_page_ranges: dict[str, tuple[str, str]] | None = None,
+    ) -> None:
         """
         Update dashboard with data from workbook DataFrame.
         
         Args:
             df: Pandas DataFrame with workbook data
             chapter_groups: Dict mapping group names to chapter lists
+            magazine_details: Optional list of magazine details from analysis
+            mag_display_name: Display name of the currently detected magazine
+            mag_page_ranges: Optional mapping of normalized edition -> (min_page, max_page)
         """
         if df is None or df.empty:
             return
@@ -1706,74 +1717,119 @@ class DashboardView(QWidget):
         total_questions = len(df)
         self.total_q_card.value_label.setText(str(total_questions))
         
-        # Get unique chapters - look for 'Chapter' or fallback to other chapter-like columns
-        chapters_in_data = set()
-        chapter_col = None
-        if 'Chapter' in df.columns:
-            chapter_col = 'Chapter'
-        elif 'chapter' in df.columns:
-            chapter_col = 'chapter'
-        elif 'High level chapter from IIT JEE' in df.columns:  # Fallback for JEE papers
-            chapter_col = 'High level chapter from IIT JEE'
-        elif 'Subject' in df.columns:  # Fallback for different column naming
-            chapter_col = 'Subject'
-        
-        if chapter_col:
-            chapters_in_data = set(df[chapter_col].dropna().unique())
-        
-        total_chapters = len(chapters_in_data)
+        # Get unique chapters - prefer grouping config, fallback to dataframe
+        if chapter_groups:
+            chapters_in_data = {ch for group in chapter_groups.values() for ch in group}
+            total_chapters = len(chapters_in_data)
+        else:
+            chapters_in_data = set()
+            chapter_col = None
+            if 'Chapter' in df.columns:
+                chapter_col = 'Chapter'
+            elif 'chapter' in df.columns:
+                chapter_col = 'chapter'
+            elif 'High level chapter from IIT JEE' in df.columns:  # Fallback for JEE papers
+                chapter_col = 'High level chapter from IIT JEE'
+            elif 'Subject' in df.columns:  # Fallback for different column naming
+                chapter_col = 'Subject'
+            
+            if chapter_col:
+                chapters_in_data = set(df[chapter_col].dropna().unique())
+            total_chapters = len(chapters_in_data)
         self.total_chapters_card.value_label.setText(str(total_chapters))
         
-        # Get unique magazines - look for 'Magazine' or fallback to other columns
-        magazines = set()
+        # Get unique magazines count from analysis if available
+        # Detect magazine column once for reuse
         magazine_col = None
-        if 'Magazine' in df.columns:
-            magazine_col = 'Magazine'
-        elif 'magazine' in df.columns:
-            magazine_col = 'magazine'
-        elif 'Magazine edition' in df.columns:  # Fallback for JEE papers
-            magazine_col = 'Magazine edition'
-        elif 'JEE Main Session' in df.columns:  # Fallback for JEE papers
-            magazine_col = 'JEE Main Session'
+        for col in ['Magazine', 'magazine', 'Magazine edition', 'JEE Main Session']:
+            if col in df.columns:
+                magazine_col = col
+                break
         
-        if magazine_col:
-            magazines = set(df[magazine_col].dropna().unique())
-        
-        unique_magazines = len(magazines)
-        self.unique_mags_card.value_label.setText(str(unique_magazines))
+        if magazine_details is not None:
+            self.unique_mags_card.value_label.setText(str(len(magazine_details)))
+        else:
+            # Fallback: count unique magazine column values
+            magazines = set(df[magazine_col].dropna().unique()) if magazine_col else set()
+            self.unique_mags_card.value_label.setText(str(len(magazines)))
         
         # === Update Latest Magazine Edition ===
-        if not df.empty and magazine_col:
-            last_row = df.iloc[-1]
-            latest_magazine = last_row.get(magazine_col, 'Unknown') if magazine_col else 'Unknown'
-            
-            # Get page range for latest magazine
-            mag_df = df[df[magazine_col] == latest_magazine] if magazine_col and magazine_col in df.columns else df
-            pages = set()
-            
-            # Look for page column with various names
-            page_col = None
-            for col in ['Page', 'page', 'Page Number', 'page_number', 'PageNo']:
-                if col in mag_df.columns:
-                    page_col = col
+        latest_display = "-"
+        if magazine_details:
+            # Prefer the current detected magazine, otherwise first
+            normalized_current = self._normalize_label(mag_display_name) if mag_display_name else ""
+            chosen_entry = None
+            for entry in magazine_details:
+                if normalized_current and self._normalize_label(entry.get("display_name", "")) == normalized_current:
+                    chosen_entry = entry
                     break
+            if chosen_entry is None:
+                chosen_entry = magazine_details[0]
             
-            if page_col:
-                pages = set(mag_df[page_col].dropna())
-            
-            # Format page range
-            if pages:
-                page_list = sorted([int(p) if isinstance(p, (int, float)) else 0 for p in pages if p])
-                if page_list:
-                    page_range = f"{min(page_list)}-{max(page_list)}"
-                else:
-                    page_range = "Unknown"
-            else:
-                page_range = "N/A"
-            
-            # Update last magazine card
-            last_mag_text = f"{latest_magazine}\n(Pages: {page_range})"
-            self.last_mag_card.value_label.setText(last_mag_text)
+            editions = chosen_entry.get("editions", [])
+            if editions:
+                # Editions are already sorted during collection; take the last as most recent
+                latest = editions[-1]
+                display = latest.get("display", "Unknown")
+                # Build full normalized key (magazine + edition) to align with page range map
+                full_norm = normalize_magazine_edition(f"{chosen_entry.get('display_name', '')} | {display}")
+                page_min, page_max = ("", "")
+                if mag_page_ranges:
+                    page_min, page_max = mag_page_ranges.get(full_norm, ("", ""))
+                if (not page_min or not page_max) and df is not None:
+                    page_min, page_max = self._compute_page_range_from_df(df, full_norm)
+                page_text = f"(Pages: {page_min}-{page_max})" if page_min and page_max else "(Pages: N/A)"
+                latest_display = f"{chosen_entry.get('display_name', 'Unknown')} | {display}\n{page_text}"
+        elif magazine_col:
+            # Use the last filled row from the workbook for last magazine inserted
+            mag_series = df[magazine_col].dropna()
+            if not mag_series.empty:
+                last_mag = str(mag_series.iloc[-1]).strip()
+                full_norm = normalize_magazine_edition(last_mag)
+                page_min, page_max = self._compute_page_range_from_df(df, full_norm)
+                page_text = f"(Pages: {page_min}-{page_max})" if page_min and page_max else "(Pages: N/A)"
+                latest_display = f"{last_mag}\n{page_text}"
+        self.last_mag_card.value_label.setText(latest_display)
+
+    def _normalize_label(self, label: str) -> str:
+        return "".join(c.lower() for c in label if c.isalnum() or c.isspace()).strip()
+
+    def _compute_page_range_from_df(self, df, normalized_magazine: str) -> tuple[str, str]:
+        """Compute page range for a normalized magazine edition from the dataframe."""
+        if df is None or df.empty or not normalized_magazine:
+            return ("", "")
+        
+        magazine_col = None
+        for col in ['Magazine', 'magazine', 'Magazine edition', 'JEE Main Session']:
+            if col in df.columns:
+                magazine_col = col
+                break
+        if magazine_col is None:
+            return ("", "")
+        
+        page_col = None
+        for col in ['Page', 'page', 'Page Number', 'page_number', 'PageNo']:
+            if col in df.columns:
+                page_col = col
+                break
+        if page_col is None:
+            return ("", "")
+        
+        pages = []
+        for mag_val, page_val in zip(df[magazine_col], df[page_col]):
+            if mag_val is None or page_val is None:
+                continue
+            normalized = normalize_magazine_edition(str(mag_val))
+            if normalized != normalized_magazine:
+                continue
+            try:
+                page_num = int(float(str(page_val).strip()))
+                pages.append(page_num)
+            except ValueError:
+                continue
+        if not pages:
+            return ("", "")
+        return (str(min(pages)), str(max(pages)))
             
 
 
