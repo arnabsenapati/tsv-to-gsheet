@@ -927,6 +927,31 @@ class TSVWatcherWindow(QMainWindow):
         self.list_copy_mode_combo.currentTextChanged.connect(self._on_list_copy_mode_changed)
         action_layout.addWidget(self.list_copy_mode_combo)
         
+        export_docx_btn = QPushButton("Export DOCX")
+        export_docx_btn.setToolTip("Create a Word file with placeholders for each question in this list")
+        export_docx_btn.setMinimumHeight(28)
+        export_docx_btn.setMaximumHeight(28)
+        export_docx_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1d4ed8;
+                color: #ffffff;
+                border: 1px solid #1e3a8a;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #1e40af;
+            }
+            QPushButton:disabled {
+                background-color: #cbd5e1;
+                color: #64748b;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+        export_docx_btn.clicked.connect(self.export_current_list_to_docx)
+        action_layout.addWidget(export_docx_btn)
+        
         action_layout.addStretch()
         search_layout.addWidget(action_container)
         
@@ -1517,6 +1542,13 @@ class TSVWatcherWindow(QMainWindow):
                 
                 # Cache the DataFrame for reuse throughout the application
                 self.workbook_df = df
+
+                non_empty_df = df.dropna(how="all")
+                if not non_empty_df.empty:
+                    last_row_dict = non_empty_df.iloc[-1].to_dict()
+                    self.event_queue.put(("log", f"Debug last non-empty row: {last_row_dict}"))
+                else:
+                    self.event_queue.put(("log", "Debug: workbook contained no non-empty rows"))
                 
                 row_count = self._compute_row_count_from_df(df)
                 magazine_details, warnings = self._collect_magazine_details(df)
@@ -3798,6 +3830,98 @@ class TSVWatcherWindow(QMainWindow):
     def _on_list_copy_mode_changed(self, mode: str) -> None:
         """Handle copy mode selection change in custom list."""
         self.list_copy_mode = mode
+    
+    def export_current_list_to_docx(self) -> None:
+        """Create a DOCX with placeholders for the selected custom question list."""
+        if not self.current_list_name or self.current_list_name not in self.question_lists:
+            QMessageBox.information(self, "No List Selected", "Select a custom list before exporting.")
+            return
+        
+        questions = self.question_lists.get(self.current_list_name, [])
+        if not questions:
+            QMessageBox.information(self, "Empty List", "The selected list has no questions to export.")
+            return
+        
+        try:
+            from docx import Document
+            from docx.shared import Pt
+        except ImportError:
+            QMessageBox.critical(
+                self,
+                "Missing Dependency",
+                "python-docx is required to export Word files.\nInstall it with: pip install python-docx",
+            )
+            return
+        
+        QUESTION_LIST_DIR.mkdir(parents=True, exist_ok=True)
+        default_name = f"{self.current_list_name}.docx"
+        default_path = str((QUESTION_LIST_DIR / default_name).resolve())
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Question Placeholders",
+            default_path,
+            "Word Document (*.docx)",
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".docx"):
+            file_path += ".docx"
+        
+        try:
+            doc = Document()
+            doc.core_properties.title = f"{self.current_list_name} Questions"
+            
+            for idx, question in enumerate(questions, start=1):
+                title_para = doc.add_paragraph()
+                title_run = title_para.add_run(f"Question Number {idx}")
+                title_run.bold = True
+                title_run.font.size = Pt(14)
+                
+                meta_text = self._format_question_placeholder_metadata(question)
+                if meta_text:
+                    meta_para = doc.add_paragraph()
+                    meta_run = meta_para.add_run(meta_text)
+                    meta_run.font.size = Pt(8)
+                    meta_run.italic = True
+                
+                spacer_para = doc.add_paragraph()
+                spacer_run = spacer_para.add_run()
+                for _ in range(5):
+                    spacer_run.add_break()
+            
+            doc.save(file_path)
+            QMessageBox.information(self, "Exported", f"Saved DOCX placeholders to:\n{file_path}")
+            self.log(f"Exported '{self.current_list_name}' to DOCX: {file_path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", f"Could not save DOCX: {exc}")
+    
+    def _format_question_placeholder_metadata(self, question: dict) -> str:
+        """Format compact metadata line like 'Qno 13 P 40 Sep'25'."""
+        qno = str(question.get("qno") or question.get("question_no") or "?").strip() or "?"
+        
+        page_raw = question.get("page") or question.get("Page") or question.get("page_no")
+        page_text = ""
+        if page_raw is not None:
+            page_text = str(page_raw).strip()
+            try:
+                num = float(page_text)
+                page_text = str(int(num)) if num.is_integer() else page_text.rstrip("0").rstrip(".")
+            except (ValueError, TypeError):
+                pass
+        
+        magazine = str(
+            question.get("magazine")
+            or question.get("magazine_name")
+            or question.get("edition")
+            or ""
+        ).strip()
+        
+        parts = [f"Qno {qno}"]
+        if page_text:
+            parts.append(f"P {page_text}")
+        if magazine:
+            parts.append(magazine)
+        return " ".join(parts).strip()
     
     def on_saved_list_selected(self) -> None:
         """Handle selection of a saved question list."""

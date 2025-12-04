@@ -1745,6 +1745,13 @@ class DashboardView(QWidget):
         total_questions = len(df)
         self.total_q_card.value_label.setText(str(total_questions))
         
+        magazine_col = None
+        for col in ['Magazine', 'magazine', 'Magazine edition', 'JEE Main Session']:
+            if col in df.columns:
+                magazine_col = col
+                break
+        magazines = set()
+
         # Get unique chapters - prefer grouping config, fallback to dataframe
         if chapter_groups:
             chapters_in_data = {ch for group in chapter_groups.values() for ch in group}
@@ -1774,72 +1781,107 @@ class DashboardView(QWidget):
                 magazine_col = col
                 break
         
+        magazines = set()
         if magazine_details is not None:
             self.unique_mags_card.value_label.setText(str(len(magazine_details)))
-        else:
-            # Fallback: count unique magazine column values
-            magazines = set(df[magazine_col].dropna().unique()) if magazine_col else set()
+        elif magazine_col:
+            magazines = set(df[magazine_col].dropna().unique())
             self.unique_mags_card.value_label.setText(str(len(magazines)))
+        else:
+            self.unique_mags_card.value_label.setText("0")
         
         # === Update Latest Magazine Edition ===
         latest_display = "-"
-        if magazine_details:
-            # Prefer the current detected magazine, otherwise first
+        last_info = self._get_last_magazine_entry(df)
+        if last_info:
+            last_mag = last_info["mag"]
+            full_norm = normalize_magazine_edition(last_mag)
+            page_min, page_max = ("", "")
+            if mag_page_ranges:
+                page_min, page_max = mag_page_ranges.get(full_norm, ("", ""))
+            if (not page_min or not page_max) and df is not None:
+                page_min, page_max = self._compute_page_range_from_df(df, full_norm)
+            page_text = f"(Pages: {page_min}-{page_max})" if page_min and page_max else "(Pages: N/A)"
+            latest_display = f"{last_mag}\n{page_text}"
+        elif magazine_details:
+            # Fallback: derive from computed details when magazine column is missing
             normalized_current = self._normalize_label(mag_display_name) if mag_display_name else ""
             chosen_entry = None
             for entry in magazine_details:
                 if normalized_current and self._normalize_label(entry.get("display_name", "")) == normalized_current:
                     chosen_entry = entry
                     break
-            if chosen_entry is None:
-                chosen_entry = magazine_details[0]
+            if chosen_entry is None and magazine_details:
+                chosen_entry = magazine_details[-1]
             
-            editions = chosen_entry.get("editions", [])
+            editions = chosen_entry.get("editions", []) if chosen_entry else []
             if editions:
-                # Editions are already sorted during collection; take the last as most recent
                 latest = editions[-1]
                 display = latest.get("display", "Unknown")
-                # Build full normalized key (magazine + edition) to align with page range map
                 full_norm = normalize_magazine_edition(f"{chosen_entry.get('display_name', '')} | {display}")
-                page_min, page_max = ("", "")
-                if mag_page_ranges:
-                    page_min, page_max = mag_page_ranges.get(full_norm, ("", ""))
-                if (not page_min or not page_max) and df is not None:
-                    page_min, page_max = self._compute_page_range_from_df(df, full_norm)
+                page_min, page_max = mag_page_ranges.get(full_norm, ("", "")) if mag_page_ranges else ("", "")
                 page_text = f"(Pages: {page_min}-{page_max})" if page_min and page_max else "(Pages: N/A)"
                 latest_display = f"{chosen_entry.get('display_name', 'Unknown')} | {display}\n{page_text}"
-        elif magazine_col:
-            # Use the last filled row from the workbook for last magazine inserted
-            mag_series = df[magazine_col].dropna()
-            if not mag_series.empty:
-                last_mag = str(mag_series.iloc[-1]).strip()
-                full_norm = normalize_magazine_edition(last_mag)
-                page_min, page_max = self._compute_page_range_from_df(df, full_norm)
-                page_text = f"(Pages: {page_min}-{page_max})" if page_min and page_max else "(Pages: N/A)"
-                latest_display = f"{last_mag}\n{page_text}"
         self.last_mag_card.value_label.setText(latest_display)
 
     def _normalize_label(self, label: str) -> str:
         return "".join(c.lower() for c in label if c.isalnum() or c.isspace()).strip()
+
+    def _find_magazine_column_name(self, df) -> str | None:
+        """Return magazine column using case-insensitive matching."""
+        targets = {"magazine", "magazine edition", "magazine edition ", "jEE main session".lower()}
+        for col in df.columns:
+            norm = str(col).strip().lower()
+            if norm in targets:
+                return col
+        return None
+
+    def _find_page_column_name(self, df) -> str | None:
+        """Return page column using case-insensitive matching and common aliases."""
+        targets = {
+            "page",
+            "page number",
+            "page no",
+            "pageno",
+            "page_no",
+            "page number ",
+            "page no.",
+        }
+        for col in df.columns:
+            norm = str(col).strip().lower()
+            if norm in targets:
+                return col
+        return None
+
+    def _get_last_magazine_entry(self, df) -> dict | None:
+        """Return last non-empty magazine entry with raw row for debugging."""
+        mag_col = self._find_magazine_column_name(df)
+        if not mag_col:
+            return None
+        mag_series = df[mag_col]
+        last_idx = mag_series.last_valid_index()
+        if last_idx is None:
+            return None
+        mag_value = str(mag_series.loc[last_idx]).strip()
+        page_col = self._find_page_column_name(df)
+        page_value = df.at[last_idx, page_col] if page_col else None
+        return {
+            "mag": mag_value,
+            "page": page_value,
+            "index": last_idx,
+            "row": df.loc[last_idx].to_dict(),
+        }
 
     def _compute_page_range_from_df(self, df, normalized_magazine: str) -> tuple[str, str]:
         """Compute page range for a normalized magazine edition from the dataframe."""
         if df is None or df.empty or not normalized_magazine:
             return ("", "")
         
-        magazine_col = None
-        for col in ['Magazine', 'magazine', 'Magazine edition', 'JEE Main Session']:
-            if col in df.columns:
-                magazine_col = col
-                break
+        magazine_col = self._find_magazine_column_name(df)
         if magazine_col is None:
             return ("", "")
         
-        page_col = None
-        for col in ['Page', 'page', 'Page Number', 'page_number', 'PageNo']:
-            if col in df.columns:
-                page_col = col
-                break
+        page_col = self._find_page_column_name(df)
         if page_col is None:
             return ("", "")
         
