@@ -1216,7 +1216,7 @@ class QuestionAccordionGroup(QWidget):
         [QuestionCardWidget]
     """
     
-    def __init__(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, parent=None):
+    def __init__(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, parent=None, show_page_range: bool = True):
         """
         Initialize accordion group.
         
@@ -1232,6 +1232,7 @@ class QuestionAccordionGroup(QWidget):
         self.questions = questions
         self.tags = tags or []
         self.tag_colors = tag_colors or {}
+        self.show_page_range = show_page_range
         self.is_expanded = False
         self.question_cards = []
         
@@ -1349,24 +1350,51 @@ class QuestionAccordionGroup(QWidget):
         self.tag_btn.clicked.connect(self._show_tag_menu)
         header_layout.addWidget(self.tag_btn)
         
-        # Question count badge
-        count_label = QLabel(f"📚 {len(self.questions)} Questions")
+        # Question count + page range badge (compact)
+        page_range = self._compute_page_range() if self.show_page_range else ""
+        count_text = f"{len(self.questions)} q"
+        if page_range:
+            count_text += f" • {page_range}"
+        count_label = QLabel(count_text)
         count_label.setStyleSheet("""
             QLabel {
                 background-color: #3b82f6;
                 color: white;
-                padding: 4px 8px;
+                padding: 2px 8px;
                 border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.2px;
             }
         """)
         header_layout.addWidget(count_label)
-        
         # Make entire header clickable
         header_widget.mousePressEvent = lambda e: self.toggle_expanded()
         
         return header_widget
+
+    def _compute_page_range(self) -> str:
+        """Return a compact page range like 'p2-15' for questions in this group."""
+        pages = []
+        for q in self.questions:
+            try:
+                page_val = float(str(q.get("page", "")).strip())
+            except (ValueError, TypeError):
+                continue
+            pages.append(page_val)
+        if not pages:
+            return ""
+        min_p, max_p = min(pages), max(pages)
+
+        def _fmt(val: float) -> str:
+            if val.is_integer():
+                return str(int(val))
+            text = f"{val:.2f}".rstrip("0").rstrip(".")
+            return text
+
+        if min_p == max_p:
+            return f"p{_fmt(min_p)}"
+        return f"p{_fmt(min_p)}-{_fmt(max_p)}"
     
     def toggle_expanded(self):
         """Toggle expand/collapse state."""
@@ -1476,7 +1504,7 @@ class QuestionListCardView(QScrollArea):
         self.accordion_groups.clear()
         self.selected_questions.clear()
     
-    def add_group(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None):
+    def add_group(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, show_page_range: bool = True):
         """
         Add an accordion group to the view.
         
@@ -1486,7 +1514,7 @@ class QuestionListCardView(QScrollArea):
             tags: List of tags for this group
             tag_colors: Dict mapping tag names to color hex codes
         """
-        group = QuestionAccordionGroup(group_key, questions, tags, tag_colors, self)
+        group = QuestionAccordionGroup(group_key, questions, tags, tag_colors, self, show_page_range)
         
         # Insert before the stretch at the end
         self.container_layout.insertWidget(len(self.accordion_groups), group)
@@ -2856,3 +2884,4 @@ class DragDropQuestionPanel(QWidget):
             if parent_widget is None or parent_widget == main_window:
                 break
             main_window = parent_widget
+

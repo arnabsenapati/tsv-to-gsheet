@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QInputDialog,
     QSizePolicy,
+    QStyledItemDelegate,
 )
 from config.constants import TAGS_CONFIG_FILE, TAG_COLORS
 from ui.dialogs import MultiSelectTagDialog
@@ -58,6 +59,8 @@ class QuestionSetGroupingView(QWidget):
         
         self.group_service = None  # Will be set by main window
         self.all_question_sets = []  # All question sets from workbook
+        self.question_set_min_pages: dict[str, float] = {}
+        self.question_set_magazine: dict[str, str] = {}
         self.selected_group = None  # Currently selected group
         self.group_tags: dict[str, list[str]] = {}
         self.tag_colors: dict[str, str] = {}
@@ -158,6 +161,8 @@ class QuestionSetGroupingView(QWidget):
         groups_container_layout.setSpacing(8)
         
         self.groups_list = GroupListWidget(self)
+        # Remove default item painting (focus/selection rectangles) since we render custom widgets.
+        self.groups_list.setItemDelegate(NoOutlineDelegate(self.groups_list))
         self.groups_list.setStyleSheet("""
             QListWidget {
                 border: none;
@@ -170,6 +175,20 @@ class QuestionSetGroupingView(QWidget):
                 border: none;
                 outline: 0;
                 selection-background-color: transparent;
+            }
+            QListWidget::drop-indicator {
+                border: none;
+                height: 0px;
+                background: transparent;
+            }
+            QListView::dropIndicator {
+                border: none;
+                height: 0px;
+                background: transparent;
+            }
+            QListView::item {
+                outline: 0;
+                border: none;
             }
             QListWidget::item:selected {
                 background-color: transparent;
@@ -281,7 +300,12 @@ class QuestionSetGroupingView(QWidget):
         self.group_service = service
         self._refresh_groups_list()
     
-    def update_from_workbook(self, question_sets: list[str]):
+    def update_from_workbook(
+        self,
+        question_sets: list[str],
+        question_set_min_pages: dict[str, float] | None = None,
+        question_set_magazine: dict[str, str] | None = None,
+    ):
         """
         Update the view with question sets from workbook.
         
@@ -289,6 +313,8 @@ class QuestionSetGroupingView(QWidget):
             question_sets: List of question set names from workbook
         """
         self.all_question_sets = question_sets
+        self.question_set_min_pages = question_set_min_pages or {}
+        self.question_set_magazine = question_set_magazine or {}
         self._refresh_groups_list()
         
         # Select first group if available
@@ -301,36 +327,43 @@ class QuestionSetGroupingView(QWidget):
             return
         
         self.groups_list.clear()
-        
+        entries: list[dict] = []
+
         # Get all groups
         groups = self.group_service.get_all_groups()
-        
-        # Add saved groups sorted by name (case-insensitive)
-        for group_name, group_data in sorted(groups.items(), key=lambda kv: kv[0].lower()):
+
+        # Add saved groups with computed min page
+        for group_name, group_data in groups.items():
             question_sets = group_data.get("question_sets", [])
             count = len(question_sets)
-            
-            # Create group item with badge
+            entries.append({
+                "name": group_name,
+                "count": count,
+                "color": group_data.get("color", "#3b82f6"),
+                "min_page": self._compute_group_min_page(question_sets),
+            })
+
+        # Add "Others" group (sorted by page too, not pinned to top)
+        others_group = self.group_service.get_others_group(self.all_question_sets)
+        others_sets = others_group["question_sets"]
+        entries.append({
+            "name": "Others",
+            "count": len(others_sets),
+            "color": "#94a3b8",
+            "min_page": self._compute_group_min_page(others_sets),
+        })
+
+        # Sort by name (alphabetical)
+        entries = sorted(entries, key=lambda e: e["name"].lower())
+
+        for entry in entries:
             item = QListWidgetItem()
             # Leave text empty because custom widget renders the name
             item.setText("")
-            item.setData(Qt.UserRole, group_name)  # Store group name
-            item.setData(Qt.UserRole + 1, count)  # Store count
-            
+            item.setData(Qt.UserRole, entry["name"])  # Store group name
+            item.setData(Qt.UserRole + 1, entry["count"])  # Store count
             self.groups_list.addItem(item)
-            # Style with badge
-            self._style_group_item(item, group_name, count, group_data.get("color", "#3b82f6"))
-        
-        # Add "Others" group
-        others_group = self.group_service.get_others_group(self.all_question_sets)
-        others_count = len(others_group["question_sets"])
-        
-        item = QListWidgetItem()
-        item.setText("")
-        item.setData(Qt.UserRole, "Others")
-        item.setData(Qt.UserRole + 1, others_count)
-        self.groups_list.addItem(item)
-        self._style_group_item(item, "Others", others_count, "#94a3b8")
+            self._style_group_item(item, entry["name"], entry["count"], entry["color"])
 
         # Restore selection to previously selected group if available
         if self.selected_group:
@@ -342,6 +375,23 @@ class QuestionSetGroupingView(QWidget):
 
         # Reapply selection highlight to match current selection
         self._update_group_item_selection()
+        # Ensure item widths match viewport after rebuild
+        self.groups_list._sync_item_widths()
+
+    def _compute_group_min_page(self, question_sets: list[str]) -> float:
+        """Return the smallest page number across question sets; inf if unavailable."""
+        min_page = float("inf")
+        for qs in question_sets:
+            page_val = self.question_set_min_pages.get(qs)
+            if page_val is None:
+                continue
+            try:
+                page_num = float(page_val)
+            except (ValueError, TypeError):
+                continue
+            if page_num < min_page:
+                min_page = page_num
+        return min_page
 
     def _on_delete_group(self, group_name: str):
         """Delete a group when empty."""
@@ -371,7 +421,9 @@ class QuestionSetGroupingView(QWidget):
         widget.tag_edit_clicked.connect(lambda name=group_name: self._on_edit_tags(name))
         
         # Set widget for item with proper sizing
-        item.setSizeHint(widget.sizeHint())
+        # Width will be synced to viewport so we only set the height here
+        size_hint = widget.sizeHint()
+        item.setSizeHint(QSize(self.groups_list.viewport().width(), size_hint.height()))
         self.groups_list.setItemWidget(item, widget)
 
         # Set initial selection state
@@ -458,8 +510,12 @@ class QuestionSetGroupingView(QWidget):
         # Add items to list
         for qs_name in question_sets:
             item = QListWidgetItem()
-            item.setText(f"📝 {qs_name}")
+            # Plain text (emoji placeholders caused unreadable "??" on some systems)
+            item.setText(qs_name)
             item.setData(Qt.UserRole, qs_name)  # Store actual name without emoji
+            magazine = self.question_set_magazine.get(qs_name, "")
+            if magazine:
+                item.setToolTip(f"Magazine: {magazine}")
             self.question_sets_list.addItem(item)
     
     def _on_question_sets_dropped_internal(self, qs_names: list[str], from_group: str, event):
@@ -593,7 +649,7 @@ class QuestionSetListWidget(QListWidget):
     """
     Custom list widget for question sets with drag support.
     """
-    
+
     MIME_TYPE = "application/x-question-set"
     
     def __init__(self, parent=None):
@@ -701,7 +757,29 @@ class GroupListWidget(QListWidget):
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DropOnly)
         self.setDefaultDropAction(Qt.MoveAction)
+        self.setDropIndicatorShown(False)
+        self.setAlternatingRowColors(False)
+        self.setFrameShape(QFrame.NoFrame)
         self._drag_item = None
+        self._original_styles = {}  # key: id(item) -> style dict
+
+    def resizeEvent(self, event):
+        """Keep item widgets stretched to the viewport width to avoid empty drop-rect area."""
+        super().resizeEvent(event)
+        self._sync_item_widths()
+
+    def paintEvent(self, event):
+        """Skip default painting to avoid any built-in drop/selection outlines."""
+        return
+
+    def _sync_item_widths(self):
+        """Stretch each item's size hint to the current viewport width."""
+        viewport_width = self.viewport().width()
+        for idx in range(self.count()):
+            item = self.item(idx)
+            if item:
+                current = item.sizeHint()
+                item.setSizeHint(QSize(viewport_width, current.height()))
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(QuestionSetListWidget.MIME_TYPE):
@@ -761,13 +839,42 @@ class GroupListWidget(QListWidget):
             widget = self.itemWidget(item)
             if widget:
                 widget.set_drag_over(True)
+            # Save and apply strong hover style for the list item itself
+            item_key = id(item)
+            if item_key not in self._original_styles:
+                self._original_styles[item_key] = {
+                    "bg": item.background(),
+                    "fg": item.foreground(),
+                    "text": item.text(),
+                    "ref": item,
+                }
+            item.setBackground(QColor("#0b3a83"))  # deep blue highlight
+            item.setForeground(QColor("#f8fafc"))  # near-white text
+            item.setText(f" {item.text()} ")
 
     def _clear_highlight(self):
         if self._drag_item:
             widget = self.itemWidget(self._drag_item)
             if widget:
                 widget.set_drag_over(False)
+            item_key = id(self._drag_item)
+            if item_key in self._original_styles:
+                orig = self._original_styles.pop(item_key)
+                if orig.get("ref") is self._drag_item:
+                    self._drag_item.setBackground(orig["bg"])
+                    self._drag_item.setForeground(orig["fg"])
+                    self._drag_item.setText(orig["text"])
         self._drag_item = None
+        # Ensure widths stay synced after drag operations
+        self._sync_item_widths()
+
+
+class NoOutlineDelegate(QStyledItemDelegate):
+    """Delegate that suppresses default QListWidget painting (focus/selection rects)."""
+
+    def paint(self, painter, option, index):
+        # Skip default painting; custom widgets draw everything needed.
+        return
 
 
 class GroupItemWidget(QWidget):
@@ -845,6 +952,8 @@ class GroupItemWidget(QWidget):
         self.tag_layout = QHBoxLayout(self.tag_container)
         self.tag_layout.setContentsMargins(0, 0, 0, 0)
         self.tag_layout.setSpacing(4)
+        # Shrink to fit tag badges; don't let this area stretch and show empty outlines.
+        self.tag_container.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Preferred)
         pill_layout.addWidget(self.tag_container)
         self._render_tags()
 
@@ -940,7 +1049,6 @@ class GroupItemWidget(QWidget):
             color = self.tag_colors.get(tag, "#2563eb")
             badge = TagBadge(tag, color)
             self.tag_layout.addWidget(badge)
-        self.tag_layout.addStretch()
 
     def set_selected(self, selected: bool):
         """Update selection state and refresh background."""
@@ -974,28 +1082,69 @@ class GroupItemWidget(QWidget):
         super().leaveEvent(event)
 
     def _update_background(self):
-        """Apply hover/selection background without relying on QListWidget painting."""
+        """Apply hover/selection/drag background without relying on QListWidget painting."""
         if self.drag_over:
-            bg = "#dbeafe"
+            # Dark highlight for drag target
+            pill_bg = "#0b3a83"
+            pill_border = "#38bdf8"
+            name_color = "#f8fafc"
+            badge_color = "#f8fafc"
+            badge_border = "#38bdf8"
         elif self.selected:
-            bg = "#e0f2fe"
+            pill_bg = "#e0f2fe"
+            pill_border = "#bfdbfe"
+            name_color = "#1e3a8a"
+            badge_color = self.color
+            badge_border = self.color
         elif self.hovered:
-            bg = "#f0f9ff"
+            pill_bg = "#f0f9ff"
+            pill_border = "#e0f2fe"
+            name_color = "#1e40af"
+            badge_color = self.color
+            badge_border = self.color
         else:
-            bg = "transparent"
+            pill_bg = "#eef2ff"
+            pill_border = "transparent"
+            name_color = "#1e40af"
+            badge_color = self.color
+            badge_border = self.color
+
+        # Container styling
         self.setStyleSheet(f"""
             QWidget#{self.objectName()} {{
                 background-color: transparent;
                 border-radius: 6px;
             }}
         """)
-        # pill background
-        pill_bg = "#eef2ff" if not self.drag_over else "#dbeafe"
         self.pill_container.setStyleSheet(f"""
             QWidget {{
                 background-color: {pill_bg};
                 border-radius: 12px;
+                border: 1px solid {pill_border};
+            }}
+        """)
+
+        # Text/badge styling updates so drag highlight uses light text
+        self.name_label.setStyleSheet(f"""
+            QLabel {{
+                font-size: 12px;
+                color: {name_color};
+                font-weight: 600;
+                background: transparent;
                 border: none;
+            }}
+        """)
+        self.badge_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: transparent;
+                color: {badge_color};
+                border: 1px solid {badge_border};
+                border-radius: 12px;
+                padding: 2px 8px;
+                font-size: 10px;
+                font-weight: bold;
+                min-width: 22px;
+                text-align: center;
             }}
         """)
 
@@ -1003,3 +1152,4 @@ class GroupItemWidget(QWidget):
         """Highlight when a drag is hovering over the item."""
         self.drag_over = active
         self._update_background()
+

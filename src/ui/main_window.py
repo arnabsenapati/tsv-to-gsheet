@@ -1640,6 +1640,76 @@ class TSVWatcherWindow(QMainWindow):
         
         return sorted(list(question_sets))
 
+    def _extract_question_set_min_pages(self, df: pd.DataFrame) -> dict[str, float]:
+        """
+        Build a map of question set -> minimum page number (numeric) across the workbook.
+        Non-numeric pages are ignored. Missing pages yield no entry.
+        """
+        result: dict[str, float] = {}
+        if df.empty:
+            return result
+
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+        try:
+            question_set_col = _find_question_set_column(header_row)
+            page_col = _find_page_column(header_row)
+        except ValueError:
+            return result  # Required columns not found
+
+        qset_series = df.iloc[:, question_set_col - 1]
+        page_series = df.iloc[:, page_col - 1]
+
+        for qset_val, page_val in zip(qset_series, page_series):
+            if pd.isna(qset_val) or pd.isna(page_val):
+                continue
+            qset_name = str(qset_val).strip()
+            if not qset_name:
+                continue
+            try:
+                page_num = float(page_val)
+            except (ValueError, TypeError):
+                continue
+            current = result.get(qset_name)
+            if current is None or page_num < current:
+                result[qset_name] = page_num
+        return result
+
+    def _extract_question_set_magazines(self, df: pd.DataFrame) -> dict[str, str]:
+        """
+        Build a map of question set -> most frequent magazine/edition string.
+        """
+        result: dict[str, str] = {}
+        if df.empty:
+            return result
+
+        header_row = [None if pd.isna(col) else str(col) for col in df.columns]
+        try:
+            question_set_col = _find_question_set_column(header_row)
+            magazine_col = _find_magazine_column(header_row)
+        except ValueError:
+            return result
+
+        qset_series = df.iloc[:, question_set_col - 1]
+        magazine_series = df.iloc[:, magazine_col - 1]
+
+        counts: dict[str, dict[str, int]] = {}
+        for qset_val, mag_val in zip(qset_series, magazine_series):
+            if pd.isna(qset_val) or pd.isna(mag_val):
+                continue
+            qs = str(qset_val).strip()
+            mag = str(mag_val).strip()
+            if not qs or not mag:
+                continue
+            counts.setdefault(qs, {})
+            counts[qs][mag] = counts[qs].get(mag, 0) + 1
+
+        for qs, mag_counts in counts.items():
+            # Pick the most frequent; tie-breaker by alphabetical
+            best = sorted(mag_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            if best:
+                result[qs] = best[0][0]
+        return result
+
     def _collect_magazine_details(self, df: pd.DataFrame) -> tuple[list[dict], list[str]]:
         warnings: list[str] = []
         if df.empty:
@@ -1838,15 +1908,21 @@ class TSVWatcherWindow(QMainWindow):
             group_name = group_mapping.get(q["question_set_name"], "Others")
             grouped.setdefault(group_name, []).append(q)
 
-        ordered_keys: list[str] = []
-        if "Others" in grouped:
-            ordered_keys.append("Others")
-        for g in group_order:
-            if g in grouped and g != "Others":
-                ordered_keys.append(g)
-        for g in sorted(grouped.keys()):
-            if g not in ordered_keys:
-                ordered_keys.append(g)
+        # Order groups by lowest page number (ascending). Fall back to name.
+        def _min_page(qlist: list[dict]) -> float:
+            pages = []
+            for q in qlist:
+                try:
+                    pages.append(float(str(q.get("page", "")).strip()))
+                except (ValueError, TypeError):
+                    continue
+            return min(pages) if pages else float("inf")
+
+        ordered_keys = [
+            (group_key, _min_page(qlist))
+            for group_key, qlist in grouped.items()
+        ]
+        ordered_keys = [name for name, _ in sorted(ordered_keys, key=lambda kv: (kv[1], kv[0].lower()))]
 
         if not ordered_keys:
             self.question_label.setText(f"{display_label} · no questions found for this edition")
@@ -1855,7 +1931,7 @@ class TSVWatcherWindow(QMainWindow):
         for group_key in ordered_keys:
             qlist = grouped.get(group_key, [])
             tags = self.question_set_group_tags.get(group_key, [])
-            self.mag_question_card_view.add_group(group_key, qlist, tags, self.tag_colors)
+            self.mag_question_card_view.add_group(group_key, qlist, tags, self.tag_colors, show_page_range=True)
 
     def _collect_question_analysis_data(
         self, df: pd.DataFrame
@@ -2507,6 +2583,14 @@ class TSVWatcherWindow(QMainWindow):
             # Create tree items
             for qset_name in question_sets:
                 questions = questions_by_set.get(qset_name, [])
+                # Sort questions by page number (ascending) for magazine edition view
+                def _page_key(q):
+                    page_str = str(q.get("page", "")).strip()
+                    try:
+                        return int(float(page_str))
+                    except (ValueError, TypeError):
+                        return float("inf")
+                questions = sorted(questions, key=_page_key)
                 parent_item = QTreeWidgetItem([f"📝 {qset_name}", "", f"({len(questions)} questions)"])
                 parent_item.setData(0, Qt.UserRole, {"type": "question_set", "name": qset_name})
                 
@@ -2675,7 +2759,7 @@ class TSVWatcherWindow(QMainWindow):
             for group_key in ordered_keys:
                 group_questions = groups.get(group_key, [])
                 tags = self.question_set_group_tags.get(group_key, [])
-                self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors)
+                self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors, show_page_range=False)
         
         # Restore scroll position if it was saved
         if scroll_value is not None and hasattr(self, "question_card_view"):
@@ -4166,9 +4250,15 @@ class TSVWatcherWindow(QMainWindow):
                 
                 # Update question set grouping view with question sets from workbook
                 if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'workbook_df'):
-                    # Extract unique question sets from workbook
+                    # Extract unique question sets and their min pages from workbook
                     question_sets = self._extract_unique_question_sets(self.workbook_df)
-                    self.question_set_grouping_view.update_from_workbook(question_sets)
+                    qs_min_pages = self._extract_question_set_min_pages(self.workbook_df)
+                    qs_mag_map = self._extract_question_set_magazines(self.workbook_df)
+                    self.question_set_grouping_view.update_from_workbook(
+                        question_sets,
+                        qs_min_pages,
+                        qs_mag_map,
+                    )
                 
                 for warning in warnings:
                     self.log(warning)
