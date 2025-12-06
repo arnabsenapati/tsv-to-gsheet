@@ -3867,11 +3867,61 @@ class TSVWatcherWindow(QMainWindow):
         if not file_path.lower().endswith(".docx"):
             file_path += ".docx"
         
+        def _numeric_sort_value(value) -> float:
+            """Convert page/question numbers to numeric values for sorting."""
+            if value is None:
+                return float("inf")
+            text = str(value).strip()
+            if not text:
+                return float("inf")
+            match = re.search(r"[-+]?\d*\.?\d+", text)
+            if match:
+                try:
+                    return float(match.group())
+                except ValueError:
+                    pass
+            return float("inf")
+
+        def _question_sort_key(item: tuple[int, dict]) -> tuple:
+            idx, question = item
+            magazine_raw = (
+                question.get("magazine")
+                or question.get("magazine_name")
+                or question.get("edition")
+                or ""
+            )
+            magazine_key = normalize_magazine_edition(str(magazine_raw))
+            page_value = question.get("page") or question.get("Page") or question.get("page_no")
+            qno_value = question.get("qno") or question.get("question_no")
+            
+            return (
+                0 if magazine_key else 1,
+                magazine_key,
+                _numeric_sort_value(page_value),
+                _numeric_sort_value(qno_value),
+                idx,  # stable ordering for identical keys
+            )
+
+        sorted_questions = [q for _, q in sorted(enumerate(questions), key=_question_sort_key)]
+
+        # Debug: log final sorted metadata to help verify ordering
+        self.log("DOCX export order (magazine | page -> qno):")
+        for pos, q in enumerate(sorted_questions, start=1):
+            mag_raw = q.get("magazine") or q.get("magazine_name") or q.get("edition") or ""
+            mag_norm = normalize_magazine_edition(str(mag_raw))
+            page_raw = q.get("page") or q.get("Page") or q.get("page_no")
+            qno_raw = q.get("qno") or q.get("question_no")
+            self.log(
+                f"{pos:03d}: mag='{mag_raw}' (norm='{mag_norm}') "
+                f"page='{page_raw}' (num={_numeric_sort_value(page_raw)}) "
+                f"qno='{qno_raw}' (num={_numeric_sort_value(qno_raw)})"
+            )
+
         try:
             doc = Document()
             doc.core_properties.title = f"{self.current_list_name} Questions"
             
-            for idx, question in enumerate(questions, start=1):
+            for idx, question in enumerate(sorted_questions, start=1):
                 title_para = doc.add_paragraph()
                 title_run = title_para.add_run(f"Question Number {idx}")
                 title_run.bold = True
