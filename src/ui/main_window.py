@@ -136,12 +136,14 @@ class TSVWatcherWindow(QMainWindow):
         self.question_set_group_tags: dict[str, list[str]] = {}  # question set group name -> tags
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
+        self.list_copy_mode: str = "Copy: Text"  # Default copy mode for custom list cards
         self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         self.question_set_groups_dirty: bool = False  # Track if groupings changed
         self.pending_auto_watch: bool = False  # Defer watching until workbook loads on startup
         self._question_tab_controls: list[QWidget] = []  # widgets to disable during question reload
         self.current_magazine_display_name: str = ""  # Human-friendly magazine name for UI
+        self.watch_workbook_path: Path | None = None  # Workbook currently used by watcher thread
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -1528,6 +1530,8 @@ class TSVWatcherWindow(QMainWindow):
         
         self.current_workbook_path = workbook_path
         self._save_last_selection()
+        # If watcher is running with a different workbook, restart it to use the newly selected file
+        self._restart_watching_for_new_workbook(workbook_path)
         self.set_status(f'Loading workbook "{workbook_path.name}"', "loading")
         self.row_count_label.setText("Total rows: Loading...")
         self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
@@ -4306,6 +4310,7 @@ class TSVWatcherWindow(QMainWindow):
         )
         self.watch_thread.start()
         self.start_button.setEnabled(False)
+        self.watch_workbook_path = workbook_path
         self.log("Started watching for TSV files.")
     
     def _auto_start_watching(self) -> None:
@@ -4323,6 +4328,7 @@ class TSVWatcherWindow(QMainWindow):
             )
             self.watch_thread.start()
             self.start_button.setEnabled(False)
+            self.watch_workbook_path = workbook_path
             self.log("Auto-started watching for TSV files.")
 
     def stop_watching(self) -> None:
@@ -4330,7 +4336,46 @@ class TSVWatcherWindow(QMainWindow):
         if self.watch_thread and self.watch_thread.is_alive():
             self.watch_thread.join(timeout=0.1)
         self.start_button.setEnabled(True)
+        self.watch_thread = None
+        self.watch_workbook_path = None
         self.log("Stopped watching.")
+
+    def _restart_watching_for_new_workbook(self, workbook_path: Path) -> None:
+        """
+        If the watcher is running and the workbook changes, restart the watcher to use the new file.
+        Prevents imports from writing into the previously loaded workbook.
+        """
+        if not (self.watch_thread and self.watch_thread.is_alive()):
+            return
+        
+        # If already watching this workbook, nothing to do
+        if self.watch_workbook_path and self.watch_workbook_path.resolve() == workbook_path.resolve():
+            return
+        
+        self.log(f"Workbook changed to {workbook_path.name}; restarting watcher.")
+        
+        # Stop current watcher
+        self.stop_event.set()
+        if self.watch_thread and self.watch_thread.is_alive():
+            self.watch_thread.join(timeout=1.0)
+        self.watch_thread = None
+        self.watch_workbook_path = None
+        
+        # Start watcher with new workbook if paths are valid
+        input_path = Path(self.input_edit.text().strip())
+        if input_path.is_dir() and workbook_path.is_file():
+            self.stop_event.clear()
+            self.watch_thread = threading.Thread(
+                target=self._watch_loop, args=(input_path, workbook_path), daemon=True
+            )
+            self.watch_thread.start()
+            self.start_button.setEnabled(False)
+            self.watch_workbook_path = workbook_path
+            self.log(f"Watcher restarted for workbook {workbook_path.name}.")
+        else:
+            # Enable button so user can start manually once paths are valid
+            self.start_button.setEnabled(True)
+            self.log("Watcher stopped; set a valid input folder to restart.")
 
     def _watch_loop(self, input_dir: Path, workbook_path: Path) -> None:
         poll_interval = 3.0

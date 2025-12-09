@@ -838,6 +838,7 @@ class QuestionCardWithRemoveButton(QWidget):
         
         # Create the card widget
         self.card = QuestionCardWidget(question_data, self)
+        self.card.is_custom_list_card = True  # Ensure copy mode uses custom list setting
         self.card.clicked.connect(lambda q: self.clicked.emit(q))
         layout.addWidget(self.card)
         
@@ -928,6 +929,7 @@ class QuestionCardWidget(QLabel):
         self.question_data = question_data
         self.is_selected = False
         self.original_stylesheet = ""
+        self.is_custom_list_card = False  # Flag set by wrapper when used in custom list view
         
         # Enable drag
         self.setAcceptDrops(False)  # Cards don't accept drops
@@ -1063,7 +1065,13 @@ class QuestionCardWidget(QLabel):
             
             # Get copy mode from parent window
             parent_window = self._get_parent_window()
-            copy_mode = parent_window.copy_mode if parent_window else "Copy: Text"
+            if parent_window:
+                if self.is_custom_list_card and hasattr(parent_window, "list_copy_mode"):
+                    copy_mode = parent_window.list_copy_mode
+                else:
+                    copy_mode = parent_window.copy_mode
+            else:
+                copy_mode = "Copy: Text"
             
             # Build clipboard text based on selected mode
             if copy_mode == "Copy: Metadata":
