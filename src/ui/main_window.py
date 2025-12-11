@@ -3875,9 +3875,41 @@ class TSVWatcherWindow(QMainWindow):
         magazine = self._normalize_label(question.get("magazine", ""))
         return f"{qno}|{question_set}|{magazine}"
 
+    def _parse_magazine_date(self, magazine_label: str) -> tuple[int, int]:
+        """
+        Extract (year, month) from magazine string like "Physics For You | May '25".
+        Returns (9999, 99) when parsing fails to push unknowns to the end.
+        """
+        year = 9999
+        month = 99
+        try:
+            if "|" in magazine_label:
+                parts = magazine_label.split("|", 1)[1].strip()
+                # Expect formats like "May '25" or "May 2025"
+                tokens = parts.replace("’", "'").split()
+                if tokens:
+                    month_name = tokens[0][:3].lower()
+                    month_map = {
+                        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+                    }
+                    month = month_map.get(month_name, 99)
+                    for token in tokens[1:]:
+                        token_clean = token.strip("' ")
+                        if token_clean.isdigit():
+                            y = int(token_clean)
+                            year = 2000 + y if y < 100 else y
+                            break
+        except Exception:
+            pass
+        return (year, month)
+
     def _get_question_sort_key(self, question: dict):
-        """Sort by magazine/edition, then page number, then question number."""
-        magazine = self._normalize_label(question.get("magazine", ""))
+        """Sort by magazine year, then month, then page number, then question number."""
+        magazine_raw = str(question.get("magazine", "")).strip()
+        magazine_norm = self._normalize_label(magazine_raw)
+
+        year, month = self._parse_magazine_date(magazine_raw)
 
         def _to_number(val, default=999999):
             text = str(val or "").strip()
@@ -3890,7 +3922,7 @@ class TSVWatcherWindow(QMainWindow):
 
         page = _to_number(question.get("page"))
         qno = _to_number(question.get("qno"))
-        return (magazine, page, qno)
+        return (year, month, magazine_norm, page, qno)
 
     def _is_common_question(self, question: dict) -> bool:
         """Check if question is common with comparison target."""
