@@ -2138,6 +2138,9 @@ class QuestionCardWidget(QLabel):
 
         self.question_data = question_data
 
+        self.question_id = question_data.get("question_id") or question_data.get("id")
+        self.db_service = self._find_db_service()
+
         self.is_selected = False
 
         self.original_stylesheet = ""
@@ -2201,6 +2204,27 @@ class QuestionCardWidget(QLabel):
         self.setMinimumHeight(100)
 
         self.setMaximumHeight(150)
+
+        # Hover preview timer/popup
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(1000)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.timeout.connect(self._show_hover_preview)
+        self._preview_popup: QWidget | None = None
+
+        # Image button
+        self.image_btn = QPushButton(self)
+        self.image_btn.setIcon(load_icon("image.svg"))
+        self.image_btn.setIconSize(QSize(16, 16))
+        self.image_btn.setToolTip("View / add question & answer images")
+        self.image_btn.setStyleSheet(self._image_button_style(active=False))
+        self.image_btn.setFixedSize(28, 28)
+        self.image_btn.clicked.connect(self._show_image_popover)
+        self.image_btn.setVisible(False)
+        self.image_btn.setCursor(Qt.PointingHandCursor)
+        self.image_btn.raise_()
+
+        self._update_image_button_state()
 
     
 
@@ -2360,11 +2384,303 @@ class QuestionCardWidget(QLabel):
 
             return text
 
-        
+
 
         truncated = " ".join(words[:max_words])
 
         return truncated + "..."
+
+    def enterEvent(self, event):
+        """Show image button and start delayed preview on hover."""
+        self.image_btn.setVisible(True)
+        self._hover_timer.start()
+        self.image_btn.move(self.width() - 32, 4)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """Hide image button and cancel preview."""
+        self.image_btn.setVisible(False)
+        self._hover_timer.stop()
+        self._hide_hover_preview()
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event):
+        """Keep image button anchored top-right on resize."""
+        super().resizeEvent(event)
+        self.image_btn.move(self.width() - 32, 4)
+
+    def _find_db_service(self):
+        """Walk parents to find db_service if available."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "db_service"):
+                return getattr(parent, "db_service")
+            parent = parent.parent()
+        return None
+
+    def _hide_hover_preview(self):
+        """Hide and clean up preview popup."""
+        if hasattr(self, "_preview_popup") and self._preview_popup:
+            self._preview_popup.hide()
+            self._preview_popup.deleteLater()
+            self._preview_popup = None
+
+    def _show_hover_preview(self):
+        """Show first question image in a small popup after hover delay."""
+        self._hide_hover_preview()
+
+        if not (self.db_service and self.question_id):
+            return
+
+        try:
+            images = self.db_service.get_images(int(self.question_id), "question")
+        except Exception:
+            return
+
+        if not images:
+            return
+
+        pixmap = QPixmap()
+        pixmap.loadFromData(bytes(images[0]["data"]))
+        if pixmap.isNull():
+            return
+        pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
+
+        popup = QWidget(None, Qt.ToolTip)
+        popup.setAttribute(Qt.WA_DeleteOnClose)
+        popup.setStyleSheet("background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px;")
+        layout = QVBoxLayout(popup)
+        layout.setContentsMargins(4, 4, 4, 4)
+        lbl = QLabel()
+        lbl.setPixmap(pixmap)
+        layout.addWidget(lbl)
+
+        global_pos = self.mapToGlobal(QPoint(self.width(), 0))
+        popup.move(global_pos + QPoint(8, 8))
+        popup.show()
+
+        self._preview_popup = popup
+
+    def _image_button_style(self, active: bool) -> str:
+        """Return stylesheet for image button; green when active, blue otherwise."""
+        if active:
+            return """
+            QPushButton {
+                background-color: #16a34a;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 14px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #15803d;
+            }
+            """
+        return """
+        QPushButton {
+            background-color: #0ea5e9;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            padding: 0px;
+            font-weight: bold;
+            font-size: 14px;
+            qproperty-flat: true;
+        }
+        QPushButton:hover {
+            background-color: #0284c7;
+        }
+        """
+
+    def _update_image_button_state(self):
+        """Switch icon to filled version when images exist."""
+        icon = load_icon("image.svg")
+        has_images = False
+        if self.db_service and self.question_id:
+            try:
+                counts = self.db_service.get_image_counts(int(self.question_id))
+                has_images = bool(counts and any(v > 0 for v in counts.values()))
+                if has_images:
+                    icon = load_icon("image_filled.svg")
+            except Exception:
+                pass
+        self.image_btn.setIcon(icon)
+        self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
+
+    def _show_image_popover(self):
+        """Show dialog with tabs for question/answer images."""
+        if not self.question_id:
+            QMessageBox.information(self, "No Question ID", "Cannot manage images because this question is missing an ID.")
+            return
+
+        if not self.db_service:
+            QMessageBox.warning(self, "Database Unavailable", "Database service is not available to load/save images.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Images")
+        dialog.setMinimumSize(520, 400)
+
+        root_layout = QVBoxLayout(dialog)
+        tabs = QTabWidget(dialog)
+        root_layout.addWidget(tabs)
+
+        def build_tab(kind: str):
+            tab = QWidget()
+            layout = QVBoxLayout(tab)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(8)
+
+            buttons = QHBoxLayout()
+            add_btn = QPushButton("Add from files")
+            add_btn.setIcon(load_icon("add.svg"))
+            add_btn.setIconSize(QSize(14, 14))
+            add_btn.clicked.connect(lambda: self._add_images(kind, refresh))
+            buttons.addWidget(add_btn)
+
+            paste_btn = QPushButton("Paste from clipboard")
+            paste_btn.setToolTip("Paste an image currently in clipboard")
+            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
+            buttons.addWidget(paste_btn)
+
+            clear_btn = QPushButton("Clear all")
+            clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
+            clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
+            buttons.addWidget(clear_btn)
+
+            buttons.addStretch()
+            layout.addLayout(buttons)
+
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setAlignment(Qt.AlignTop)
+            scroll.setWidget(content)
+            layout.addWidget(scroll)
+
+            def refresh():
+                while content_layout.count():
+                    item = content_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                try:
+                    images = self.db_service.get_images(int(self.question_id), kind)
+                except Exception as exc:
+                    err = QLabel(f"Failed to load images: {exc}")
+                    err.setStyleSheet("color: #dc2626;")
+                    content_layout.addWidget(err)
+                    return
+
+                if not images:
+                    empty = QLabel("No images yet.")
+                    empty.setStyleSheet("color: #94a3b8;")
+                    content_layout.addWidget(empty)
+                    return
+
+                for img in images:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(bytes(img["data"]))
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                    lbl = QLabel()
+                    lbl.setPixmap(pixmap)
+                    lbl.setStyleSheet("padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px;")
+                    content_layout.addWidget(lbl)
+
+            refresh()
+            return tab, refresh
+
+        q_tab, q_refresh = build_tab("question")
+        a_tab, a_refresh = build_tab("answer")
+        tabs.addTab(q_tab, "Question images")
+        tabs.addTab(a_tab, "Answer images")
+
+        dialog.exec()
+        self._update_image_button_state()
+
+    def _add_images(self, kind: str, refresh_callback=None):
+        """Open file picker and attach images of the given kind for this question."""
+        if not self.question_id or not self.db_service:
+            return
+
+        dialog_title = "Select question images" if kind == "question" else "Select answer images"
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            dialog_title,
+            "",
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*)",
+        )
+        if not files:
+            return
+
+        for file_path in files:
+            try:
+                self.db_service.add_question_image(int(self.question_id), kind, Path(file_path))
+            except Exception:
+                QMessageBox.warning(self, "Save Failed", f"Could not save image: {file_path}")
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
+
+    def _paste_image(self, kind: str, refresh_callback=None):
+        """Save an image from clipboard."""
+        if not self.question_id or not self.db_service:
+            return
+
+        clipboard = QGuiApplication.clipboard()
+        image: QImage = clipboard.image()
+        if image.isNull():
+            QMessageBox.information(self, "No Image", "Clipboard does not contain an image.")
+            return
+
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+
+        try:
+            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
+        except Exception:
+            QMessageBox.warning(self, "Save Failed", "Could not save image from clipboard.")
+            return
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
+
+    def _clear_images(self, kind: str, refresh_callback=None):
+        """Delete all images for this kind."""
+        if not self.question_id or not self.db_service:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Clear images",
+            f"Remove all {kind} images for this question?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            self.db_service.delete_images(int(self.question_id), kind)
+        except Exception:
+            QMessageBox.warning(self, "Delete Failed", "Could not delete images.")
+            return
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
 
     
 
