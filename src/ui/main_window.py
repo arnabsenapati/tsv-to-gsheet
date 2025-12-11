@@ -3900,6 +3900,16 @@ class TSVWatcherWindow(QMainWindow):
                             y = int(token_clean)
                             year = 2000 + y if y < 100 else y
                             break
+                    # If month not found, try numeric fallback in tokens
+                    if month == 99:
+                        for token in tokens:
+                            try:
+                                m_val = int(token.strip("' "))
+                                if 1 <= m_val <= 12:
+                                    month = m_val
+                                    break
+                            except Exception:
+                                continue
         except Exception:
             pass
         return (year, month)
