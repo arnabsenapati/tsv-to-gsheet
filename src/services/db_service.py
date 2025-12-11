@@ -254,6 +254,18 @@ class DatabaseService:
             )
             return cur.lastrowid or 0
 
+    def add_question_image_bytes(self, question_id: int, kind: str, data: bytes, mime_type: str = "application/octet-stream") -> int:
+        """Store an in-memory image blob for a question."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO images (question_id, kind, mime_type, data)
+                VALUES (?, ?, ?, ?)
+                """,
+                (question_id, kind, mime_type, sqlite3.Binary(data)),
+            )
+            return cur.lastrowid or 0
+
     def get_image_counts(self, question_id: int) -> Dict[str, int]:
         """Return a dict of image counts grouped by kind for a question."""
         with self._connect() as conn:
@@ -262,6 +274,29 @@ class DatabaseService:
                 (question_id,),
             ).fetchall()
         return {row["kind"]: int(row["cnt"]) for row in rows}
+
+    def get_images(self, question_id: int, kind: str) -> List[Dict[str, Any]]:
+        """Return images for a question/kind."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, mime_type, data
+                FROM images
+                WHERE question_id = ? AND kind = ?
+                ORDER BY id
+                """,
+                (question_id, kind),
+            ).fetchall()
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            result.append(
+                {
+                    "id": int(row["id"]),
+                    "mime_type": row["mime_type"] or "application/octet-stream",
+                    "data": row["data"],
+                }
+            )
+        return result
 
     def load_question_lists(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
         """

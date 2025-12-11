@@ -42,8 +42,8 @@ import json
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen
+from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -63,6 +63,8 @@ from PySide6.QtWidgets import (
     QStyle,
     QFileDialog,
     QMessageBox,
+    QDialog,
+    QTabWidget,
 )
 
 from ui.icon_utils import load_icon
@@ -1671,42 +1673,34 @@ class QuestionCardWithRemoveButton(QWidget):
         layout.addWidget(self.card)
 
         self.question_id = question_data.get("question_id")
+        self.db_service = getattr(parent, "db_service", None) if parent else None
 
-        # Image attach controls
-        image_controls = QHBoxLayout()
-        image_controls.setContentsMargins(8, 4, 8, 4)
-        image_controls.setSpacing(8)
-
-        self.question_img_label = QLabel()
-        self.question_img_label.setStyleSheet(
-            "background-color: #e0f2fe; color: #0f172a; border-radius: 6px; padding: 4px 8px; font-size: 11px;"
-        )
-        image_controls.addWidget(self.question_img_label)
-
-        add_question_img_btn = QPushButton("Add question image")
-        add_question_img_btn.setIcon(load_icon("add.svg"))
-        add_question_img_btn.setIconSize(QSize(14, 14))
-        add_question_img_btn.setToolTip("Attach one or more images for the question statement")
-        add_question_img_btn.clicked.connect(lambda: self._add_images("question"))
-        image_controls.addWidget(add_question_img_btn)
-
-        self.answer_img_label = QLabel()
-        self.answer_img_label.setStyleSheet(
-            "background-color: #e0f2fe; color: #0f172a; border-radius: 6px; padding: 4px 8px; font-size: 11px;"
-        )
-        image_controls.addWidget(self.answer_img_label)
-
-        add_answer_img_btn = QPushButton("Add answer image")
-        add_answer_img_btn.setIcon(load_icon("add.svg"))
-        add_answer_img_btn.setIconSize(QSize(14, 14))
-        add_answer_img_btn.setToolTip("Attach one or more images for the answer/solution")
-        add_answer_img_btn.clicked.connect(lambda: self._add_images("answer"))
-        image_controls.addWidget(add_answer_img_btn)
-
-        image_controls.addStretch()
-        layout.addLayout(image_controls)
-
-        self._refresh_image_counts()
+        # Image button (top-right, beside remove)
+        self.image_btn = QPushButton(self)
+        self.image_btn.setIcon(load_icon("image.svg"))
+        self.image_btn.setIconSize(QSize(16, 16))
+        self.image_btn.setToolTip("View / add question & answer images")
+        self.image_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0ea5e9;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 14px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #0284c7;
+            }
+        """)
+        self.image_btn.setFixedSize(28, 28)
+        self.image_btn.clicked.connect(self._show_image_popover)
+        self.image_btn.setVisible(False)
+        self.image_btn.setCursor(Qt.PointingHandCursor)
 
         # Create remove button (positioned absolutely in top-right corner)
 
@@ -1757,89 +1751,30 @@ class QuestionCardWithRemoveButton(QWidget):
         self.remove_btn.setCursor(Qt.PointingHandCursor)
 
         self.remove_btn.raise_()
-
-    def _refresh_image_counts(self):
-        """Update the displayed counts for question/answer images."""
-        question_count = "-"
-        answer_count = "-"
-
-        parent = self.parent()
-        db_service = getattr(parent, "db_service", None) if parent else None
-
-        if db_service and self.question_id:
-            try:
-                counts = db_service.get_image_counts(int(self.question_id))
-                question_count = counts.get("question", 0)
-                answer_count = counts.get("answer", 0)
-            except Exception:
-                question_count = "?"
-                answer_count = "?"
-
-        self.question_img_label.setText(f"Question images: {question_count}")
-        self.answer_img_label.setText(f"Answer images: {answer_count}")
-
-    def _add_images(self, kind: str):
-        """Open file picker and attach images of the given kind for this question."""
-        if not self.question_id:
-            QMessageBox.information(self, "No Question ID", "Cannot save images because this question is missing an ID.")
-            return
-
-        parent = self.parent()
-        db_service = getattr(parent, "db_service", None) if parent else None
-        if not db_service:
-            QMessageBox.warning(self, "Database Unavailable", "Database service is not available to save images.")
-            return
-
-        dialog_title = "Select question images" if kind == "question" else "Select answer images"
-        files, _ = QFileDialog.getOpenFileNames(
-            self,
-            dialog_title,
-            "",
-            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*)",
-        )
-        if not files:
-            return
-
-        added = 0
-        failed: list[str] = []
-        for file_path in files:
-            try:
-                db_service.add_question_image(int(self.question_id), kind, Path(file_path))
-                added += 1
-            except Exception:
-                failed.append(Path(file_path).name)
-
-        self._refresh_image_counts()
-
-        if added:
-            QMessageBox.information(self, "Images Saved", f"Saved {added} {kind} image(s) for this question.")
-        if failed:
-            QMessageBox.warning(
-                self,
-                "Some Images Skipped",
-                "Failed to save: " + ", ".join(failed),
-            )
-
+        self.image_btn.raise_()
+        self._update_image_button_state()
 
     def enterEvent(self, event):
 
         """Show remove button in top-right corner on hover."""
 
         self.remove_btn.setVisible(True)
+        self.image_btn.setVisible(True)
 
-        # Position button in top-right corner
-
+        # Position buttons in top-right corner
         self.remove_btn.move(self.width() - 32, 4)
+        self.image_btn.move(self.width() - 64, 4)
 
         super().enterEvent(event)
 
-    
+
 
     def leaveEvent(self, event):
 
         """Hide remove button when leaving."""
 
         self.remove_btn.setVisible(False)
+        self.image_btn.setVisible(False)
 
         super().leaveEvent(event)
 
@@ -1864,6 +1799,156 @@ class QuestionCardWithRemoveButton(QWidget):
         """Emit remove signal when button clicked."""
 
         self.remove_requested.emit(self.question_data)
+
+    def _update_image_button_state(self):
+        """Switch icon to filled version when images exist."""
+        icon = load_icon("image.svg")
+        if self.db_service and self.question_id:
+            try:
+                counts = self.db_service.get_image_counts(int(self.question_id))
+                if counts and any(v > 0 for v in counts.values()):
+                    icon = load_icon("image_filled.svg")
+            except Exception:
+                pass
+        self.image_btn.setIcon(icon)
+
+    def _show_image_popover(self):
+        """Show dialog with tabs for question/answer images."""
+        if not self.question_id:
+            QMessageBox.information(self, "No Question ID", "Cannot manage images because this question is missing an ID.")
+            return
+
+        if not self.db_service:
+            QMessageBox.warning(self, "Database Unavailable", "Database service is not available to load/save images.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Images")
+        dialog.setMinimumSize(520, 400)
+
+        root_layout = QVBoxLayout(dialog)
+        tabs = QTabWidget(dialog)
+        root_layout.addWidget(tabs)
+
+        def build_tab(kind: str):
+            tab = QWidget()
+            layout = QVBoxLayout(tab)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(8)
+
+            buttons = QHBoxLayout()
+            add_btn = QPushButton("Add from files")
+            add_btn.setIcon(load_icon("add.svg"))
+            add_btn.setIconSize(QSize(14, 14))
+            add_btn.clicked.connect(lambda: self._add_images(kind, refresh))
+            buttons.addWidget(add_btn)
+
+            paste_btn = QPushButton("Paste from clipboard")
+            paste_btn.setToolTip("Paste an image currently in clipboard")
+            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
+            buttons.addWidget(paste_btn)
+
+            buttons.addStretch()
+            layout.addLayout(buttons)
+
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setAlignment(Qt.AlignTop)
+            scroll.setWidget(content)
+            layout.addWidget(scroll)
+
+            def refresh():
+                while content_layout.count():
+                    item = content_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                try:
+                    images = self.db_service.get_images(int(self.question_id), kind)
+                except Exception as exc:
+                    err = QLabel(f"Failed to load images: {exc}")
+                    err.setStyleSheet("color: #dc2626;")
+                    content_layout.addWidget(err)
+                    return
+
+                if not images:
+                    empty = QLabel("No images yet.")
+                    empty.setStyleSheet("color: #94a3b8;")
+                    content_layout.addWidget(empty)
+                    return
+
+                for img in images:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(bytes(img["data"]))
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                    lbl = QLabel()
+                    lbl.setPixmap(pixmap)
+                    lbl.setStyleSheet("padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px;")
+                    content_layout.addWidget(lbl)
+
+            refresh()
+            return tab, refresh
+
+        q_tab, q_refresh = build_tab("question")
+        a_tab, a_refresh = build_tab("answer")
+        tabs.addTab(q_tab, "Question images")
+        tabs.addTab(a_tab, "Answer images")
+
+        dialog.exec()
+        self._update_image_button_state()
+
+    def _add_images(self, kind: str, refresh_callback=None):
+        """Open file picker and attach images of the given kind for this question."""
+        if not self.question_id or not self.db_service:
+            return
+
+        dialog_title = "Select question images" if kind == "question" else "Select answer images"
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            dialog_title,
+            "",
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*)",
+        )
+        if not files:
+            return
+
+        for file_path in files:
+            try:
+                self.db_service.add_question_image(int(self.question_id), kind, Path(file_path))
+            except Exception:
+                QMessageBox.warning(self, "Save Failed", f"Could not save image: {file_path}")
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
+
+    def _paste_image(self, kind: str, refresh_callback=None):
+        """Save an image from clipboard."""
+        if not self.question_id or not self.db_service:
+            return
+
+        clipboard = QGuiApplication.clipboard()
+        image: QImage = clipboard.image()
+        if image.isNull():
+            QMessageBox.information(self, "No Image", "Clipboard does not contain an image.")
+            return
+
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+
+        try:
+            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
+        except Exception:
+            QMessageBox.warning(self, "Save Failed", "Could not save image from clipboard.")
+            return
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
 
 
 
