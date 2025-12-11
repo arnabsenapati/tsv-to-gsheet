@@ -43,7 +43,7 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage, QCursor
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -2468,21 +2468,21 @@ class QuestionCardWidget(QLabel):
         lbl.setPixmap(pixmap)
         layout.addWidget(lbl)
 
-        # Decide side based on column: left column -> show on right, right column -> show on left
-        # Always show popup on the left of the card
-        global_pos = self.mapToGlobal(QPoint(0, 0))
-        popup_pos = global_pos - QPoint(pixmap.width() + 16, -8)
+        # Position relative to mouse pointer
+        popup.adjustSize()
+        popup_size = popup.sizeHint()
+        cursor_pos = QCursor.pos()
+        popup_pos = cursor_pos + QPoint(16, 16)
 
-        screen = QGuiApplication.primaryScreen()
+        screen = QGuiApplication.screenAt(cursor_pos) or QGuiApplication.primaryScreen()
         if screen:
             screen_geo = screen.availableGeometry()
-            popup_geo = popup.frameGeometry()
 
             # Adjust if the popup would go off-screen
-            if popup_pos.x() + popup_geo.width() > screen_geo.right():
-                popup_pos.setX(screen_geo.right() - popup_geo.width() - 4)
-            if popup_pos.y() + popup_geo.height() > screen_geo.bottom():
-                popup_pos.setY(screen_geo.bottom() - popup_geo.height() - 4)
+            if popup_pos.x() + popup_size.width() > screen_geo.right():
+                popup_pos.setX(screen_geo.right() - popup_size.width() - 4)
+            if popup_pos.y() + popup_size.height() > screen_geo.bottom():
+                popup_pos.setY(screen_geo.bottom() - popup_size.height() - 4)
             if popup_pos.x() < screen_geo.left():
                 popup_pos.setX(screen_geo.left() + 4)
             if popup_pos.y() < screen_geo.top():
