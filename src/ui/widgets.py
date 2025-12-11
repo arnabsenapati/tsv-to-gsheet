@@ -2469,26 +2469,9 @@ class QuestionCardWidget(QLabel):
         layout.addWidget(lbl)
 
         # Decide side based on column: left column -> show on right, right column -> show on left
-        parent = self.parent()
-        if parent and parent.width() > 0:
-            col_idx = getattr(self, "column_index", None) or getattr(parent, "column_index", None)
-            if col_idx is not None:
-                show_on_right = (col_idx == 0)
-            else:
-                local_center_x = self.pos().x() + (self.width() / 2)
-                show_on_right = local_center_x <= (parent.width() / 2)
-        else:
-            card_center_x = self.mapToGlobal(self.rect().center()).x()
-            window = self.window()
-            window_center_x = window.geometry().center().x() if window else QGuiApplication.primaryScreen().geometry().center().x()
-            show_on_right = card_center_x <= window_center_x
-
-        if show_on_right:
-            global_pos = self.mapToGlobal(QPoint(self.width(), 0))
-            popup_pos = global_pos + QPoint(8, 8)
-        else:
-            global_pos = self.mapToGlobal(QPoint(0, 0))
-            popup_pos = global_pos - QPoint(pixmap.width() + 16, -8)
+        # Always show popup on the left of the card
+        global_pos = self.mapToGlobal(QPoint(0, 0))
+        popup_pos = global_pos - QPoint(pixmap.width() + 16, -8)
 
         screen = QGuiApplication.primaryScreen()
         if screen:
