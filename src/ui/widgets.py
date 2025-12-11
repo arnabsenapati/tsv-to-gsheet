@@ -65,6 +65,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QDialog,
     QTabWidget,
+    QGraphicsDropShadowEffect,
 )
 
 from ui.icon_utils import load_icon
@@ -2392,6 +2393,8 @@ class QuestionCardWidget(QLabel):
 
     def enterEvent(self, event):
         """Show image button and start delayed preview on hover."""
+        if self.is_custom_list_card:
+            return super().enterEvent(event)
         self.image_btn.setVisible(True)
         self._hover_timer.start()
         self.image_btn.move(self.width() - 32, 4)
@@ -2399,6 +2402,8 @@ class QuestionCardWidget(QLabel):
 
     def leaveEvent(self, event):
         """Hide image button and cancel preview."""
+        if self.is_custom_list_card:
+            return super().leaveEvent(event)
         self.image_btn.setVisible(False)
         self._hover_timer.stop()
         self._hide_hover_preview()
@@ -2429,6 +2434,9 @@ class QuestionCardWidget(QLabel):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
 
+        if self.is_custom_list_card:
+            return
+
         if not (self.db_service and self.question_id):
             return
 
@@ -2448,7 +2456,12 @@ class QuestionCardWidget(QLabel):
 
         popup = QWidget(None, Qt.ToolTip)
         popup.setAttribute(Qt.WA_DeleteOnClose)
-        popup.setStyleSheet("background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px;")
+        popup.setStyleSheet("background: #ffffff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 6px;")
+        shadow = QGraphicsDropShadowEffect(popup)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        popup.setGraphicsEffect(shadow)
         layout = QVBoxLayout(popup)
         layout.setContentsMargins(4, 4, 4, 4)
         lbl = QLabel()
