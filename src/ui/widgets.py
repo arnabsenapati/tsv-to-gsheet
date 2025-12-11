@@ -2393,6 +2393,8 @@ class QuestionCardWidget(QLabel):
 
     def enterEvent(self, event):
         """Show image button and start delayed preview on hover."""
+        if self.is_custom_list_card:
+            return super().enterEvent(event)
         self.image_btn.setVisible(True)
         self._hover_timer.start()
         self.image_btn.move(self.width() - 32, 4)
@@ -2400,6 +2402,8 @@ class QuestionCardWidget(QLabel):
 
     def leaveEvent(self, event):
         """Hide image button and cancel preview."""
+        if self.is_custom_list_card:
+            return super().leaveEvent(event)
         self.image_btn.setVisible(False)
         self._hover_timer.stop()
         self._hide_hover_preview()
@@ -2429,6 +2433,9 @@ class QuestionCardWidget(QLabel):
     def _show_hover_preview(self):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
+
+        if self.is_custom_list_card:
+            return
 
         if not (self.db_service and self.question_id):
             return
