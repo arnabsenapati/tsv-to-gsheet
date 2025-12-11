@@ -13,17 +13,13 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Google Drive configuration files directory
-GOOGLE_DRIVE_BASE = Path("G:/My Drive/Aditya/IITJEE/QuestionAnalysisJsons")
+GOOGLE_DRIVE_BASE = Path("G:/My Drive/Aditya/IITJEE/QuestionAnalysisJsons")  # legacy, unused
 
-# Configuration files
+# Base app files
 PHYSICS_CHAPTER_FILE = BASE_DIR / "physicsCHapters.txt"
-PHYSICS_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "PhysicsChapterGrouping.json"
-CHEMISTRY_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "ChemistryChapterGrouping.json"
-MATHEMATICS_GROUPING_FILE = GOOGLE_DRIVE_BASE / "ChapterGrouping" / "MathematicsChapterGrouping.json"
 LAST_SELECTION_FILE = BASE_DIR / "last_selection.json"
-QUESTION_LIST_DIR = GOOGLE_DRIVE_BASE / "CustomLists"
-TAGS_CONFIG_FILE = GOOGLE_DRIVE_BASE / "TagsConfig" / "tags.cfg"
-QUESTION_SET_GROUP_FILE = GOOGLE_DRIVE_BASE / "QuestionSetGroup.json"
+QUESTION_LIST_DIR = BASE_DIR / "CustomLists"  # legacy export default; lists now stored in DB
+DEFAULT_DB_PATH = Path(r"G:\My Drive\Aditya\IITJEE\Database\question_bank.db")
 
 
 # ============================================================================
@@ -31,9 +27,9 @@ QUESTION_SET_GROUP_FILE = GOOGLE_DRIVE_BASE / "QuestionSetGroup.json"
 # ============================================================================
 
 MAGAZINE_GROUPING_MAP = {
-    "chemistry today": CHEMISTRY_GROUPING_FILE,
-    "physics for you": PHYSICS_GROUPING_FILE,
-    "mathematics today": MATHEMATICS_GROUPING_FILE,
+    "chemistry today": "ChemistryChapterGrouping",
+    "physics for you": "PhysicsChapterGrouping",
+    "mathematics today": "MathematicsChapterGrouping",
 }
 
 

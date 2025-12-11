@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from config.constants import QUESTION_SET_GROUP_FILE
+from services.db_service import DatabaseService
 
 
 class QuestionSetGroupService:
@@ -58,7 +58,7 @@ class QuestionSetGroupService:
         "#ef4444",  # Red
     ]
     
-    def __init__(self, config_file: Path = QUESTION_SET_GROUP_FILE):
+    def __init__(self, config_file: Path | None = None, db_service: DatabaseService | None = None):
         """
         Initialize the question set group service.
         
@@ -66,6 +66,7 @@ class QuestionSetGroupService:
             config_file: Path to question set group configuration file
         """
         self.config_file = config_file
+        self.db_service = db_service
         self.groups: dict[str, dict] = {}  # group_name -> {display_name, question_sets, color}
         
         # Load existing groups from file
@@ -78,25 +79,14 @@ class QuestionSetGroupService:
         If file doesn't exist, initialize with default groups.
         If file is invalid, start fresh with defaults.
         """
-        if not self.config_file.exists():
-            self._initialize_default_groups()
-            self.save_groups()
-            return
-        
-        try:
-            data = json.loads(self.config_file.read_text(encoding="utf-8"))
-            self.groups = data.get("groups", {})
-            # If file exists but is empty or missing groups, initialize defaults once
-            if not self.groups:
-                self._initialize_default_groups()
-                self.save_groups()
-        
-        except json.JSONDecodeError:
-            # Corrupted file - start fresh
-            self._initialize_default_groups()
-            self.save_groups()
-        except Exception:
-            # Any other error - start fresh
+        loaded = False
+        if self.db_service:
+            data = self.db_service.load_config("QuestionSetGroup")
+            if data:
+                self.groups = data.get("groups", {})
+                loaded = True
+
+        if not loaded:
             self._initialize_default_groups()
             self.save_groups()
     
@@ -123,17 +113,19 @@ class QuestionSetGroupService:
     def save_groups(self) -> None:
         """
         Save groups to configuration file.
-        
-        Creates parent directories if needed.
         """
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        
         payload = {"groups": self.groups}
-        
-        self.config_file.write_text(
-            json.dumps(payload, indent=2),
-            encoding="utf-8",
-        )
+
+        if self.db_service:
+            self.db_service.save_config("QuestionSetGroup", payload)
+
+        # Optionally persist to file if a path was provided (legacy/compat)
+        if self.config_file:
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            self.config_file.write_text(
+                json.dumps(payload, indent=2),
+                encoding="utf-8",
+            )
     
     def get_all_groups(self) -> dict[str, dict]:
         """
