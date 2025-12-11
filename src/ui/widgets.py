@@ -2455,8 +2455,17 @@ class QuestionCardWidget(QLabel):
         lbl.setPixmap(pixmap)
         layout.addWidget(lbl)
 
+        # Default anchor to the right of the card
         global_pos = self.mapToGlobal(QPoint(self.width(), 0))
         popup_pos = global_pos + QPoint(8, 8)
+
+        # If the card sits on the right half of its parent, prefer showing popup to the left
+        parent = self.parent()
+        if parent:
+            local_pos = self.pos()
+            if local_pos.x() > (parent.width() / 2):
+                global_pos = self.mapToGlobal(QPoint(0, 0))
+                popup_pos = global_pos - QPoint(pixmap.width() + 16, -8)
 
         screen = QGuiApplication.primaryScreen()
         if screen:
