@@ -2393,8 +2393,6 @@ class QuestionCardWidget(QLabel):
 
     def enterEvent(self, event):
         """Show image button and start delayed preview on hover."""
-        if self.is_custom_list_card:
-            return super().enterEvent(event)
         self.image_btn.setVisible(True)
         self._hover_timer.start()
         self.image_btn.move(self.width() - 32, 4)
@@ -2402,8 +2400,6 @@ class QuestionCardWidget(QLabel):
 
     def leaveEvent(self, event):
         """Hide image button and cancel preview."""
-        if self.is_custom_list_card:
-            return super().leaveEvent(event)
         self.image_btn.setVisible(False)
         self._hover_timer.stop()
         self._hide_hover_preview()
@@ -2433,9 +2429,6 @@ class QuestionCardWidget(QLabel):
     def _show_hover_preview(self):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
-
-        if self.is_custom_list_card:
-            return
 
         if not (self.db_service and self.question_id):
             return
@@ -2468,21 +2461,37 @@ class QuestionCardWidget(QLabel):
         lbl.setPixmap(pixmap)
         layout.addWidget(lbl)
 
-        # Position relative to mouse pointer
-        popup.adjustSize()
-        popup_size = popup.sizeHint()
-        cursor_pos = QCursor.pos()
-        popup_pos = cursor_pos + QPoint(16, 16)
+        # Position relative to card column: left column -> show on right, right column -> show on left
+        parent = self.parent()
+        if parent and parent.width() > 0:
+            col_idx = getattr(self, "column_index", None) or getattr(parent, "column_index", None)
+            if col_idx is not None:
+                show_on_right = (col_idx == 0)
+            else:
+                local_center_x = self.pos().x() + (self.width() / 2)
+                show_on_right = local_center_x <= (parent.width() / 2)
+        else:
+            card_center_x = self.mapToGlobal(self.rect().center()).x()
+            window = self.window()
+            window_center_x = window.geometry().center().x() if window else QGuiApplication.primaryScreen().geometry().center().x()
+            show_on_right = card_center_x <= window_center_x
 
-        screen = QGuiApplication.screenAt(cursor_pos) or QGuiApplication.primaryScreen()
+        if show_on_right:
+            global_pos = self.mapToGlobal(QPoint(self.width(), 0))
+            popup_pos = global_pos + QPoint(12, 8)
+        else:
+            global_pos = self.mapToGlobal(QPoint(0, 0))
+            popup_pos = global_pos - QPoint(pixmap.width() + 20, -8)
+
+        screen = QGuiApplication.primaryScreen()
         if screen:
             screen_geo = screen.availableGeometry()
 
             # Adjust if the popup would go off-screen
-            if popup_pos.x() + popup_size.width() > screen_geo.right():
-                popup_pos.setX(screen_geo.right() - popup_size.width() - 4)
-            if popup_pos.y() + popup_size.height() > screen_geo.bottom():
-                popup_pos.setY(screen_geo.bottom() - popup_size.height() - 4)
+            if popup_pos.x() + popup.frameGeometry().width() > screen_geo.right():
+                popup_pos.setX(screen_geo.right() - popup.frameGeometry().width() - 4)
+            if popup_pos.y() + popup.frameGeometry().height() > screen_geo.bottom():
+                popup_pos.setY(screen_geo.bottom() - popup.frameGeometry().height() - 4)
             if popup_pos.x() < screen_geo.left():
                 popup_pos.setX(screen_geo.left() + 4)
             if popup_pos.y() < screen_geo.top():
