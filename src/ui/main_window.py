@@ -3728,7 +3728,8 @@ class TSVWatcherWindow(QMainWindow):
                     item.widget().deleteLater()
         
         # Add question cards in 2-column grid using QuestionCardWithRemoveButton wrapper
-        for idx, question in enumerate(questions):
+        sorted_questions = sorted(questions, key=self._get_question_sort_key)
+        for idx, question in enumerate(sorted_questions):
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
@@ -3873,7 +3874,24 @@ class TSVWatcherWindow(QMainWindow):
         question_set = self._normalize_label(question.get("question_set_name", ""))
         magazine = self._normalize_label(question.get("magazine", ""))
         return f"{qno}|{question_set}|{magazine}"
-    
+
+    def _get_question_sort_key(self, question: dict):
+        """Sort by magazine/edition, then page number, then question number."""
+        magazine = self._normalize_label(question.get("magazine", ""))
+
+        def _to_number(val, default=999999):
+            text = str(val or "").strip()
+            if "-" in text:
+                text = text.split("-")[0].strip()
+            try:
+                return float(re.sub(r"[^0-9.]", "", text)) if re.search(r"\d", text) else default
+            except Exception:
+                return default
+
+        page = _to_number(question.get("page"))
+        qno = _to_number(question.get("qno"))
+        return (magazine, page, qno)
+
     def _is_common_question(self, question: dict) -> bool:
         """Check if question is common with comparison target."""
         if not self.comparison_common_ids:
