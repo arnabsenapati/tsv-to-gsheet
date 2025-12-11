@@ -12,7 +12,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from config.constants import TAGS_CONFIG_FILE, TAG_COLORS
+from config.constants import TAG_COLORS
+from services.db_service import DatabaseService
 
 
 class TagService:
@@ -39,7 +40,7 @@ class TagService:
         }
     """
     
-    def __init__(self, config_file: Path = TAGS_CONFIG_FILE, available_colors: list[str] = None):
+    def __init__(self, config_file: Path | None = None, available_colors: list[str] = None, db_service: DatabaseService | None = None):
         """
         Initialize the tag service.
         
@@ -48,6 +49,7 @@ class TagService:
             available_colors: List of hex color codes for tag palette (default: TAG_COLORS)
         """
         self.config_file = config_file
+        self.db_service = db_service
         self.available_colors = available_colors or TAG_COLORS
         
         # Storage for tags and colors
@@ -64,23 +66,11 @@ class TagService:
         If file doesn't exist or is invalid JSON, initializes empty storage.
         Silently handles errors to prevent crashes on startup.
         """
-        if not self.config_file.exists():
-            self.group_tags = {}
-            self.tag_colors = {}
-            return
-        
-        try:
-            data = json.loads(self.config_file.read_text(encoding="utf-8"))
-            self.group_tags = data.get("group_tags", {})
-            self.tag_colors = data.get("tag_colors", {})
-        except json.JSONDecodeError:
-            # Corrupted file - start fresh
-            self.group_tags = {}
-            self.tag_colors = {}
-        except Exception:
-            # Any other error - start fresh
-            self.group_tags = {}
-            self.tag_colors = {}
+        data = {}
+        if self.db_service:
+            data = self.db_service.load_config("TagsConfig")
+        self.group_tags = data.get("group_tags", {})
+        self.tag_colors = data.get("tag_colors", {})
     
     def save_tags(self) -> None:
         """
@@ -89,17 +79,12 @@ class TagService:
         Writes JSON with 2-space indentation for readability.
         Creates parent directories if needed.
         """
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
-        
         payload = {
             "group_tags": self.group_tags,
             "tag_colors": self.tag_colors,
         }
-        
-        self.config_file.write_text(
-            json.dumps(payload, indent=2), 
-            encoding="utf-8"
-        )
+        if self.db_service:
+            self.db_service.save_config("TagsConfig", payload)
     
     def get_group_tags(self, group_name: str) -> list[str]:
         """

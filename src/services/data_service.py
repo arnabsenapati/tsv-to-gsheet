@@ -15,12 +15,8 @@ from typing import Optional
 
 import pandas as pd
 
-from config.constants import (
-    PHYSICS_GROUPING_FILE,
-    CHEMISTRY_GROUPING_FILE,
-    MATHEMATICS_GROUPING_FILE,
-    MAGAZINE_GROUPING_MAP,
-)
+from config.constants import MAGAZINE_GROUPING_MAP
+from services.db_service import DatabaseService
 
 
 class DataService:
@@ -44,13 +40,14 @@ class DataService:
         }
     """
     
-    def __init__(self, current_magazine: str = ""):
+    def __init__(self, current_magazine: str = "", db_service: DatabaseService | None = None):
         """
         Initialize the data service.
         
         Args:
             current_magazine: Current magazine name (for loading appropriate grouping file)
         """
+        self.db_service = db_service
         self.current_magazine = current_magazine
         self.canonical_chapters: list[str] = []
         self.chapter_groups: dict[str, list[str]] = {}  # group -> [chapters]
@@ -60,49 +57,27 @@ class DataService:
         if current_magazine:
             self.load_grouping_for_magazine(current_magazine)
     
-    def load_canonical_chapters(self, grouping_file: Path) -> list[str]:
-        """
-        Load canonical chapter list from JSON grouping file.
-        
-        Args:
-            grouping_file: Path to chapter grouping JSON file
-            
-        Returns:
-            List of canonical chapter names in order
-        """
-        if not grouping_file.exists():
-            return []
-        
-        try:
-            data = json.loads(grouping_file.read_text(encoding="utf-8"))
-            return data.get("canonical_order", [])
-        except json.JSONDecodeError:
-            return []
+    def load_canonical_chapters(self, key: str) -> list[str]:
+        """Load canonical chapter list from DB config."""
+        if self.db_service:
+            data = self.db_service.load_config(key)
+            if data:
+                return data.get("canonical_order", [])
+        return []
     
-    def load_chapter_grouping(self, grouping_file: Path) -> dict[str, list[str]]:
+    def load_chapter_grouping(self, key: str) -> dict[str, list[str]]:
         """
-        Load chapter grouping from JSON file.
+        Load chapter grouping from DB config.
         
-        Creates default structure if file doesn't exist:
+        Creates default structure if empty:
         - Adds canonical chapters as empty groups
         - Adds "Others" group for unmatched chapters
         - Removes duplicates while preserving order
-        
-        Args:
-            grouping_file: Path to chapter grouping JSON file
-            
-        Returns:
-            Dict mapping group names to lists of chapter names
         """
-        # Load from file or start with empty
-        if grouping_file.exists():
-            try:
-                data = json.loads(grouping_file.read_text(encoding="utf-8"))
-                groups = data.get("groups", {})
-            except json.JSONDecodeError:
-                groups = {}
-        else:
-            groups = {}
+        data = {}
+        if self.db_service:
+            data = self.db_service.load_config(key)
+        groups = data.get("groups", {}) if data else {}
         
         # Ensure all canonical chapters have entries
         for group in self.canonical_chapters:
@@ -136,29 +111,29 @@ class DataService:
             magazine_name: Magazine name (e.g., "physics for you", "chemistry today")
         """
         # Get appropriate grouping file for magazine
-        grouping_file = MAGAZINE_GROUPING_MAP.get(
-            magazine_name.lower(), 
-            PHYSICS_GROUPING_FILE
-        )
+        key = ""
+        norm = magazine_name.lower()
+        if "physics" in norm:
+            key = "PhysicsChapterGrouping"
+        elif "chemistry" in norm:
+            key = "ChemistryChapterGrouping"
+        elif "mathematics" in norm:
+            key = "MathematicsChapterGrouping"
+        else:
+            key = "PhysicsChapterGrouping"
         
         self.current_magazine = magazine_name
-        self.canonical_chapters = self.load_canonical_chapters(grouping_file)
-        self.chapter_groups = self.load_chapter_grouping(grouping_file)
+        self.canonical_chapters = self.load_canonical_chapters(key)
+        self.chapter_groups = self.load_chapter_grouping(key)
     
-    def save_chapter_grouping(self, grouping_file: Path) -> None:
-        """
-        Save current chapter grouping to JSON file.
-        
-        Args:
-            grouping_file: Path to save grouping data
-        """
+    def save_chapter_grouping(self, key: str) -> None:
+        """Save current chapter grouping to DB config."""
         payload = {
             "canonical_order": self.canonical_chapters,
             "groups": self.chapter_groups,
         }
-        
-        grouping_file.parent.mkdir(parents=True, exist_ok=True)
-        grouping_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if self.db_service:
+            self.db_service.save_config(key, payload)
     
     def get_ordered_groups(self) -> list[str]:
         """

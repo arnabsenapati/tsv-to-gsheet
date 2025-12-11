@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStyledItemDelegate,
 )
-from config.constants import TAGS_CONFIG_FILE, TAG_COLORS
+from config.constants import TAG_COLORS
 from ui.dialogs import MultiSelectTagDialog
 from ui.widgets import TagBadge
 
@@ -76,7 +76,7 @@ class QuestionSetGroupingView(QWidget):
         main_layout.setSpacing(12)
         
         # Title
-        title = QLabel("📋 Question Set Grouping")
+        title = QLabel(" Question Set Grouping")
         title.setStyleSheet("""
             QLabel {
                 font-size: 18px;
@@ -116,7 +116,7 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         
-        left_icon = QLabel("📂")
+        left_icon = QLabel("")
         left_icon.setStyleSheet("font-size: 18px;")
         left_header_layout.addWidget(left_icon)
         
@@ -132,7 +132,7 @@ class QuestionSetGroupingView(QWidget):
         left_header_layout.addStretch()
         
         # Add Group button
-        add_group_btn = QPushButton("➕")
+        add_group_btn = QPushButton("")
         add_group_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -243,7 +243,7 @@ class QuestionSetGroupingView(QWidget):
             }
         """)
         
-        right_icon = QLabel("📝")
+        right_icon = QLabel("")
         right_icon.setStyleSheet("font-size: 18px;")
         right_header_layout.addWidget(right_icon)
         
@@ -617,32 +617,14 @@ class QuestionSetGroupingView(QWidget):
             self._refresh_groups_list()
 
     def _load_tags_config(self):
-        """Load tags and group-tag mapping from tags.cfg."""
-        if not TAGS_CONFIG_FILE.exists():
-            return
-        try:
-            data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
-            self.tag_colors = data.get("tag_colors", {})
-            self.group_tags = data.get("question_set_group_tags", {})
-            if not self.tag_colors:
-                self.tag_colors = {}
-        except json.JSONDecodeError:
-            self.tag_colors = {}
-            self.group_tags = {}
+        """Load tags from database (provided by main window)."""
+        # main window now handles tag persistence; start empty here
+        self.tag_colors = getattr(self.parent(), "tag_colors", {}) or {}
+        self.group_tags = getattr(self.parent(), "question_set_group_tags", {}) or {}
 
     def _save_tags_config(self):
-        """Persist tag colors and question set group tags without clobbering other data."""
-        try:
-            existing = {}
-            if TAGS_CONFIG_FILE.exists():
-                existing = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            existing = {}
-
-        existing["tag_colors"] = self.tag_colors
-        existing["question_set_group_tags"] = self.group_tags
-        TAGS_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TAGS_CONFIG_FILE.write_text(json.dumps(existing, indent=2), encoding="utf-8")
+        """No-op: main window handles tag persistence."""
+        pass
 
 
 class QuestionSetListWidget(QListWidget):
@@ -707,7 +689,7 @@ class QuestionSetListWidget(QListWidget):
         drag.setPixmap(pixmap)
         # Place hotspot so pointer tip is 0.7 * radius away from center (at 45 degrees)
         radius = diameter / 2
-        offset = radius * 0.7 / math.sqrt(2)  # components along x/y for 45°
+        offset = radius * 0.7 / math.sqrt(2)  # components along x/y for 45
         hotspot = QPoint(int(pixmap.width() / 2 + offset), int(pixmap.height() / 2 + offset))
         drag.setHotSpot(hotspot)
         drag.exec(supported_actions)
@@ -964,7 +946,7 @@ class GroupItemWidget(QWidget):
         layout.addWidget(self.pill_container, 1)
         
         # Rename button (hidden by default, shown on hover)
-        self.rename_btn = QPushButton("✏️")
+        self.rename_btn = QPushButton("")
         self.rename_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -986,7 +968,7 @@ class GroupItemWidget(QWidget):
         layout.addWidget(self.rename_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
 
         # Delete button (only relevant when count == 0)
-        self.delete_btn = QPushButton("🗑")
+        self.delete_btn = QPushButton("")
         self.delete_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
@@ -1008,7 +990,7 @@ class GroupItemWidget(QWidget):
         layout.addWidget(self.delete_btn, alignment=Qt.AlignRight | Qt.AlignVCenter)
 
         # Tag edit button
-        self.tag_btn = QPushButton("🏷")
+        self.tag_btn = QPushButton("")
         self.tag_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
