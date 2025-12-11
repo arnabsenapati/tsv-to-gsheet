@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
