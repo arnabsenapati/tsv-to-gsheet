@@ -2471,8 +2471,12 @@ class QuestionCardWidget(QLabel):
         # Decide side based on column: left column -> show on right, right column -> show on left
         parent = self.parent()
         if parent and parent.width() > 0:
-            local_center_x = self.pos().x() + (self.width() / 2)
-            show_on_right = local_center_x <= (parent.width() / 2)
+            col_idx = getattr(self, "column_index", None) or getattr(parent, "column_index", None)
+            if col_idx is not None:
+                show_on_right = (col_idx == 0)
+            else:
+                local_center_x = self.pos().x() + (self.width() / 2)
+                show_on_right = local_center_x <= (parent.width() / 2)
         else:
             card_center_x = self.mapToGlobal(self.rect().center()).x()
             window = self.window()

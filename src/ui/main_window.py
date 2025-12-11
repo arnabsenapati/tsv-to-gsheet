@@ -3733,10 +3733,11 @@ class TSVWatcherWindow(QMainWindow):
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
-            
+            card_wrapper.column_index = idx % 2
+
             if self._is_common_question(question):
                 self._mark_card_as_common(card_wrapper)
-            
+
             row = idx // 2
             col = idx % 2
             self._list_card_grid_layout.addWidget(card_wrapper, row, col)
