@@ -1680,23 +1680,7 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setIcon(load_icon("image.svg"))
         self.image_btn.setIconSize(QSize(16, 16))
         self.image_btn.setToolTip("View / add question & answer images")
-        self.image_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0ea5e9;
-                color: white;
-                border: none;
-                border-radius: 50%;
-                width: 28px;
-                height: 28px;
-                padding: 0px;
-                font-weight: bold;
-                font-size: 14px;
-                qproperty-flat: true;
-            }
-            QPushButton:hover {
-                background-color: #0284c7;
-            }
-        """)
+        self.image_btn.setStyleSheet(self._image_button_style(active=False))
         self.image_btn.setFixedSize(28, 28)
         self.image_btn.clicked.connect(self._show_image_popover)
         self.image_btn.setVisible(False)
@@ -1800,17 +1784,58 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_requested.emit(self.question_data)
 
+    def _image_button_style(self, active: bool) -> str:
+        """Return stylesheet for image button; green when active, blue otherwise."""
+        if active:
+            return """
+            QPushButton {
+                background-color: #16a34a;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 14px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #15803d;
+            }
+            """
+        return """
+        QPushButton {
+            background-color: #0ea5e9;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            padding: 0px;
+            font-weight: bold;
+            font-size: 14px;
+            qproperty-flat: true;
+        }
+        QPushButton:hover {
+            background-color: #0284c7;
+        }
+        """
+
     def _update_image_button_state(self):
         """Switch icon to filled version when images exist."""
         icon = load_icon("image.svg")
+        has_images = False
         if self.db_service and self.question_id:
             try:
                 counts = self.db_service.get_image_counts(int(self.question_id))
-                if counts and any(v > 0 for v in counts.values()):
+                has_images = bool(counts and any(v > 0 for v in counts.values()))
+                if has_images:
                     icon = load_icon("image_filled.svg")
             except Exception:
                 pass
         self.image_btn.setIcon(icon)
+        self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
 
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
@@ -1847,6 +1872,11 @@ class QuestionCardWithRemoveButton(QWidget):
             paste_btn.setToolTip("Paste an image currently in clipboard")
             paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
             buttons.addWidget(paste_btn)
+
+            clear_btn = QPushButton("Clear all")
+            clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
+            clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
+            buttons.addWidget(clear_btn)
 
             buttons.addStretch()
             layout.addLayout(buttons)
@@ -1944,6 +1974,31 @@ class QuestionCardWithRemoveButton(QWidget):
             self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
         except Exception:
             QMessageBox.warning(self, "Save Failed", "Could not save image from clipboard.")
+            return
+
+        if refresh_callback:
+            refresh_callback()
+        self._update_image_button_state()
+
+    def _clear_images(self, kind: str, refresh_callback=None):
+        """Delete all images for this kind."""
+        if not self.question_id or not self.db_service:
+            return
+
+        confirm = QMessageBox.question(
+            self,
+            "Clear images",
+            f"Remove all {kind} images for this question?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        try:
+            self.db_service.delete_images(int(self.question_id), kind)
+        except Exception:
+            QMessageBox.warning(self, "Delete Failed", "Could not delete images.")
             return
 
         if refresh_callback:

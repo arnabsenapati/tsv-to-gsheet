@@ -298,6 +298,25 @@ class DatabaseService:
             )
         return result
 
+    def delete_images(self, question_id: int, kind: str | None = None) -> int:
+        """
+        Delete images for a question. If kind is provided, only that category is removed.
+
+        Returns the number of deleted rows.
+        """
+        with self._connect() as conn:
+            if kind:
+                cur = conn.execute(
+                    "DELETE FROM images WHERE question_id = ? AND kind = ?",
+                    (question_id, kind),
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM images WHERE question_id = ?",
+                    (question_id,),
+                )
+            return cur.rowcount or 0
+
     def load_question_lists(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
         """
         Return (question_lists, metadata) where question_lists is name -> list[dict],
