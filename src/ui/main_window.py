@@ -494,6 +494,8 @@ class TSVWatcherWindow(QMainWindow):
         # Tag filter button (same style as accordion tag button)
         self.tag_filter_btn = QPushButton("")
         self.tag_filter_btn.setToolTip("Select tags to filter questions")
+        self.tag_filter_btn.setIcon(load_icon("tag.svg"))
+        self.tag_filter_btn.setIconSize(QSize(16, 16))
         self.tag_filter_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
