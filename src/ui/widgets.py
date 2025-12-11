@@ -1675,13 +1675,6 @@ class QuestionCardWithRemoveButton(QWidget):
 
         layout.addWidget(self.card)
 
-        # Hover preview timer/popup
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(1000)
-        self._hover_timer.setSingleShot(True)
-        self._hover_timer.timeout.connect(self._show_hover_preview)
-        self._preview_popup: QWidget | None = None
-
         # Image button (top-right, beside remove)
         self.image_btn = QPushButton(self)
         self.image_btn.setIcon(load_icon("image.svg"))
@@ -1752,9 +1745,6 @@ class QuestionCardWithRemoveButton(QWidget):
         self.remove_btn.setVisible(True)
         self.image_btn.setVisible(True)
 
-        # Start hover preview timer
-        self._hover_timer.start()
-
         # Position buttons in top-right corner
         self.remove_btn.move(self.width() - 32, 4)
         self.image_btn.move(self.width() - 64, 4)
@@ -1769,10 +1759,6 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.setVisible(False)
         self.image_btn.setVisible(False)
-
-        # Stop hover preview and hide popup
-        self._hover_timer.stop()
-        self._hide_hover_preview()
 
         super().leaveEvent(event)
 
@@ -1797,50 +1783,6 @@ class QuestionCardWithRemoveButton(QWidget):
         """Emit remove signal when button clicked."""
 
         self.remove_requested.emit(self.question_data)
-
-    def _hide_hover_preview(self):
-        """Hide and clean up preview popup."""
-        if self._preview_popup:
-            self._preview_popup.hide()
-            self._preview_popup.deleteLater()
-            self._preview_popup = None
-
-    def _show_hover_preview(self):
-        """Show first question image in a small popup after hover delay."""
-        self._hide_hover_preview()
-
-        if not (self.db_service and self.question_id):
-            return
-
-        try:
-            images = self.db_service.get_images(int(self.question_id), "question")
-        except Exception:
-            return
-
-        if not images:
-            return
-
-        pixmap = QPixmap()
-        pixmap.loadFromData(bytes(images[0]["data"]))
-        if pixmap.isNull():
-            return
-        pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
-
-        popup = QWidget(None, Qt.ToolTip)
-        popup.setAttribute(Qt.WA_DeleteOnClose)
-        popup.setStyleSheet("background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px;")
-        layout = QVBoxLayout(popup)
-        layout.setContentsMargins(4, 4, 4, 4)
-        lbl = QLabel()
-        lbl.setPixmap(pixmap)
-        layout.addWidget(lbl)
-
-        # Position popup near card (top-right)
-        global_pos = self.mapToGlobal(QPoint(self.width(), 0))
-        popup.move(global_pos + QPoint(8, 8))
-        popup.show()
-
-        self._preview_popup = popup
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
@@ -2393,8 +2335,6 @@ class QuestionCardWidget(QLabel):
 
     def enterEvent(self, event):
         """Show image button and start delayed preview on hover."""
-        if self.is_custom_list_card:
-            return super().enterEvent(event)
         self.image_btn.setVisible(True)
         self._hover_timer.start()
         self.image_btn.move(self.width() - 32, 4)
@@ -2402,8 +2342,6 @@ class QuestionCardWidget(QLabel):
 
     def leaveEvent(self, event):
         """Hide image button and cancel preview."""
-        if self.is_custom_list_card:
-            return super().leaveEvent(event)
         self.image_btn.setVisible(False)
         self._hover_timer.stop()
         self._hide_hover_preview()
@@ -2433,9 +2371,6 @@ class QuestionCardWidget(QLabel):
     def _show_hover_preview(self):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
-
-        if self.is_custom_list_card:
-            return
 
         if not (self.db_service and self.question_id):
             return
