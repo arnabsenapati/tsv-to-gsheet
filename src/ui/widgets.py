@@ -2456,7 +2456,24 @@ class QuestionCardWidget(QLabel):
         layout.addWidget(lbl)
 
         global_pos = self.mapToGlobal(QPoint(self.width(), 0))
-        popup.move(global_pos + QPoint(8, 8))
+        popup_pos = global_pos + QPoint(8, 8)
+
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            screen_geo = screen.availableGeometry()
+            popup_geo = popup.frameGeometry()
+
+            # Adjust if the popup would go off-screen
+            if popup_pos.x() + popup_geo.width() > screen_geo.right():
+                popup_pos.setX(screen_geo.right() - popup_geo.width() - 4)
+            if popup_pos.y() + popup_geo.height() > screen_geo.bottom():
+                popup_pos.setY(screen_geo.bottom() - popup_geo.height() - 4)
+            if popup_pos.x() < screen_geo.left():
+                popup_pos.setX(screen_geo.left() + 4)
+            if popup_pos.y() < screen_geo.top():
+                popup_pos.setY(screen_geo.top() + 4)
+
+        popup.move(popup_pos)
         popup.show()
 
         self._preview_popup = popup
