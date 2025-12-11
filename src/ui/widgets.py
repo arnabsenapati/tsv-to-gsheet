@@ -2468,11 +2468,16 @@ class QuestionCardWidget(QLabel):
         lbl.setPixmap(pixmap)
         layout.addWidget(lbl)
 
-        # Decide side based on card position relative to window center
-        card_center_x = self.mapToGlobal(self.rect().center()).x()
-        window = self.window()
-        window_center_x = window.geometry().center().x() if window else QGuiApplication.primaryScreen().geometry().center().x()
-        show_on_right = card_center_x <= window_center_x
+        # Decide side based on column: left column -> show on right, right column -> show on left
+        parent = self.parent()
+        if parent and parent.width() > 0:
+            local_center_x = self.pos().x() + (self.width() / 2)
+            show_on_right = local_center_x <= (parent.width() / 2)
+        else:
+            card_center_x = self.mapToGlobal(self.rect().center()).x()
+            window = self.window()
+            window_center_x = window.geometry().center().x() if window else QGuiApplication.primaryScreen().geometry().center().x()
+            show_on_right = card_center_x <= window_center_x
 
         if show_on_right:
             global_pos = self.mapToGlobal(QPoint(self.width(), 0))
