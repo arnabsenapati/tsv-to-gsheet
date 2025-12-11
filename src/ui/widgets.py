@@ -2672,7 +2672,7 @@ class QuestionAccordionGroup(QWidget):
         self.tag_btn = QPushButton("Tags")
 
         self.tag_btn.setToolTip("Manage tags for this group")
-        self.tag_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogContentsView))
+        self.tag_btn.setIcon(load_icon("tag.svg"))
         self.tag_btn.setIconSize(QSize(14, 14))
 
         self.tag_btn.setStyleSheet("""
