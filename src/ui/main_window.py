@@ -3,7 +3,7 @@ Main application window for TSV to Excel Watcher.
 
 This module contains the TSVWatcherWindow class which is the main UI window
 for the application. It handles:
-- Workbook analysis and magazine edition tracking
+- Database analysis and magazine edition tracking
 - Question list management with grouping and tagging
 - Chapter grouping and organization
 - TSV file monitoring and import
@@ -21,9 +21,8 @@ import time
 from pathlib import Path
 
 import pandas as pd
-from openpyxl import load_workbook
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QIcon
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -64,16 +63,15 @@ from PySide6.QtWidgets import (
 from config.constants import (
     LAST_SELECTION_FILE,
     MAGAZINE_GROUPING_MAP,
-    PHYSICS_GROUPING_FILE,
-    QUESTION_LIST_DIR,
-    TAGS_CONFIG_FILE,
     TAG_COLORS,
-    QUESTION_SET_GROUP_FILE,
+    DEFAULT_DB_PATH,
 )
+from services.db_service import DatabaseService
 from services.excel_service import process_tsv
 from services.question_set_group_service import QuestionSetGroupService
 from ui.dialogs import MultiSelectTagDialog
 from ui.question_set_grouping_view import QuestionSetGroupingView
+from ui.icon_utils import load_icon
 from ui.widgets import (
     ChapterCardView,
     ChapterTableWidget,
@@ -124,8 +122,8 @@ class TSVWatcherWindow(QMainWindow):
         self.canonical_chapters: list[str] = []
         self.chapter_lookup: dict[str, str] = {}
         self.chapter_groups: dict[str, list[str]] = {}
-        self.current_workbook_path: Path | None = None
-        self.workbook_df: pd.DataFrame | None = None  # Cached DataFrame
+        self.current_Database_path: Path | None = None
+        self.Database_df: pd.DataFrame | None = None  # Cached DataFrame
         self.high_level_column_index: int | None = None
         self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
         self.question_lists_metadata: dict[str, dict] = {}  # name -> metadata (filters, magazine, etc)
@@ -140,10 +138,14 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         self.question_set_groups_dirty: bool = False  # Track if groupings changed
-        self.pending_auto_watch: bool = False  # Defer watching until workbook loads on startup
+        self.pending_auto_watch: bool = False  # deprecated
         self._question_tab_controls: list[QWidget] = []  # widgets to disable during question reload
         self.current_magazine_display_name: str = ""  # Human-friendly magazine name for UI
-        self.watch_workbook_path: Path | None = None  # Workbook currently used by watcher thread
+        self.watch_Database_path: Path | None = None  # deprecated
+        self.db_service = DatabaseService(DEFAULT_DB_PATH)
+        self.current_db_path: Path = DEFAULT_DB_PATH
+        self.current_subject: str | None = None
+        self.use_database: bool = False
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -178,9 +180,6 @@ class TSVWatcherWindow(QMainWindow):
             "#38bdf8",  # Sky
         ]
 
-        # Ensure QuestionList directory exists
-        QUESTION_LIST_DIR.mkdir(parents=True, exist_ok=True)
-        
         # Status bar animation state
         self.status_animation_frame = 0
         self.status_animation_timer = QTimer()
@@ -287,20 +286,20 @@ class TSVWatcherWindow(QMainWindow):
         dashboard_layout.setContentsMargins(20, 20, 20, 20)
         dashboard_layout.setSpacing(20)
         
-        # Workbook selector card
-        workbook_card = self._create_card()
-        workbook_layout = QVBoxLayout(workbook_card)
-        workbook_layout.setSpacing(12)
+        # Database selector card
+        Database_card = self._create_card()
+        Database_layout = QVBoxLayout(Database_card)
+        Database_layout.setSpacing(12)
         
         self.output_edit = QLineEdit()
         self.output_edit.editingFinished.connect(self.update_row_count)
         output_row = QHBoxLayout()
-        output_row.addWidget(self._create_label("Workbook"))
+        output_row.addWidget(self._create_label("Database"))
         output_row.addWidget(self.output_edit)
-        browse_output = QPushButton("Browse…")
+        browse_output = QPushButton("Browse")
         browse_output.clicked.connect(self.select_output_file)
         output_row.addWidget(browse_output)
-        workbook_layout.addLayout(output_row)
+        Database_layout.addLayout(output_row)
         
         # Create compatibility labels (hidden, used for logging/status updates)
         self.row_count_label = QLabel("Total rows: N/A")
@@ -310,7 +309,40 @@ class TSVWatcherWindow(QMainWindow):
         self.mag_missing_label = QLabel("Missing ranges: N/A")
         self.mag_missing_label.setVisible(False)
         
-        dashboard_layout.addWidget(workbook_card)
+        # Database UI no longer used (DB-only); hide the card.
+        Database_card.setVisible(False)
+        dashboard_layout.addWidget(Database_card)
+        
+        # Database selector card
+        db_card = self._create_card()
+        db_layout = QVBoxLayout(db_card)
+        db_layout.setSpacing(12)
+
+        # DB path row
+        db_row = QHBoxLayout()
+        db_row.addWidget(self._create_label("Database"))
+        self.db_path_edit = QLineEdit(str(DEFAULT_DB_PATH))
+        self.db_path_edit.setToolTip("SQLite database path")
+        db_row.addWidget(self.db_path_edit, 1)
+        browse_db = QPushButton("Browse")
+        browse_db.clicked.connect(self.select_db_file)
+        db_row.addWidget(browse_db)
+        db_layout.addLayout(db_row)
+
+        # Subject toggle row
+        subject_row = QHBoxLayout()
+        subject_row.addWidget(self._create_label("Subject"))
+        self.subject_combo = QComboBox()
+        self.subject_combo.addItems(["Physics", "Chemistry", "Mathematics"])
+        self.subject_combo.setCurrentIndex(0)
+        subject_row.addWidget(self.subject_combo, 1)
+
+        load_db_btn = QPushButton("Load from DB")
+        load_db_btn.clicked.connect(self.load_subject_from_db)
+        subject_row.addWidget(load_db_btn)
+        db_layout.addLayout(subject_row)
+
+        dashboard_layout.addWidget(db_card)
         
         # Add the new DashboardView for statistics
         self.dashboard_view = DashboardView(self)
@@ -460,7 +492,7 @@ class TSVWatcherWindow(QMainWindow):
         search_container_layout.addWidget(self.tag_filter_display, 2)  # Stretch factor 2
         
         # Tag filter button (same style as accordion tag button)
-        self.tag_filter_btn = QPushButton("🏷️")
+        self.tag_filter_btn = QPushButton("")
         self.tag_filter_btn.setToolTip("Select tags to filter questions")
         self.tag_filter_btn.setStyleSheet("""
             QPushButton {
@@ -490,12 +522,13 @@ class TSVWatcherWindow(QMainWindow):
         search_container_layout.addWidget(self.magazine_search, 2)  # Stretch factor 2
         
         # Clear button with icon
-        clear_search_btn = QPushButton("✕")
+        clear_search_btn = QPushButton("")
         clear_search_btn.setToolTip("Clear all search filters")
         clear_search_btn.setMinimumHeight(28)
         clear_search_btn.setMaximumHeight(28)
         clear_search_btn.setMinimumWidth(32)
         clear_search_btn.setMaximumWidth(32)
+        clear_search_btn.setIcon(load_icon("close.svg"))
         clear_search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ef4444;
@@ -530,7 +563,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # Action buttons with icons
         add_to_list_btn = QPushButton()
-        add_to_list_btn.setIcon(QIcon("icons/add.svg"))
+        add_to_list_btn.setIcon(load_icon("add.svg"))
         add_to_list_btn.setToolTip("Add selected questions to list")
         add_to_list_btn.setMinimumHeight(28)
         add_to_list_btn.setMaximumHeight(28)
@@ -540,7 +573,7 @@ class TSVWatcherWindow(QMainWindow):
         action_layout.addWidget(add_to_list_btn)
         
         create_random_list_btn = QPushButton()
-        create_random_list_btn.setIcon(QIcon("icons/random.png"))
+        create_random_list_btn.setIcon(load_icon("random.png"))
         create_random_list_btn.setToolTip("Create random list from filtered questions")
         create_random_list_btn.setMinimumHeight(28)
         create_random_list_btn.setMaximumHeight(28)
@@ -555,9 +588,9 @@ class TSVWatcherWindow(QMainWindow):
         self.copy_mode_combo.addItems(["Copy: Text", "Copy: Metadata", "Copy: Both"])
         self.copy_mode_combo.setCurrentIndex(0)  # Default to "Copy: Text"
         self.copy_mode_combo.setToolTip("Select what to copy when double-clicking a question:\n"
-                                        "• Text: Only the question content\n"
-                                        "• Metadata: Only question number, page, chapter\n"
-                                        "• Both: Question text + metadata")
+                                        " Text: Only the question content\n"
+                                        " Metadata: Only question number, page, chapter\n"
+                                        " Both: Question text + metadata")
         self.copy_mode_combo.setMinimumHeight(28)
         self.copy_mode_combo.setMaximumHeight(28)
         self.copy_mode_combo.setStyleSheet("""
@@ -855,12 +888,13 @@ class TSVWatcherWindow(QMainWindow):
         search_container_layout.addWidget(self.list_question_set_search, 1)
         
         # Clear button
-        clear_search_btn = QPushButton("✕")
+        clear_search_btn = QPushButton("")
         clear_search_btn.setToolTip("Clear search filter")
         clear_search_btn.setMinimumHeight(28)
         clear_search_btn.setMaximumHeight(28)
         clear_search_btn.setMinimumWidth(32)
         clear_search_btn.setMaximumWidth(32)
+        clear_search_btn.setIcon(load_icon("close.svg"))
         clear_search_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ef4444;
@@ -898,9 +932,9 @@ class TSVWatcherWindow(QMainWindow):
         self.list_copy_mode_combo.addItems(["Copy: Text", "Copy: Metadata", "Copy: Both"])
         self.list_copy_mode_combo.setCurrentIndex(0)
         self.list_copy_mode_combo.setToolTip("Select what to copy when double-clicking a question:\n"
-                                             "• Text: Only the question content\n"
-                                             "• Metadata: Only question number, page, chapter\n"
-                                             "• Both: Question text + metadata")
+                                             " Text: Only the question content\n"
+                                             " Metadata: Only question number, page, chapter\n"
+                                             " Both: Question text + metadata")
         self.list_copy_mode_combo.setMinimumHeight(28)
         self.list_copy_mode_combo.setMaximumHeight(28)
         self.list_copy_mode_combo.setStyleSheet("""
@@ -988,7 +1022,7 @@ class TSVWatcherWindow(QMainWindow):
         input_row = QHBoxLayout()
         input_row.addWidget(self._create_label("Input folder"))
         input_row.addWidget(self.input_edit)
-        browse_input = QPushButton("Browse…")
+        browse_input = QPushButton("Browse")
         browse_input.clicked.connect(self.select_input_folder)
         input_row.addWidget(browse_input)
         import_form_layout.addLayout(input_row)
@@ -1028,8 +1062,8 @@ class TSVWatcherWindow(QMainWindow):
         grouping_layout = QVBoxLayout(grouping_page)
         grouping_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Initialize the Question Set Group Service
-        self.question_set_group_service = QuestionSetGroupService(QUESTION_SET_GROUP_FILE)
+        # Initialize the Question Set Group Service (DB-backed)
+        self.question_set_group_service = QuestionSetGroupService(db_service=self.db_service)
         
         # Create the Question Set Grouping View
         self.question_set_grouping_view = QuestionSetGroupingView()
@@ -1069,7 +1103,7 @@ class TSVWatcherWindow(QMainWindow):
         self.jee_file_edit.setMaximumHeight(26)
         controls_layout.addWidget(self.jee_file_edit, 1)  # Stretch factor 1
         
-        browse_jee_btn = QPushButton("Browse…")
+        browse_jee_btn = QPushButton("Browse")
         browse_jee_btn.setMaximumHeight(26)
         browse_jee_btn.setMaximumWidth(75)
         browse_jee_btn.clicked.connect(self.select_jee_papers_file)
@@ -1228,6 +1262,123 @@ class TSVWatcherWindow(QMainWindow):
             """
         )
 
+    def select_db_file(self) -> None:
+        """Browse for a SQLite database file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select SQLite Database",
+            str(self.current_db_path),
+            "SQLite DB (*.db *.sqlite);;All files (*.*)",
+        )
+        if not file_path:
+            return
+        self.current_db_path = Path(file_path)
+        self.db_path_edit.setText(file_path)
+        self.db_service.set_db_path(self.current_db_path)
+        self._save_last_selection()
+
+    def load_subject_from_db(self) -> None:
+        """Load questions for the selected subject from SQLite."""
+        db_path = Path(self.db_path_edit.text().strip() or DEFAULT_DB_PATH)
+        subject = self.subject_combo.currentText() if hasattr(self, "subject_combo") else ""
+        if not subject:
+            QMessageBox.warning(self, "Subject Required", "Please select a subject.")
+            return
+        if not db_path.is_file():
+            QMessageBox.critical(self, "Database Missing", f"Database not found:\n{db_path}")
+            return
+        self.current_db_path = db_path
+        self.db_service.set_db_path(db_path)
+        self.current_subject = subject
+        try:
+            df = self.db_service.fetch_questions_df(subject)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Failed", f"Unable to load questions: {exc}")
+            return
+        self.use_database = True
+        self.current_Database_path = None
+        self._load_dataframe_state(df, f"{subject} from database")
+
+    def _load_dataframe_state(self, df: pd.DataFrame, source_label: str) -> None:
+        """Populate UI from a DataFrame (DB-backed)."""
+        self._clear_all_question_data()
+        self.Database_df = df
+        self._save_last_selection()
+
+        if df is None or df.empty:
+            self.set_status("No questions found in database.", "error")
+            self.row_count_label.setText("Total rows: 0")
+            self._set_magazine_summary("Magazines: 0", "Tracked editions: 0")
+            return
+
+        row_count = self._compute_row_count_from_df(df)
+        magazine_details, warnings = self._collect_magazine_details(df)
+        detected_magazine = self._detect_magazine_name(magazine_details)
+        grouping_key = MAGAZINE_GROUPING_MAP.get(detected_magazine, "PhysicsChapterGrouping")
+        self.current_magazine_name = detected_magazine
+        self.canonical_chapters = self._load_canonical_chapters(grouping_key)
+        self.chapter_groups = self._load_chapter_grouping(grouping_key)
+        self.current_magazine_display_name = self._resolve_magazine_display_name(
+            magazine_details, detected_magazine
+        )
+
+        chapter_data, qa_warnings, question_col, raw_chapter_inputs = self._collect_question_analysis_data(df)
+        warnings.extend(qa_warnings)
+        self.high_level_column_index = question_col
+        self.mag_page_ranges = self._compute_page_ranges_for_editions(df, magazine_details)
+
+        self.row_count_label.setText(f"Total rows: {row_count}")
+        total_editions = sum(len(entry["editions"]) for entry in magazine_details)
+        mag_display = self.current_magazine_display_name or (
+            self.current_magazine_name.title() if self.current_magazine_name else "Unknown"
+        )
+        self._set_magazine_summary(
+            f"Magazine: {mag_display}",
+            f"Tracked editions: {total_editions}",
+        )
+
+        self._populate_magazine_heatmap(magazine_details, self.mag_page_ranges)
+        self._populate_question_sets([])
+        missing_qset_warning = next(
+            (msg for msg in warnings if "question set" in msg.lower()), None
+        )
+        if missing_qset_warning:
+            label_message = missing_qset_warning
+        elif magazine_details:
+            label_message = "Select an edition to view question sets."
+        else:
+            label_message = warnings[0] if warnings else "No magazine editions found."
+        self.question_label.setText(label_message)
+        self._auto_assign_chapters(raw_chapter_inputs)
+        self._populate_chapter_list(chapter_data)
+        self._refresh_grouping_ui()
+
+        # Update dashboard
+        if hasattr(self, "dashboard_view"):
+            self.dashboard_view.update_dashboard_data(
+                self.Database_df,
+                self.chapter_groups,
+                magazine_details=magazine_details,
+                mag_display_name=self.current_magazine_display_name,
+                mag_page_ranges=self.mag_page_ranges,
+            )
+
+        # Update question set grouping view
+        if hasattr(self, "question_set_grouping_view") and hasattr(self, "Database_df"):
+            question_sets = self._extract_unique_question_sets(self.Database_df)
+            qs_min_pages = self._extract_question_set_min_pages(self.Database_df)
+            qs_mag_map = self._extract_question_set_magazines(self.Database_df)
+            self.question_set_grouping_view.update_from_workbook(
+                question_sets,
+                qs_min_pages,
+                qs_mag_map,
+            )
+
+        for warning in warnings:
+            self.log(warning)
+
+        self.set_status(f"Loaded {source_label}", "success")
+
     def _create_card(self) -> QWidget:
         card = QWidget()
         card.setObjectName("card")
@@ -1244,7 +1395,7 @@ class TSVWatcherWindow(QMainWindow):
     
     def _animate_status(self) -> None:
         """Animate the status spinner icon."""
-        spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        spinner_frames = ["", "", "", "", "", "", "", "", "", ""]
         self.status_animation_frame = (self.status_animation_frame + 1) % len(spinner_frames)
         
         # Update the current status text with new spinner frame
@@ -1269,7 +1420,7 @@ class TSVWatcherWindow(QMainWindow):
         if status_type == "loading":
             # Animated spinner for loading
             self.status_animation_timer.start(80)  # Update every 80ms
-            icon = "⠋"
+            icon = ""
             self.status_label.setStyleSheet("""
                 QLabel {
                     padding: 8px 16px;
@@ -1283,7 +1434,7 @@ class TSVWatcherWindow(QMainWindow):
         elif status_type == "importing":
             # Animated spinner for importing
             self.status_animation_timer.start(80)
-            icon = "⠋"
+            icon = ""
             self.status_label.setStyleSheet("""
                 QLabel {
                     padding: 8px 16px;
@@ -1295,7 +1446,7 @@ class TSVWatcherWindow(QMainWindow):
                 }
             """)
         elif status_type == "success":
-            icon = "✓"
+            icon = ""
             self.status_label.setStyleSheet("""
                 QLabel {
                     padding: 8px 16px;
@@ -1307,7 +1458,7 @@ class TSVWatcherWindow(QMainWindow):
                 }
             """)
         elif status_type == "error":
-            icon = "✗"
+            icon = ""
             self.status_label.setStyleSheet("""
                 QLabel {
                     padding: 8px 16px;
@@ -1319,7 +1470,7 @@ class TSVWatcherWindow(QMainWindow):
                 }
             """)
         else:  # info
-            icon = "ℹ"
+            icon = ""
             self.status_label.setStyleSheet("""
                 QLabel {
                     padding: 8px 16px;
@@ -1348,15 +1499,24 @@ class TSVWatcherWindow(QMainWindow):
             data = json.loads(LAST_SELECTION_FILE.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return
-        workbook_path = data.get("workbook_path", "")
-        if workbook_path:
-            self.output_edit.setText(workbook_path)
         input_folder = data.get("input_folder", "")
         if input_folder:
             self.input_edit.setText(input_folder)
+
+        db_path = data.get("db_path", "")
+        if db_path:
+            self.db_path_edit.setText(db_path)
+            self.current_db_path = Path(db_path)
+            self.db_service.set_db_path(self.current_db_path)
+        subject = data.get("subject", "")
+        if subject and hasattr(self, "subject_combo"):
+            idx = self.subject_combo.findText(subject, Qt.MatchFixedString)
+            if idx >= 0:
+                self.subject_combo.setCurrentIndex(idx)
+                self.current_subject = subject
         
-        # If both paths are valid on startup, load workbook first, then start watching after load completes
-        if workbook_path and input_folder and Path(workbook_path).is_file() and Path(input_folder).is_dir():
+        # If both paths are valid on startup, auto-start watching after initial load
+        if db_path and input_folder and Path(db_path).is_file() and Path(input_folder).is_dir():
             self.pending_auto_watch = True
         jee_papers_file = data.get("jee_papers_file", "")
         if jee_papers_file and Path(jee_papers_file).exists():
@@ -1365,39 +1525,33 @@ class TSVWatcherWindow(QMainWindow):
             self.load_jee_papers_data()
 
     def _save_last_selection(self) -> None:
-        path_text = self.output_edit.text().strip()
         input_folder = self.input_edit.text().strip()
-        if not path_text:
-            return
         payload = {
-            "workbook_path": path_text,
             "input_folder": input_folder if input_folder else "",
             "jee_papers_file": str(self.jee_papers_file) if self.jee_papers_file else "",
+            "db_path": self.db_path_edit.text().strip() if hasattr(self, "db_path_edit") else "",
+            "subject": self.subject_combo.currentText() if hasattr(self, "subject_combo") else "",
         }
         LAST_SELECTION_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _load_group_tags(self) -> None:
-        """Load group tags from tags.cfg file."""
-        if not TAGS_CONFIG_FILE.exists():
-            return
-        try:
-            data = json.loads(TAGS_CONFIG_FILE.read_text(encoding="utf-8"))
-            self.group_tags = data.get("group_tags", {})
-            self.question_set_group_tags = data.get("question_set_group_tags", {})
-            self.tag_colors = data.get("tag_colors", {})
-        except json.JSONDecodeError:
-            self.group_tags = {}
-            self.question_set_group_tags = {}
-            self.tag_colors = {}
+        """Load group tags from the database (fallback to tags.cfg)."""
+        data = {}
+        if self.db_service:
+            data = self.db_service.load_config("TagsConfig")
+        self.group_tags = data.get("group_tags", {})
+        self.question_set_group_tags = data.get("question_set_group_tags", {})
+        self.tag_colors = data.get("tag_colors", {})
 
     def _save_group_tags(self) -> None:
-        """Save group tags to tags.cfg file."""
+        """Save group tags to the database (and file for compatibility)."""
         payload = {
             "group_tags": self.group_tags,
             "question_set_group_tags": self.question_set_group_tags,
             "tag_colors": self.tag_colors,
         }
-        TAGS_CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if self.db_service:
+            self.db_service.save_config("TagsConfig", payload)
 
     def _get_or_assign_tag_color(self, tag: str) -> str:
         """Get existing color for tag or assign a new one."""
@@ -1407,26 +1561,20 @@ class TSVWatcherWindow(QMainWindow):
             self.tag_colors[tag] = self.available_tag_colors[color_index]
         return self.tag_colors[tag]
 
-    def _load_canonical_chapters(self, grouping_file: Path) -> list[str]:
-        """Load canonical chapters from the grouping JSON file."""
-        if not grouping_file.exists():
-            return []
-        try:
-            data = json.loads(grouping_file.read_text(encoding="utf-8"))
-            return data.get("canonical_order", [])
-        except json.JSONDecodeError:
-            return []
+    def _load_canonical_chapters(self, config_key: str) -> list[str]:
+        """Load canonical chapters from DB config."""
+        if self.db_service:
+            data = self.db_service.load_config(config_key)
+            if data:
+                return data.get("canonical_order", [])
+        return []
 
-    def _load_chapter_grouping(self, grouping_file: Path) -> dict[str, list[str]]:
-        """Load chapter grouping from the specified JSON file."""
-        if grouping_file.exists():
-            try:
-                data = json.loads(grouping_file.read_text(encoding="utf-8"))
-                groups = data.get("groups", {})
-            except json.JSONDecodeError:
-                groups = {}
-        else:
-            groups = {}
+    def _load_chapter_grouping(self, config_key: str) -> dict[str, list[str]]:
+        """Load chapter grouping from DB config."""
+        data = {}
+        if self.db_service:
+            data = self.db_service.load_config(config_key)
+        groups = data.get("groups", {}) if data else {}
         for group in self.canonical_chapters:
             groups.setdefault(group, [])
         groups.setdefault("Others", [])
@@ -1447,10 +1595,10 @@ class TSVWatcherWindow(QMainWindow):
         if magazine_name == self.current_magazine_name:
             return  # Already loaded
         
-        grouping_file = MAGAZINE_GROUPING_MAP.get(magazine_name, PHYSICS_GROUPING_FILE)
+        grouping_key = MAGAZINE_GROUPING_MAP.get(magazine_name, "PhysicsChapterGrouping")
         self.current_magazine_name = magazine_name
-        self.canonical_chapters = self._load_canonical_chapters(grouping_file)
-        self.chapter_groups = self._load_chapter_grouping(grouping_file)
+        self.canonical_chapters = self._load_canonical_chapters(grouping_key)
+        self.chapter_groups = self._load_chapter_grouping(grouping_key)
         self.log(f"Loaded chapter grouping for: {magazine_name or 'default (Physics)'}")
 
     def _save_chapter_grouping(self) -> None:
@@ -1459,8 +1607,9 @@ class TSVWatcherWindow(QMainWindow):
             "canonical_order": self.canonical_chapters,
             "groups": self.chapter_groups,
         }
-        grouping_file = MAGAZINE_GROUPING_MAP.get(self.current_magazine_name, PHYSICS_GROUPING_FILE)
-        grouping_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        grouping_key = MAGAZINE_GROUPING_MAP.get(self.current_magazine_name, "PhysicsChapterGrouping")
+        if self.db_service:
+            self.db_service.save_config(grouping_key, data)
         self._rebuild_chapter_lookup(self.chapter_groups)
 
     def _ordered_groups(self) -> list[str]:
@@ -1514,96 +1663,22 @@ class TSVWatcherWindow(QMainWindow):
         self.queue_timer.start()
 
     def update_row_count(self) -> None:
-        workbook_path = Path(self.output_edit.text().strip())
-        if not workbook_path.is_file():
-            self._clear_all_question_data()
-            self.row_count_label.setText("Total rows: N/A")
-            self._set_magazine_summary("Magazines: N/A", "Missing ranges: N/A")
-            self.question_label.setText("Select a workbook to display magazine editions.")
-            self.current_workbook_path = None
-            self.high_level_column_index = None
-            if hasattr(self, 'dashboard_view'):
-                return
-
-        # Clear all existing data before loading new workbook
-        self._clear_all_question_data()
-        
-        self.current_workbook_path = workbook_path
-        self._save_last_selection()
-        # If watcher is running with a different workbook, restart it to use the newly selected file
-        self._restart_watching_for_new_workbook(workbook_path)
-        self.set_status(f'Loading workbook "{workbook_path.name}"', "loading")
-        self.row_count_label.setText("Total rows: Loading...")
-        self._set_magazine_summary("Magazines: Loading...", "Tracked editions: Loading...")
-        self.question_label.setText("Loading editions...")
-        self.metrics_request_id += 1
-        request_id = self.metrics_request_id
-
-        def worker(path: Path, req_id: int) -> None:
-            try:
-                # Pandas is used here to keep the UI responsive while gathering workbook metrics.
-                df = pd.read_excel(path, sheet_name=0, dtype=object)
-                
-                # Cache the DataFrame for reuse throughout the application
-                self.workbook_df = df
-
-                non_empty_df = df.dropna(how="all")
-                if not non_empty_df.empty:
-                    last_row_dict = non_empty_df.iloc[-1].to_dict()
-                    self.event_queue.put(("log", f"Debug last non-empty row: {last_row_dict}"))
-                else:
-                    self.event_queue.put(("log", "Debug: workbook contained no non-empty rows"))
-                
-                row_count = self._compute_row_count_from_df(df)
-                magazine_details, warnings = self._collect_magazine_details(df)
-                
-                # Detect magazine and load appropriate grouping BEFORE analyzing questions
-                detected_magazine = self._detect_magazine_name(magazine_details)
-                if detected_magazine != self.current_magazine_name:
-                    grouping_file = MAGAZINE_GROUPING_MAP.get(detected_magazine, PHYSICS_GROUPING_FILE)
-                    self.current_magazine_name = detected_magazine
-                    self.canonical_chapters = self._load_canonical_chapters(grouping_file)
-                    self.chapter_groups = self._load_chapter_grouping(grouping_file)
-                
-                self.current_magazine_display_name = self._resolve_magazine_display_name(
-                    magazine_details, detected_magazine
-                )
-                
-                # Now analyze questions with proper grouping loaded
-                chapter_data, qa_warnings, question_col, raw_chapter_inputs = self._collect_question_analysis_data(df)
-                warnings.extend(qa_warnings)
-                self.event_queue.put(
-                    (
-                        "metrics",
-                        req_id,
-                        row_count,
-                        magazine_details,
-                        warnings,
-                        chapter_data,
-                        question_col,
-                        raw_chapter_inputs,
-                        detected_magazine,  # Pass magazine name to queue for logging
-                    )
-                )
-            except Exception as exc:
-                self.event_queue.put(("metrics_error", req_id, str(exc)))
-                self.event_queue.put(("status_error", str(exc)))
-
-        threading.Thread(target=worker, args=(workbook_path, request_id), daemon=True).start()
+        # Load data from database only
+        self.load_subject_from_db()
 
     def _set_magazine_summary(self, primary: str, secondary: str) -> None:
         self.mag_summary_label.setText(primary)
         self.mag_missing_label.setText(secondary)
 
-    def _invalidate_workbook_cache(self) -> None:
-        """Invalidate the workbook cache and reload data."""
-        self.workbook_df = None
-        self.update_row_count()
+    def _invalidate_Database_cache(self) -> None:
+        """Invalidate the Database cache and reload data."""
+        self.Database_df = None
+        self.load_subject_from_db()
     
     def _clear_all_question_data(self) -> None:
         """Clear all question analysis data and UI elements."""
         # Clear data structures
-        self.workbook_df = None  # Clear cached DataFrame
+        self.Database_df = None  # Clear cached DataFrame
         self.chapter_questions.clear()
         self.current_questions.clear()
         self.all_questions.clear()
@@ -1649,7 +1724,7 @@ class TSVWatcherWindow(QMainWindow):
     
     def _extract_unique_question_sets(self, df: pd.DataFrame) -> list[str]:
         """
-        Extract unique question set names from workbook DataFrame.
+        Extract unique question set names from Database DataFrame.
         
         Returns:
             List of unique question set names
@@ -1678,7 +1753,7 @@ class TSVWatcherWindow(QMainWindow):
 
     def _extract_question_set_min_pages(self, df: pd.DataFrame) -> dict[str, float]:
         """
-        Build a map of question set -> minimum page number (numeric) across the workbook.
+        Build a map of question set -> minimum page number (numeric) across the Database.
         Non-numeric pages are ignored. Missing pages yield no entry.
         """
         result: dict[str, float] = {}
@@ -1882,17 +1957,17 @@ class TSVWatcherWindow(QMainWindow):
         normalized = info.get("normalized", "")
         display = info.get("display", "")
         page_min, page_max = info.get("page_range", ("", ""))
-        page_text = f" · pp. {page_min}-{page_max}" if page_min and page_max else ""
+        page_text = f"  pp. {page_min}-{page_max}" if page_min and page_max else ""
         self.question_label.setText(f"{display}{page_text}")
         self._load_magazine_questions(normalized, display)
 
     def _load_magazine_questions(self, normalized_edition: str, display_label: str) -> None:
         """Load questions for a magazine edition and group using QuestionSetGroup.json."""
         self.mag_question_card_view.clear()
-        if not normalized_edition or self.workbook_df is None:
+        if not normalized_edition or self.Database_df is None:
             return
 
-        df = self.workbook_df
+        df = self.Database_df
         header_row = [None if pd.isna(col) else str(col) for col in df.columns]
 
         try:
@@ -1902,7 +1977,7 @@ class TSVWatcherWindow(QMainWindow):
             question_text_col = _find_question_text_column(header_row)
             magazine_col = _find_magazine_column(header_row)
         except ValueError:
-            self.question_label.setText(f"{display_label} · columns missing")
+            self.question_label.setText(f"{display_label}  columns missing")
             return
 
         questions: list[dict] = []
@@ -1961,7 +2036,7 @@ class TSVWatcherWindow(QMainWindow):
         ordered_keys = [name for name, _ in sorted(ordered_keys, key=lambda kv: (kv[1], kv[0].lower()))]
 
         if not ordered_keys:
-            self.question_label.setText(f"{display_label} · no questions found for this edition")
+            self.question_label.setText(f"{display_label}  no questions found for this edition")
             return
 
         for group_key in ordered_keys:
@@ -2003,6 +2078,15 @@ class TSVWatcherWindow(QMainWindow):
         except ValueError as exc:
             warnings.append(str(exc))
 
+        id_col_idx = None
+        for idx, value in enumerate(header_row, start=1):
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if text == "questionid":
+                id_col_idx = idx
+                break
+
         def normalize(value) -> str:
             if pd.isna(value):
                 return ""
@@ -2023,6 +2107,14 @@ class TSVWatcherWindow(QMainWindow):
             question_text = normalize(values[question_text_col - 1]) if question_text_col else ""
             question_set_name = normalize(values[question_set_name_col - 1]) if question_set_name_col else raw_chapter_name
             magazine_value = normalize(values[magazine_col - 1]) if magazine_col else ""
+            question_id = None
+            if id_col_idx:
+                try:
+                    question_id = int(values[id_col_idx - 1])
+                except Exception:
+                    question_id = values[id_col_idx - 1]
+
+            effective_row_number = question_id if self.use_database and question_id is not None else row_number
             
             # Extract group_key for tag lookup (same key used for accordion headers)
             group_key = self._extract_group_key(question_set_name)
@@ -2037,7 +2129,8 @@ class TSVWatcherWindow(QMainWindow):
                     "page": page_value,
                     "magazine": magazine_value,
                     "text": question_text,
-                    "row_number": row_number,
+                    "row_number": effective_row_number,
+                    "question_id": question_id,
                 }
             )
 
@@ -2314,7 +2407,7 @@ class TSVWatcherWindow(QMainWindow):
                 
                 # Add missing editions for this year
                 if year_missing:
-                    missing_parent = QTreeWidgetItem(["❌ Missing Editions", ""])
+                    missing_parent = QTreeWidgetItem([" Missing Editions", ""])
                     missing_parent.setForeground(0, QColor("#dc2626"))
                     font_bold = QFont()
                     font_bold.setBold(True)
@@ -2467,10 +2560,10 @@ class TSVWatcherWindow(QMainWindow):
                     info = edition_dates[date_key]
                     self.mag_heatmap_data[(year, month)] = info
                     page_min, page_max = info.get("page_range", ("", ""))
-                    page_text = f"{page_min}-{page_max}" if page_min and page_max else "pp —"
+                    page_text = f"{page_min}-{page_max}" if page_min and page_max else "pp "
                     sets_count = len(info.get("question_sets", []))
                     btn.setText(f"{cell_date.strftime('%b')}\n{page_text}\n{sets_count} set(s)")
-                    btn.setToolTip(f"{info.get('display','')} • {sets_count} set(s)\nPages: {page_text}")
+                    btn.setToolTip(f"{info.get('display','')}  {sets_count} set(s)\nPages: {page_text}")
                     btn.setProperty("info", info)
                     btn.setStyleSheet(btn.styleSheet() + """
                         QPushButton {
@@ -2554,12 +2647,12 @@ class TSVWatcherWindow(QMainWindow):
         if not hasattr(self, "question_sets_tree"):
             return
         self.question_sets_tree.clear()
-        if not question_sets or self.workbook_df is None:
+        if not question_sets or self.Database_df is None:
             return
         
         # Use cached DataFrame for much better performance
         try:
-            df = self.workbook_df
+            df = self.Database_df
             self.log(f"Using cached DataFrame ({len(df)} rows) to populate question sets")
             header_row = [None if pd.isna(col) else str(col) for col in df.columns]
             
@@ -2572,7 +2665,7 @@ class TSVWatcherWindow(QMainWindow):
             except ValueError:
                 # If columns not found, just show question sets without children
                 for name in question_sets:
-                    parent_item = QTreeWidgetItem([f"📝 {name}", "", ""])
+                    parent_item = QTreeWidgetItem([f" {name}", "", ""])
                     self.question_sets_tree.addTopLevelItem(parent_item)
                 return
             
@@ -2627,7 +2720,7 @@ class TSVWatcherWindow(QMainWindow):
                     except (ValueError, TypeError):
                         return float("inf")
                 questions = sorted(questions, key=_page_key)
-                parent_item = QTreeWidgetItem([f"📝 {qset_name}", "", f"({len(questions)} questions)"])
+                parent_item = QTreeWidgetItem([f" {qset_name}", "", f"({len(questions)} questions)"])
                 parent_item.setData(0, Qt.UserRole, {"type": "question_set", "name": qset_name})
                 
                 # Add questions as children
@@ -2642,7 +2735,7 @@ class TSVWatcherWindow(QMainWindow):
             self.log(f"Error loading questions for question sets: {e}")
             # Fallback to simple list
             for name in question_sets:
-                parent_item = QTreeWidgetItem([f"📝 {name}", "", ""])
+                parent_item = QTreeWidgetItem([f" {name}", "", ""])
                 self.question_sets_tree.addTopLevelItem(parent_item)
 
     def _populate_chapter_list(self, chapters: dict[str, list[dict]]) -> None:
@@ -2947,7 +3040,7 @@ class TSVWatcherWindow(QMainWindow):
         if data.get("type") in ["magazine", "missing_section", "missing", "year"] or data.get("is_missing", False):
             self._populate_question_sets([])
             if data.get("type") == "missing" or data.get("is_missing", False):
-                self.question_label.setText("❌ Missing edition - no data available")
+                self.question_label.setText(" Missing edition - no data available")
                 self.question_label.setStyleSheet(
                     "padding: 8px; background-color: #fee2e2; border-radius: 6px; color: #dc2626;"
                 )
@@ -2969,10 +3062,10 @@ class TSVWatcherWindow(QMainWindow):
         label = f"{magazine_name} - {edition_label}"
         
         if question_sets:
-            self.question_label.setText(f"✓ {label} • {len(question_sets)} question set(s)")
+            self.question_label.setText(f" {label}  {len(question_sets)} question set(s)")
             self._populate_question_sets(question_sets, magazine_name, edition_label)
         else:
-            self.question_label.setText(f"⚠ {label} • No question sets found")
+            self.question_label.setText(f" {label}  No question sets found")
             self._populate_question_sets([])
 
     def on_group_selected(self) -> None:
@@ -3026,37 +3119,34 @@ class TSVWatcherWindow(QMainWindow):
         """Reassign a single question to a different chapter."""
         if not question or not target_group:
             return
-        if self.current_workbook_path is None or self.high_level_column_index is None:
-            QMessageBox.warning(self, "Unavailable", "Workbook must be loaded before regrouping questions.")
+        if self.db_service is None:
+            QMessageBox.warning(self, "Unavailable", "Database must be configured before regrouping questions.")
             return
         old_group = question.get("group")
         if old_group == target_group:
             return
-        row_number = question.get("row_number")
+        row_number = question.get("question_id") or question.get("row_number")
         if not isinstance(row_number, int):
-            QMessageBox.warning(self, "Unavailable", "Question row information is missing.")
+            QMessageBox.warning(self, "Unavailable", "Question identifier is missing.")
             return
         qno = question.get("qno", "")
         prompt = f"Move question '{qno}' to '{target_group}'?"
         if QMessageBox.question(self, "Confirm Reassignment", prompt) != QMessageBox.Yes:
             return
         try:
-            workbook = load_workbook(self.current_workbook_path)
-            sheet = workbook[workbook.sheetnames[0]]
-            sheet.cell(row=row_number, column=self.high_level_column_index, value=target_group)
-            workbook.save(self.current_workbook_path)
+            self.db_service.update_questions_chapter([row_number], target_group)
         except Exception as exc:
-            QMessageBox.critical(self, "Update Failed", f"Unable to update workbook: {exc}")
+            QMessageBox.critical(self, "Update Failed", f"Unable to update database: {exc}")
             return
         self.log(f"Question '{qno}' moved to '{target_group}'. Reloading data...")
-        self.update_row_count()
+        self.load_subject_from_db()
 
     def reassign_questions(self, questions: list[dict], target_group: str) -> None:
         """Reassign multiple questions to a different chapter in bulk."""
         if not questions or not target_group:
             return
-        if self.current_workbook_path is None or self.high_level_column_index is None:
-            QMessageBox.warning(self, "Unavailable", "Workbook must be loaded before regrouping questions.")
+        if self.db_service is None:
+            QMessageBox.warning(self, "Unavailable", "Database must be configured before regrouping questions.")
             return
         
         # Filter out questions already in target group and validate row numbers
@@ -3065,7 +3155,7 @@ class TSVWatcherWindow(QMainWindow):
             old_group = question.get("group")
             if old_group == target_group:
                 continue
-            row_number = question.get("row_number")
+            row_number = question.get("question_id") or question.get("row_number")
             if not isinstance(row_number, int):
                 continue
             questions_to_move.append(question)
@@ -3083,21 +3173,18 @@ class TSVWatcherWindow(QMainWindow):
             return
         
         try:
-            workbook = load_workbook(self.current_workbook_path)
-            sheet = workbook[workbook.sheetnames[0]]
-            
-            # Update all questions in one go
-            for question in questions_to_move:
-                row_number = question.get("row_number")
-                sheet.cell(row=row_number, column=self.high_level_column_index, value=target_group)
-            
-            workbook.save(self.current_workbook_path)
+            ids = [
+                q.get("question_id") or q.get("row_number")
+                for q in questions_to_move
+                if isinstance(q.get("question_id") or q.get("row_number"), int)
+            ]
+            self.db_service.update_questions_chapter(ids, target_group)
         except Exception as exc:
-            QMessageBox.critical(self, "Update Failed", f"Unable to update workbook: {exc}")
+            QMessageBox.critical(self, "Update Failed", f"Unable to update database: {exc}")
             return
         
         self.log(f"{count} question(s) moved to '{target_group}'. Reloading data...")
-        self.update_row_count()
+        self.load_subject_from_db()
 
     def on_chapter_selected(self, chapter_key: str) -> None:
         if not chapter_key:
@@ -3168,12 +3255,12 @@ class TSVWatcherWindow(QMainWindow):
         menu = QMenu(self)
         
         # Add tag action
-        add_tag_action = menu.addAction("🏷️ Assign Tag to Group")
+        add_tag_action = menu.addAction(" Assign Tag to Group")
         
         # Remove tag submenu (if tags exist)
         existing_tags = self.question_set_group_tags.get(group_key, [])
         if existing_tags:
-            remove_tag_menu = menu.addMenu("🗑️ Remove Tag from Group")
+            remove_tag_menu = menu.addMenu(" Remove Tag from Group")
             for tag in existing_tags:
                 remove_action = remove_tag_menu.addAction(tag)
                 remove_action.setData(("remove", group_key, tag))
@@ -3212,16 +3299,16 @@ class TSVWatcherWindow(QMainWindow):
         row_num = data.get("row", 0)
         
         # Get full question data from cached DataFrame
-        if self.workbook_df is not None and row_num > 0:
+        if self.Database_df is not None and row_num > 0:
             try:
                 # Row number is 1-based Excel row, DataFrame is 0-based
                 df_row_idx = row_num - 2  # Subtract 2 (1 for header, 1 for 0-based)
                 
-                if 0 <= df_row_idx < len(self.workbook_df):
-                    row_data = self.workbook_df.iloc[df_row_idx]
+                if 0 <= df_row_idx < len(self.Database_df):
+                    row_data = self.Database_df.iloc[df_row_idx]
                     
                     # Get column names
-                    header_row = [None if pd.isna(col) else str(col) for col in self.workbook_df.columns]
+                    header_row = [None if pd.isna(col) else str(col) for col in self.Database_df.columns]
                     
                     # Find columns
                     try:
@@ -3349,34 +3436,29 @@ class TSVWatcherWindow(QMainWindow):
         
         self.saved_lists_widget.clear()
         self.question_lists.clear()
+        self.question_lists_metadata.clear()
         
-        if not QUESTION_LIST_DIR.exists():
-            return
-        
-        for json_file in sorted(QUESTION_LIST_DIR.glob("*.json")):
+        lists_data = {}
+        metadata = {}
+        if self.db_service:
             try:
-                data = json.loads(json_file.read_text(encoding="utf-8"))
-                list_name = data.get("name", json_file.stem)
-                questions = data.get("questions", [])
-                magazine = data.get("magazine", "")  # Load magazine name
-                filters = data.get("filters", {})  # Load filters
-                
-                self.question_lists[list_name] = questions
-                self.question_lists_metadata[list_name] = {
-                    "magazine": magazine,
-                    "filters": filters
-                }
-                
-                # Display list name with question count and magazine
-                display_text = f"{list_name} ({len(questions)})"
-                if magazine:
-                    display_text += f" - {magazine}"
-                
-                item = QListWidgetItem(display_text)
-                item.setData(Qt.UserRole, list_name)
-                self.saved_lists_widget.addItem(item)
+                lists_data, metadata = self.db_service.load_question_lists()
             except Exception as exc:
-                self.log(f"Error loading list {json_file.name}: {exc}")
+                self.log(f"Error loading lists from database: {exc}")
+        
+        for list_name, questions in sorted(lists_data.items(), key=lambda kv: kv[0].lower()):
+            meta = metadata.get(list_name, {})
+            self.question_lists[list_name] = questions
+            self.question_lists_metadata[list_name] = meta
+
+            display_text = f"{list_name} ({len(questions)})"
+            magazine = meta.get("magazine", "")
+            if magazine:
+                display_text += f" - {magazine}"
+            
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.UserRole, list_name)
+            self.saved_lists_widget.addItem(item)
         
         # Trigger selection of first item if any lists loaded
         if self.saved_lists_widget.count() > 0:
@@ -3396,9 +3478,6 @@ class TSVWatcherWindow(QMainWindow):
         if list_name not in self.question_lists:
             return
         
-        safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in list_name)
-        file_path = QUESTION_LIST_DIR / f"{safe_name}.json"
-        
         # Get or create metadata
         metadata = self.question_lists_metadata.get(list_name, {})
         
@@ -3413,9 +3492,11 @@ class TSVWatcherWindow(QMainWindow):
             filters = self._get_active_filters() if save_filters else metadata.get("filters", {})
             if filters:
                 data["filters"] = filters
+                metadata["filters"] = filters
         
         try:
-            file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            if self.db_service:
+                self.db_service.save_question_list(list_name, self.question_lists[list_name], metadata)
             self.log(f"Saved question list: {list_name}")
         except Exception as exc:
             QMessageBox.critical(self, "Save Error", f"Failed to save list: {exc}")
@@ -3461,13 +3542,16 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.warning(self, "Duplicate Name", f"A list named '{new_name}' already exists.")
             return
         
-        # Delete old file
-        safe_old_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in old_name)
-        old_file = QUESTION_LIST_DIR / f"{safe_old_name}.json"
-        old_file.unlink(missing_ok=True)
-        
-        # Update data structure
-        self.question_lists[new_name] = self.question_lists.pop(old_name)
+        # Update data structure and persist to DB
+        questions = self.question_lists.pop(old_name)
+        meta = self.question_lists_metadata.pop(old_name, {})
+        self.question_lists[new_name] = questions
+        self.question_lists_metadata[new_name] = meta
+        if self.db_service:
+            try:
+                self.db_service.delete_question_list(old_name)
+            except Exception:
+                pass
         self._save_question_list(new_name)
         self._load_saved_question_lists()
         self.drag_drop_panel.update_list_selector(self.question_lists)
@@ -3490,13 +3574,12 @@ class TSVWatcherWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
         
-        # Delete file
-        safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in list_name)
-        file_path = QUESTION_LIST_DIR / f"{safe_name}.json"
-        file_path.unlink(missing_ok=True)
+        if self.db_service:
+            self.db_service.delete_question_list(list_name)
         
         # Update data structure
         del self.question_lists[list_name]
+        self.question_lists_metadata.pop(list_name, None)
         self._load_saved_question_lists()
         self.drag_drop_panel.update_list_selector(self.question_lists)
         self.current_list_name = None
@@ -3780,7 +3863,7 @@ class TSVWatcherWindow(QMainWindow):
     
     def _get_question_identity(self, question: dict) -> str:
         """Return a stable identifier for a question for comparisons."""
-        row_number = question.get("row_number")
+        row_number = question.get("question_id") or question.get("row_number")
         if row_number is not None:
             return f"row-{row_number}"
         
@@ -3857,9 +3940,8 @@ class TSVWatcherWindow(QMainWindow):
             )
             return
         
-        QUESTION_LIST_DIR.mkdir(parents=True, exist_ok=True)
         default_name = f"{self.current_list_name}.docx"
-        default_path = str((QUESTION_LIST_DIR / default_name).resolve())
+        default_path = default_name
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Question Placeholders",
@@ -4032,7 +4114,7 @@ class TSVWatcherWindow(QMainWindow):
                 filter_parts.append(f"Magazine: {filters['selected_magazine']}")
             
             if filter_parts:
-                self.list_filters_label.setText(f"🔍 Filters: {' | '.join(filter_parts)}")
+                self.list_filters_label.setText(f" Filters: {' | '.join(filter_parts)}")
                 self.list_filters_label.setVisible(True)
             else:
                 self.list_filters_label.setVisible(False)
@@ -4156,13 +4238,13 @@ class TSVWatcherWindow(QMainWindow):
             
             filter_parts = []
             if active_filters.get("selected_chapter"):
-                filter_parts.append(f"• Chapter: '{active_filters['selected_chapter']}'")
+                filter_parts.append(f" Chapter: '{active_filters['selected_chapter']}'")
             if active_filters.get("question_set_search"):
-                filter_parts.append(f"• Question Set: '{active_filters['question_set_search']}'")
+                filter_parts.append(f" Question Set: '{active_filters['question_set_search']}'")
             if active_filters.get("selected_tags"):
-                filter_parts.append(f"• Tags: {', '.join(active_filters['selected_tags'])}")
+                filter_parts.append(f" Tags: {', '.join(active_filters['selected_tags'])}")
             if active_filters.get("selected_magazine"):
-                filter_parts.append(f"• Magazine: {active_filters['selected_magazine']}")
+                filter_parts.append(f" Magazine: {active_filters['selected_magazine']}")
             
             if filter_parts:
                 filter_label = QLabel("\n".join(filter_parts))
@@ -4231,14 +4313,14 @@ class TSVWatcherWindow(QMainWindow):
     def select_output_file(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Excel Workbook",
+            "Select SQLite Database",
             "",
             "Excel files (*.xlsx)",
         )
         if file_path:
             self.output_edit.setText(file_path)
             self._save_last_selection()
-            self.update_row_count()
+            self.load_subject_from_db()
 
     def refresh_file_list(self) -> None:
         input_path = Path(self.input_edit.text().strip())
@@ -4295,40 +4377,44 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         input_path = Path(self.input_edit.text().strip())
-        workbook_path = Path(self.output_edit.text().strip())
-
         if not input_path.is_dir():
             QMessageBox.critical(self, "Invalid Input", "Please select a valid input folder.")
             return
-        if not workbook_path.is_file():
-            QMessageBox.critical(self, "Invalid Workbook", "Please select an existing Excel workbook.")
+
+        db_path = Path(self.db_path_edit.text().strip() or DEFAULT_DB_PATH)
+        subject = self.subject_combo.currentText() if hasattr(self, "subject_combo") else ""
+        if not subject:
+            QMessageBox.critical(self, "Invalid Subject", "Please select a subject.")
             return
+        if not db_path.is_file():
+            QMessageBox.critical(self, "Invalid Database", f"Database file not found:\n{db_path}")
+            return
+
+        self.current_db_path = db_path
+        self.db_service.set_db_path(db_path)
+        self.current_subject = subject
 
         self.stop_event.clear()
         self.watch_thread = threading.Thread(
-            target=self._watch_loop, args=(input_path, workbook_path), daemon=True
+            target=self._watch_loop, args=(input_path,), daemon=True
         )
         self.watch_thread.start()
         self.start_button.setEnabled(False)
-        self.watch_workbook_path = workbook_path
         self.log("Started watching for TSV files.")
     
     def _auto_start_watching(self) -> None:
-        """Automatically start watching if both input folder and workbook are valid."""
+        """Automatically start watching if both input folder and Database are valid."""
         if self.watch_thread and self.watch_thread.is_alive():
             return  # Already watching
         
         input_path = Path(self.input_edit.text().strip())
-        workbook_path = Path(self.output_edit.text().strip())
-        
-        if input_path.is_dir() and workbook_path.is_file():
+        if input_path.is_dir():
             self.stop_event.clear()
             self.watch_thread = threading.Thread(
-                target=self._watch_loop, args=(input_path, workbook_path), daemon=True
+                target=self._watch_loop, args=(input_path,), daemon=True
             )
             self.watch_thread.start()
             self.start_button.setEnabled(False)
-            self.watch_workbook_path = workbook_path
             self.log("Auto-started watching for TSV files.")
 
     def stop_watching(self) -> None:
@@ -4337,47 +4423,14 @@ class TSVWatcherWindow(QMainWindow):
             self.watch_thread.join(timeout=0.1)
         self.start_button.setEnabled(True)
         self.watch_thread = None
-        self.watch_workbook_path = None
+        self.watch_Database_path = None
         self.log("Stopped watching.")
 
-    def _restart_watching_for_new_workbook(self, workbook_path: Path) -> None:
-        """
-        If the watcher is running and the workbook changes, restart the watcher to use the new file.
-        Prevents imports from writing into the previously loaded workbook.
-        """
-        if not (self.watch_thread and self.watch_thread.is_alive()):
-            return
-        
-        # If already watching this workbook, nothing to do
-        if self.watch_workbook_path and self.watch_workbook_path.resolve() == workbook_path.resolve():
-            return
-        
-        self.log(f"Workbook changed to {workbook_path.name}; restarting watcher.")
-        
-        # Stop current watcher
-        self.stop_event.set()
-        if self.watch_thread and self.watch_thread.is_alive():
-            self.watch_thread.join(timeout=1.0)
-        self.watch_thread = None
-        self.watch_workbook_path = None
-        
-        # Start watcher with new workbook if paths are valid
-        input_path = Path(self.input_edit.text().strip())
-        if input_path.is_dir() and workbook_path.is_file():
-            self.stop_event.clear()
-            self.watch_thread = threading.Thread(
-                target=self._watch_loop, args=(input_path, workbook_path), daemon=True
-            )
-            self.watch_thread.start()
-            self.start_button.setEnabled(False)
-            self.watch_workbook_path = workbook_path
-            self.log(f"Watcher restarted for workbook {workbook_path.name}.")
-        else:
-            # Enable button so user can start manually once paths are valid
-            self.start_button.setEnabled(True)
-            self.log("Watcher stopped; set a valid input folder to restart.")
+    def _restart_watching_for_new_Database(self, Database_path: Path) -> None:
+        """Deprecated: Database no longer used."""
+        return
 
-    def _watch_loop(self, input_dir: Path, workbook_path: Path) -> None:
+    def _watch_loop(self, input_dir: Path) -> None:
         poll_interval = 3.0
         while not self.stop_event.is_set():
             tsv_files = sorted(input_dir.glob("*.tsv"))
@@ -4391,7 +4444,8 @@ class TSVWatcherWindow(QMainWindow):
                 self.event_queue.put(("status", tsv_file.name, "Processing", "Validating..."))
                 self.event_queue.put(("status_importing", tsv_file.name))
                 try:
-                    result_message = process_tsv(tsv_file, workbook_path, self.current_magazine_name)
+                    subject = self.current_subject or (self.subject_combo.currentText() if hasattr(self, "subject_combo") else "")
+                    result_message = process_tsv(tsv_file, self.db_service, subject)
                 except Exception as exc:
                     self.event_queue.put(("status", tsv_file.name, "Error", str(exc)))
                     self.event_queue.put(("log", f"Error processing {tsv_file.name}: {exc}"))
@@ -4429,8 +4483,8 @@ class TSVWatcherWindow(QMainWindow):
                     self.log(f"Loaded chapter grouping for: {detected_magazine or 'default (Physics)'}")
                 
                 self.row_count_label.setText(f"Total rows: {row_count}")
-                # Show success status after workbook loads
-                self.set_status(f'Loaded workbook "{self.current_workbook_path.name}"', "success")
+                # Show success status after Database loads
+                self.set_status(f'Loaded Database "{self.current_Database_path.name}"', "success")
                 total_editions = sum(len(entry["editions"]) for entry in details)
                 mag_display = self.current_magazine_display_name or (
                     self.current_magazine_name.title() if self.current_magazine_name else "Unknown"
@@ -4440,7 +4494,7 @@ class TSVWatcherWindow(QMainWindow):
                     f"Tracked editions: {total_editions}",
                 )
                 
-                self.mag_page_ranges = self._compute_page_ranges_for_editions(self.workbook_df, details)
+                self.mag_page_ranges = self._compute_page_ranges_for_editions(self.Database_df, details)
                 self._populate_magazine_heatmap(details, self.mag_page_ranges)
                 self._populate_question_sets([])
                 missing_qset_warning = next(
@@ -4458,21 +4512,21 @@ class TSVWatcherWindow(QMainWindow):
                 self._refresh_grouping_ui()
                 
                 # Update dashboard with statistics
-                if hasattr(self, 'dashboard_view') and hasattr(self, 'workbook_df'):
+                if hasattr(self, 'dashboard_view') and hasattr(self, 'Database_df'):
                     self.dashboard_view.update_dashboard_data(
-                        self.workbook_df,
+                        self.Database_df,
                         self.chapter_groups,
                         magazine_details=details,
                         mag_display_name=self.current_magazine_display_name,
                         mag_page_ranges=self.mag_page_ranges,
                     )
                 
-                # Update question set grouping view with question sets from workbook
-                if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'workbook_df'):
-                    # Extract unique question sets and their min pages from workbook
-                    question_sets = self._extract_unique_question_sets(self.workbook_df)
-                    qs_min_pages = self._extract_question_set_min_pages(self.workbook_df)
-                    qs_mag_map = self._extract_question_set_magazines(self.workbook_df)
+                # Update question set grouping view with question sets from Database
+                if hasattr(self, 'question_set_grouping_view') and hasattr(self, 'Database_df'):
+                    # Extract unique question sets and their min pages from Database
+                    question_sets = self._extract_unique_question_sets(self.Database_df)
+                    qs_min_pages = self._extract_question_set_min_pages(self.Database_df)
+                    qs_mag_map = self._extract_question_set_magazines(self.Database_df)
                     self.question_set_grouping_view.update_from_workbook(
                         question_sets,
                         qs_min_pages,
@@ -4482,7 +4536,7 @@ class TSVWatcherWindow(QMainWindow):
                 for warning in warnings:
                     self.log(warning)
                 
-                # If startup requested auto-watch, start it only after workbook loads successfully
+                # If startup requested auto-watch, start it only after Database loads successfully
                 if self.pending_auto_watch:
                     self._auto_start_watching()
                     self.pending_auto_watch = False
@@ -4498,7 +4552,7 @@ class TSVWatcherWindow(QMainWindow):
                 self._populate_chapter_list({})
                 self._refresh_grouping_ui()
                 self.question_label.setText("Unable to load editions.")
-                self.log(f"Unable to read workbook rows: {error_message}")
+                self.log(f"Unable to read Database rows: {error_message}")
             elif event_type == "status_error":
                 _, error_msg = event
                 self.set_status(f"Error: {error_msg}", "error")
@@ -4507,9 +4561,9 @@ class TSVWatcherWindow(QMainWindow):
                 self.set_status(f'Importing data from "{filename}"', "importing")
             elif event_type == "status_success":
                 _, filename, result_msg = event
-                self.set_status(f'Data imported from "{filename}" • {result_msg}', "success")
+                self.set_status(f'Data imported from "{filename}"  {result_msg}', "success")
             elif event_type == "rowcount":
-                self.update_row_count()
+                self.load_subject_from_db()
         # Timer will trigger this method again; no manual reschedule needed.
 
     # ============================================================================
@@ -4677,5 +4731,6 @@ class TSVWatcherWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self.stop_watching()
         super().closeEvent(event)
+
 
 
