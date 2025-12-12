@@ -1883,7 +1883,8 @@ class QuestionCardWithRemoveButton(QWidget):
             QMessageBox.warning(self, "Database Unavailable", "Database service is not available to load/save images.")
             return
 
-        dialog = QDialog(self)
+        dialog = QDialog(self, Qt.Dialog)
+        dialog.setModal(True)
         dialog.setWindowTitle("Images")
         dialog.setMinimumSize(520, 400)
 
