@@ -2190,6 +2190,7 @@ class QuestionCardWidget(QLabel):
         self._hover_timer.setSingleShot(True)
         self._hover_timer.timeout.connect(self._show_hover_preview)
         self._preview_popup: QWidget | None = None
+        self._dialog_open = False
 
         # Image button
         self.image_btn = QPushButton(self)
@@ -2436,6 +2437,9 @@ class QuestionCardWidget(QLabel):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
 
+        if self._dialog_open:
+            return
+
         if not (self.db_service and self.question_id):
             return
 
@@ -2561,6 +2565,8 @@ class QuestionCardWidget(QLabel):
 
         updates = dlg.get_updates()
         try:
+            self._dialog_open = True
+            self._hide_hover_preview()
             self.db_service.update_question_fields(int(self.question_id), updates)
             # Update local data and rebuild card
             self.question_data.update(
@@ -2578,6 +2584,8 @@ class QuestionCardWidget(QLabel):
             self._build_card()
         except Exception as exc:
             QMessageBox.warning(self, "Save failed", f"Could not save changes:\n{exc}")
+        finally:
+            self._dialog_open = False
 
     def _update_image_button_state(self):
         """Switch icon to filled version when images exist."""
@@ -2683,7 +2691,10 @@ class QuestionCardWidget(QLabel):
         tabs.addTab(q_tab, "Question images")
         tabs.addTab(a_tab, "Answer images")
 
+        self._dialog_open = True
+        self._hide_hover_preview()
         dialog.exec()
+        self._dialog_open = False
         self._update_image_button_state()
 
     def _add_images(self, kind: str, refresh_callback=None):
