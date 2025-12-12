@@ -1765,7 +1765,6 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.raise_()
         self.edit_btn.raise_()
         self._update_image_button_state()
-        self._dialog_open = False
 
     def enterEvent(self, event):
 
@@ -1819,13 +1818,7 @@ class QuestionCardWithRemoveButton(QWidget):
     def _show_edit_dialog(self):
         """Forward edit to inner card to avoid duplicate logic."""
         if hasattr(self.card, "_show_edit_dialog"):
-            self._dialog_open = True
-            if hasattr(self.card, "_hide_hover_preview"):
-                self.card._hide_hover_preview()
-            try:
-                self.card._show_edit_dialog()
-            finally:
-                self._dialog_open = False
+            self.card._show_edit_dialog()
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
@@ -1969,10 +1962,7 @@ class QuestionCardWithRemoveButton(QWidget):
         tabs.addTab(q_tab, "Question images")
         tabs.addTab(a_tab, "Answer images")
 
-        self._dialog_open = True
-        self._hide_hover_preview()
         dialog.exec()
-        self._dialog_open = False
         self._update_image_button_state()
 
     def _add_images(self, kind: str, refresh_callback=None):
@@ -2200,8 +2190,6 @@ class QuestionCardWidget(QLabel):
         self._hover_timer.setSingleShot(True)
         self._hover_timer.timeout.connect(self._show_hover_preview)
         self._preview_popup: QWidget | None = None
-        self._dialog_open = False
-        self._dialog_open = False
 
         # Image button
         self.image_btn = QPushButton(self)
@@ -2447,9 +2435,6 @@ class QuestionCardWidget(QLabel):
     def _show_hover_preview(self):
         """Show first question image in a small popup after hover delay."""
         self._hide_hover_preview()
-
-        if self._dialog_open:
-            return
 
         if not (self.db_service and self.question_id):
             return
