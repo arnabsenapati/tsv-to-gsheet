@@ -2447,12 +2447,6 @@ class QuestionCardWidget(QLabel):
         if not images:
             return
 
-        pixmap = QPixmap()
-        pixmap.loadFromData(bytes(images[0]["data"]))
-        if pixmap.isNull():
-            return
-        pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
-
         popup = QWidget(None, Qt.ToolTip)
         popup.setAttribute(Qt.WA_DeleteOnClose)
         popup.setStyleSheet("background: #ffffff; border: 3px solid #0284c7; border-radius: 10px; padding: 8px;")
@@ -2463,9 +2457,20 @@ class QuestionCardWidget(QLabel):
         popup.setGraphicsEffect(shadow)
         layout = QVBoxLayout(popup)
         layout.setContentsMargins(4, 4, 4, 4)
-        lbl = QLabel()
-        lbl.setPixmap(pixmap)
-        layout.addWidget(lbl)
+        layout.setSpacing(8)
+
+        for img in images:
+            pixmap = QPixmap()
+            pixmap.loadFromData(bytes(img["data"]))
+            if pixmap.isNull():
+                continue
+            pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
+            lbl = QLabel()
+            lbl.setPixmap(pixmap)
+            layout.addWidget(lbl)
+
+        if layout.count() == 0:
+            return
 
         # Position relative to card column: left column -> show on right, right column -> show on left
         parent = self.parent()
