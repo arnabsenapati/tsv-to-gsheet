@@ -2507,6 +2507,8 @@ class QuestionCardWidget(QLabel):
         popup.show()
 
         self._preview_popup = popup
+        # Close preview when clicked
+        popup.mousePressEvent = lambda e: self._hide_hover_preview()
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
