@@ -1820,7 +1820,8 @@ class QuestionCardWithRemoveButton(QWidget):
         """Forward edit to inner card to avoid duplicate logic."""
         if hasattr(self.card, "_show_edit_dialog"):
             self._dialog_open = True
-            self._hide_hover_preview()
+            if hasattr(self.card, "_hide_hover_preview"):
+                self.card._hide_hover_preview()
             try:
                 self.card._show_edit_dialog()
             finally:
@@ -2199,6 +2200,7 @@ class QuestionCardWidget(QLabel):
         self._hover_timer.setSingleShot(True)
         self._hover_timer.timeout.connect(self._show_hover_preview)
         self._preview_popup: QWidget | None = None
+        self._dialog_open = False
 
         # Image button
         self.image_btn = QPushButton(self)
