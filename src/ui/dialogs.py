@@ -208,22 +208,23 @@ class QuestionEditDialog(QDialog):
     def __init__(self, question: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Question")
-        self.setMinimumSize(520, 600)
+        self.setMinimumSize(520, 640)
         self.question = question.copy()
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #0f172a;
-                color: #e2e8f0;
+                background-color: #0b1020;
+                color: #cbd5e1;
             }
             QLabel {
-                color: #e2e8f0;
+                color: #cbd5e1;
                 font-weight: 600;
+                padding: 2px 0;
             }
             QLineEdit, QTextEdit {
-                background-color: #111827;
+                background-color: #0f172a;
                 color: #e5e7eb;
-                border: 1px solid #334155;
+                border: 1px solid #1f2a44;
                 border-radius: 6px;
                 padding: 8px;
                 selection-background-color: #2563eb;
@@ -254,6 +255,8 @@ class QuestionEditDialog(QDialog):
             lbl = QLabel(label_text)
             lbl.setMinimumWidth(140)
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setWordWrap(False)
+            lbl.setStyleSheet("background: transparent;")
             form.addRow(lbl, widget)
 
         self.qno_input = QLineEdit(str(question.get("qno", "")))
