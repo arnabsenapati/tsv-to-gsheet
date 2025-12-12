@@ -2201,6 +2201,7 @@ class QuestionCardWidget(QLabel):
         self._hover_timer.timeout.connect(self._show_hover_preview)
         self._preview_popup: QWidget | None = None
         self._dialog_open = False
+        self._dialog_open = False
 
         # Image button
         self.image_btn = QPushButton(self)
