@@ -2467,6 +2467,7 @@ class QuestionCardWidget(QLabel):
             pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
             lbl = QLabel()
             lbl.setPixmap(pixmap)
+            lbl.setStyleSheet("padding: 0px; border: none; margin: 0;")
             layout.addWidget(lbl)
 
         if layout.count() == 0:
