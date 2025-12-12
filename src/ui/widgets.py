@@ -69,6 +69,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.icon_utils import load_icon
+from ui.dialogs import QuestionEditDialog
 from utils.helpers import normalize_magazine_edition
 
 
@@ -1736,6 +1737,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.raise_()
         self.image_btn.raise_()
+        self.edit_btn.raise_()
         self._update_image_button_state()
 
     def enterEvent(self, event):
@@ -1744,10 +1746,12 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.setVisible(True)
         self.image_btn.setVisible(True)
+        self.edit_btn.setVisible(True)
 
         # Position buttons in top-right corner
         self.remove_btn.move(self.width() - 32, 4)
         self.image_btn.move(self.width() - 64, 4)
+        self.edit_btn.move(self.width() - 92, 6)
 
         super().enterEvent(event)
 
@@ -1759,6 +1763,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.setVisible(False)
         self.image_btn.setVisible(False)
+        self.edit_btn.setVisible(False)
 
         super().leaveEvent(event)
 
@@ -2165,6 +2170,33 @@ class QuestionCardWidget(QLabel):
         self.image_btn.clicked.connect(self._show_image_popover)
         self.image_btn.setVisible(False)
         self.image_btn.setCursor(Qt.PointingHandCursor)
+
+        # Edit button
+        self.edit_btn = QPushButton(self)
+        self.edit_btn.setIcon(load_icon("edit.svg"))
+        self.edit_btn.setIconSize(QSize(14, 14))
+        self.edit_btn.setToolTip("Edit question")
+        self.edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 12px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #d97706;
+            }
+        """)
+        self.edit_btn.setFixedSize(24, 24)
+        self.edit_btn.clicked.connect(self._show_edit_dialog)
+        self.edit_btn.setVisible(False)
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
         self.image_btn.raise_()
 
         self._update_image_button_state()
@@ -2351,6 +2383,7 @@ class QuestionCardWidget(QLabel):
         """Keep image button anchored top-right on resize."""
         super().resizeEvent(event)
         self.image_btn.move(self.width() - 32, 4)
+        self.edit_btn.move(self.width() - 92, 6)
 
     def _find_db_service(self):
         """Walk parents to find db_service if available."""
@@ -2481,6 +2514,36 @@ class QuestionCardWidget(QLabel):
             background-color: #0284c7;
         }
         """
+
+    def _show_edit_dialog(self):
+        """Open edit dialog and persist changes."""
+        if not (self.db_service and self.question_id):
+            QMessageBox.information(self, "Edit unavailable", "Database service or question ID missing.")
+            return
+
+        dlg = QuestionEditDialog(self.question_data, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        updates = dlg.get_updates()
+        try:
+            self.db_service.update_question_fields(int(self.question_id), updates)
+            # Update local data and rebuild card
+            self.question_data.update(
+                {
+                    "qno": updates.get("question_number", self.question_data.get("qno")),
+                    "page": updates.get("page_range", self.question_data.get("page")),
+                    "question_set_name": updates.get("question_set_name", self.question_data.get("question_set_name")),
+                    "magazine": updates.get("magazine", self.question_data.get("magazine")),
+                    "text": updates.get("question_text", self.question_data.get("text")),
+                    "answer_text": updates.get("answer_text", self.question_data.get("answer_text")),
+                    "chapter": updates.get("chapter", self.question_data.get("chapter")),
+                    "high_level_chapter": updates.get("high_level_chapter", self.question_data.get("high_level_chapter")),
+                }
+            )
+            self._build_card()
+        except Exception as exc:
+            QMessageBox.warning(self, "Save failed", f"Could not save changes:\n{exc}")
 
     def _update_image_button_state(self):
         """Switch icon to filled version when images exist."""

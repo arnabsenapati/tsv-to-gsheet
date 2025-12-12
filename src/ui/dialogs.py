@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QTextEdit,
+    QFormLayout,
 )
 
 from .widgets import ClickableTagBadge
@@ -198,6 +200,64 @@ class MultiSelectTagDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+
+class QuestionEditDialog(QDialog):
+    """Dialog to edit question metadata and text."""
+
+    def __init__(self, question: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Question")
+        self.setMinimumSize(480, 520)
+        self.question = question.copy()
+
+        form = QFormLayout()
+
+        self.qno_input = QLineEdit(str(question.get("qno", "")))
+        form.addRow("Question No:", self.qno_input)
+
+        self.page_input = QLineEdit(str(question.get("page", "")))
+        form.addRow("Page:", self.page_input)
+
+        self.set_name_input = QLineEdit(str(question.get("question_set_name", "")))
+        form.addRow("Question Set:", self.set_name_input)
+
+        self.mag_input = QLineEdit(str(question.get("magazine", "")))
+        form.addRow("Magazine Edition:", self.mag_input)
+
+        self.chapter_input = QLineEdit(str(question.get("chapter", "")))
+        form.addRow("Chapter:", self.chapter_input)
+
+        self.high_chapter_input = QLineEdit(str(question.get("high_level_chapter", "")))
+        form.addRow("High-level Chapter:", self.high_chapter_input)
+
+        self.text_input = QTextEdit(str(question.get("text", "")))
+        self.text_input.setMinimumHeight(140)
+        form.addRow("Question Text:", self.text_input)
+
+        self.answer_input = QTextEdit(str(question.get("answer_text", "")))
+        self.answer_input.setMinimumHeight(100)
+        form.addRow("Answer Text:", self.answer_input)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.addLayout(form)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        main_layout.addWidget(btns)
+
+    def get_updates(self) -> dict:
+        return {
+            "question_number": self.qno_input.text().strip(),
+            "page_range": self.page_input.text().strip(),
+            "question_set_name": self.set_name_input.text().strip(),
+            "magazine": self.mag_input.text().strip(),
+            "question_text": self.text_input.toPlainText().strip(),
+            "answer_text": self.answer_input.toPlainText().strip(),
+            "chapter": self.chapter_input.text().strip(),
+            "high_level_chapter": self.high_chapter_input.text().strip(),
+        }
     
     def _add_tag_badges(self, tags: list[str]):
         """

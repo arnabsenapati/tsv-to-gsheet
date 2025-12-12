@@ -317,6 +317,34 @@ class DatabaseService:
                 )
             return cur.rowcount or 0
 
+    # ------------------------------------------------------------------
+    # Question updates
+    # ------------------------------------------------------------------
+    def update_question_fields(self, question_id: int, fields: Dict[str, Any]) -> None:
+        """Update allowed fields on a question row."""
+        if not fields:
+            return
+        allowed = {
+            "question_number",
+            "page_range",
+            "question_set_name",
+            "magazine",
+            "edition",
+            "question_text",
+            "answer_text",
+            "chapter",
+            "high_level_chapter",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values())
+        values.append(question_id)
+        with self._connect() as conn:
+            conn.execute(f"UPDATE questions SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+
     def load_question_lists(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
         """
         Return (question_lists, metadata) where question_lists is name -> list[dict],
