@@ -1686,6 +1686,33 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setVisible(False)
         self.image_btn.setCursor(Qt.PointingHandCursor)
 
+        # Edit button (matches base card style)
+        self.edit_btn = QPushButton(self)
+        self.edit_btn.setIcon(load_icon("edit.svg"))
+        self.edit_btn.setIconSize(QSize(14, 14))
+        self.edit_btn.setToolTip("Edit question")
+        self.edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 12px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #d97706;
+            }
+        """)
+        self.edit_btn.setFixedSize(24, 24)
+        self.edit_btn.clicked.connect(self._show_edit_dialog)
+        self.edit_btn.setVisible(False)
+        self.edit_btn.setCursor(Qt.PointingHandCursor)
+
         # Create remove button (positioned absolutely in top-right corner)
 
         self.remove_btn = QPushButton(self)
