@@ -217,7 +217,7 @@ class QuestionEditDialog(QDialog):
                 color: #cbd5e1;
             }
             QLabel {
-                color: #cbd5e1;
+                color: #dfe7ff;
                 font-weight: 600;
                 padding: 2px 0;
             }
@@ -256,7 +256,7 @@ class QuestionEditDialog(QDialog):
             lbl.setMinimumWidth(140)
             lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             lbl.setWordWrap(False)
-            lbl.setStyleSheet("background: transparent;")
+            lbl.setStyleSheet("background: transparent; border: none;")
             form.addRow(lbl, widget)
 
         self.qno_input = QLineEdit(str(question.get("qno", "")))
