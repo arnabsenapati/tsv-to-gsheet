@@ -1815,6 +1815,11 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_requested.emit(self.question_data)
 
+    def _show_edit_dialog(self):
+        """Forward edit to inner card to avoid duplicate logic."""
+        if hasattr(self.card, "_show_edit_dialog"):
+            self.card._show_edit_dialog()
+
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
         if active:
