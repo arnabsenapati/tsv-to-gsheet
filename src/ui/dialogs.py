@@ -208,41 +208,88 @@ class QuestionEditDialog(QDialog):
     def __init__(self, question: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Question")
-        self.setMinimumSize(480, 520)
+        self.setMinimumSize(520, 600)
         self.question = question.copy()
 
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                color: #e2e8f0;
+            }
+            QLabel {
+                color: #e2e8f0;
+                font-weight: 600;
+            }
+            QLineEdit, QTextEdit {
+                background-color: #111827;
+                color: #e5e7eb;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                padding: 8px;
+                selection-background-color: #2563eb;
+            }
+            QLineEdit:focus, QTextEdit:focus {
+                border: 1px solid #2563eb;
+            }
+            QDialogButtonBox QPushButton {
+                background-color: #2563eb;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 14px;
+                font-weight: 600;
+            }
+            QDialogButtonBox QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+        """)
+
         form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFormAlignment(Qt.AlignTop)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(14)
+
+        def add_row(label_text: str, widget):
+            lbl = QLabel(label_text)
+            lbl.setMinimumWidth(140)
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            form.addRow(lbl, widget)
 
         self.qno_input = QLineEdit(str(question.get("qno", "")))
-        form.addRow("Question No:", self.qno_input)
+        add_row("Question No:", self.qno_input)
 
         self.page_input = QLineEdit(str(question.get("page", "")))
-        form.addRow("Page:", self.page_input)
+        add_row("Page:", self.page_input)
 
         self.set_name_input = QLineEdit(str(question.get("question_set_name", "")))
-        form.addRow("Question Set:", self.set_name_input)
+        add_row("Question Set:", self.set_name_input)
 
         self.mag_input = QLineEdit(str(question.get("magazine", "")))
-        form.addRow("Magazine Edition:", self.mag_input)
+        add_row("Magazine Edition:", self.mag_input)
 
         self.chapter_input = QLineEdit(str(question.get("chapter", "")))
-        form.addRow("Chapter:", self.chapter_input)
+        add_row("Chapter:", self.chapter_input)
 
         self.high_chapter_input = QLineEdit(str(question.get("high_level_chapter", "")))
-        form.addRow("High-level Chapter:", self.high_chapter_input)
+        add_row("High-level Chapter:", self.high_chapter_input)
 
         self.text_input = QTextEdit(str(question.get("text", "")))
         self.text_input.setMinimumHeight(140)
-        form.addRow("Question Text:", self.text_input)
+        add_row("Question Text:", self.text_input)
 
         self.answer_input = QTextEdit(str(question.get("answer_text", "")))
         self.answer_input.setMinimumHeight(100)
-        form.addRow("Answer Text:", self.answer_input)
+        add_row("Answer Text:", self.answer_input)
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(16, 16, 16, 12)
+        main_layout.setSpacing(12)
         main_layout.addLayout(form)
 
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Save).setText("Save")
+        btns.button(QDialogButtonBox.Cancel).setText("Cancel")
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         main_layout.addWidget(btns)
