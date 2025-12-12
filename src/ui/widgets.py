@@ -69,7 +69,6 @@ from PySide6.QtWidgets import (
 )
 
 from ui.icon_utils import load_icon
-from ui.dialogs import QuestionEditDialog
 from utils.helpers import normalize_magazine_edition
 
 
@@ -2520,6 +2519,7 @@ class QuestionCardWidget(QLabel):
         if not (self.db_service and self.question_id):
             QMessageBox.information(self, "Edit unavailable", "Database service or question ID missing.")
             return
+        from ui.dialogs import QuestionEditDialog  # local import to avoid circular
 
         dlg = QuestionEditDialog(self.question_data, self)
         if dlg.exec() != QDialog.Accepted:
