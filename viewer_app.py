@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
 )
 
-from services.cbt_package import load_cqt, save_cqt_payload
+from services.cbt_package import load_cqt, save_cqt_payload, verify_eval_password
 
 
 class QuestionView(QWidget):
@@ -84,7 +84,7 @@ class QuestionView(QWidget):
         layout.addWidget(scroll, 1)
         layout.addLayout(options_layout)
 
-    def set_question(self, question: Dict[str, Any], responses: Dict[str, str], display_index: int):
+    def set_question(self, question: Dict[str, Any], responses: Dict[str, str], display_index: int, show_answers: bool = False):
         self.question = question
         self.responses = responses
         qid = question.get("question_id") or ""
@@ -107,6 +107,17 @@ class QuestionView(QWidget):
             lbl.setPixmap(pixmap)
             lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
             self.image_layout.addWidget(lbl)
+        if show_answers:
+            for img in question.get("answer_images", []):
+                data = base64.b64decode(img.get("data", ""))
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                lbl = QLabel()
+                lbl.setPixmap(pixmap)
+                lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+                self.image_layout.addWidget(lbl)
         self.image_layout.addStretch()
 
         # Restore response
@@ -135,18 +146,30 @@ class ViewerWindow(QMainWindow):
         self.package_path = package_path
         self.payload = data
         self.password = password
+        self.evaluated = False
 
         self.setWindowTitle(f"CBT Viewer - {data.get('list_name', '')}")
         central = QWidget()
-        root = QHBoxLayout(central)
+        root = QVBoxLayout(central)
         self.setCentralWidget(central)
 
+        top_row = QHBoxLayout()
         self.list_widget = QListWidget()
         self.list_widget.setFixedWidth(180)
-        root.addWidget(self.list_widget)
+        top_row.addWidget(self.list_widget)
 
         self.question_view = QuestionView(on_answer_change=self._refresh_answer_markers)
-        root.addWidget(self.question_view, 1)
+        top_row.addWidget(self.question_view, 1)
+
+        root.addLayout(top_row, 1)
+
+        eval_btn = QPushButton("Evaluate")
+        eval_btn.setStyleSheet("background-color: #2563eb; color: white; padding: 6px 12px; border-radius: 4px;")
+        eval_btn.clicked.connect(self._on_evaluate)
+        eval_row = QHBoxLayout()
+        eval_row.addStretch()
+        eval_row.addWidget(eval_btn)
+        root.addLayout(eval_row)
 
         self.list_widget.currentRowChanged.connect(self._on_question_selected)
 
@@ -166,7 +189,7 @@ class ViewerWindow(QMainWindow):
         if row < 0 or row >= len(self.questions):
             return
         q = self.questions[row]
-        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1)
+        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, self.evaluated)
         self._refresh_answer_markers()
 
     def closeEvent(self, event):
@@ -190,6 +213,39 @@ class ViewerWindow(QMainWindow):
             font = item.font()
             font.setUnderline(answered)
             item.setFont(font)
+
+        if self.evaluated:
+            # Show correctness markers
+            for idx, q in enumerate(self.questions):
+                item = self.list_widget.item(idx)
+                if not item:
+                    continue
+                qid = str(q.get("question_id"))
+                sel = self.payload.get("responses", {}).get(qid, "")
+                correct_opts = set(q.get("correct_options", []))
+                if sel:
+                    correct = sel in correct_opts if correct_opts else False
+                    marker = "✔" if correct else "✘"
+                    color = "#16a34a" if correct else "#dc2626"
+                    item.setText(f"{base_label}  {marker}")
+                    item.setForeground(Qt.black)
+                    # apply color via data? keep simple with HTML not possible; leave as is
+
+    def _on_evaluate(self):
+        protection = self.payload.get("evaluation_protection", {})
+        pwd, ok = QInputDialog.getText(self, "Evaluation Password", "Enter evaluation password:", QLineEdit.Password)
+        if not ok or not pwd:
+            return
+        if not verify_eval_password(pwd, protection):
+            QMessageBox.warning(self, "Incorrect", "Evaluation password is incorrect.")
+            return
+        self.evaluated = True
+        self._refresh_answer_markers()
+        # refresh current question to show answer images
+        row = self.list_widget.currentRow()
+        if row >= 0:
+            q = self.questions[row]
+            self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, self.evaluated)
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
