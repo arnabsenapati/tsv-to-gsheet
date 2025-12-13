@@ -66,6 +66,7 @@ def build_payload(list_name: str, questions: List[Dict[str, Any]]) -> bytes:
         "list_name": list_name,
         "questions": questions,
         "responses": {},  # student selections stored by question_id
+        "evaluation_protection": {},  # salt/hash/iterations for eval password
     }
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -86,3 +87,38 @@ def load_cqt(path: str, password: str) -> Dict[str, Any]:
 def save_cqt_payload(path: str, payload: Dict[str, Any], password: str) -> None:
     data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
     save_cqt(path, data, password)
+
+
+def hash_eval_password(password: str, salt: bytes | None = None, iterations: int = 200_000) -> Dict[str, Any]:
+    salt = salt or os.urandom(16)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=iterations,
+    )
+    pwd_hash = kdf.derive(password.encode("utf-8"))
+    return {
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "hash": base64.b64encode(pwd_hash).decode("ascii"),
+        "iterations": iterations,
+    }
+
+
+def verify_eval_password(password: str, protection: Dict[str, Any]) -> bool:
+    if not protection:
+        return False
+    try:
+        salt = base64.b64decode(protection["salt"])
+        expected = base64.b64decode(protection["hash"])
+        iterations = int(protection.get("iterations", 200_000))
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=iterations,
+        )
+        kdf.verify(password.encode("utf-8"), expected)
+        return True
+    except Exception:
+        return False

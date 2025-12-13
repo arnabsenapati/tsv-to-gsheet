@@ -69,8 +69,8 @@ from config.constants import (
 from services.db_service import DatabaseService
 from services.excel_service import process_tsv
 from services.question_set_group_service import QuestionSetGroupService
-from services.cbt_package import build_payload, save_cqt
-from ui.dialogs import MultiSelectTagDialog, PasswordPromptDialog
+from services.cbt_package import build_payload, save_cqt, hash_eval_password
+from ui.dialogs import MultiSelectTagDialog, PasswordPromptDialog, CQTAuthorPreviewDialog
 from ui.question_set_grouping_view import QuestionSetGroupingView
 from ui.icon_utils import load_icon
 from ui.widgets import (
@@ -4132,11 +4132,14 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         # Ask for password
-        from ui.dialogs import PasswordPromptDialog
         pwd_dialog = PasswordPromptDialog("Set CBT Password", self)
         if pwd_dialog.exec() != QDialog.Accepted:
             return
         password = pwd_dialog.get_password()
+        eval_pwd_dialog = PasswordPromptDialog("Set Evaluation Password", self)
+        if eval_pwd_dialog.exec() != QDialog.Accepted:
+            return
+        eval_password = eval_pwd_dialog.get_password()
 
         # Ask where to save
         default_name = f"{self.current_list_name}.cqt"
@@ -4192,6 +4195,7 @@ class TSVWatcherWindow(QMainWindow):
                     "answer_text": q.get("answer_text", ""),
                     "question_images": question_images,
                     "answer_images": answer_images,
+                    "correct_options": q.get("correct_options", []),
                     "options": [
                         {"label": "A", "text": ""},
                         {"label": "B", "text": ""},
@@ -4201,7 +4205,17 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
 
+        # Author preview to set correct options / view answer images
+        preview = CQTAuthorPreviewDialog(packaged_questions, self)
+        if preview.exec() != QDialog.Accepted:
+            return
+        packaged_questions = preview.apply_updates()
+
         payload = build_payload(self.current_list_name, packaged_questions)
+        # Add evaluation password hash
+        payload_dict = json.loads(payload.decode("utf-8"))
+        payload_dict["evaluation_protection"] = hash_eval_password(eval_password)
+        payload = json.dumps(payload_dict, ensure_ascii=False, indent=2).encode("utf-8")
         try:
             save_cqt(file_path, payload, password)
         except Exception as exc:

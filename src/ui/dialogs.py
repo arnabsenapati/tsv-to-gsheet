@@ -18,7 +18,14 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QFormLayout,
     QLineEdit,
+    QCheckBox,
+    QListWidget,
+    QListWidgetItem,
+    QScrollArea,
 )
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
+import base64
 
 from .widgets import ClickableTagBadge
 
@@ -345,6 +352,121 @@ class PasswordPromptDialog(QDialog):
 
     def get_password(self) -> str:
         return self.password_input.text()
+
+
+class CQTAuthorPreviewDialog(QDialog):
+    """Preview questions with images and select correct options before export."""
+
+    def __init__(self, questions: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preview & Set Correct Options")
+        self.setMinimumSize(900, 700)
+        self.questions = questions
+
+        root = QHBoxLayout(self)
+        self.list_widget = QListWidget()
+        self.list_widget.setFixedWidth(200)
+        root.addWidget(self.list_widget)
+
+        # Detail panel
+        detail_widget = QWidget()
+        detail_layout = QVBoxLayout(detail_widget)
+        detail_layout.setContentsMargins(8, 8, 8, 8)
+        detail_layout.setSpacing(8)
+
+        self.meta_label = QLabel()
+        self.meta_label.setStyleSheet("font-weight: 600; color: #0f172a;")
+        detail_layout.addWidget(self.meta_label)
+
+        self.text_label = QLabel()
+        self.text_label.setWordWrap(True)
+        self.text_label.setStyleSheet("color: #0f172a;")
+        detail_layout.addWidget(self.text_label)
+
+        # Images (question + answer)
+        self.image_container = QWidget()
+        self.image_layout = QVBoxLayout(self.image_container)
+        self.image_layout.setContentsMargins(0, 0, 0, 0)
+        self.image_layout.setSpacing(6)
+
+        img_scroll = QScrollArea()
+        img_scroll.setWidgetResizable(True)
+        img_scroll.setWidget(self.image_container)
+        detail_layout.addWidget(img_scroll, 1)
+
+        # Correct options checkboxes
+        self.option_checks = {}
+        options_layout = QHBoxLayout()
+        for label in ["A", "B", "C", "D"]:
+            cb = QCheckBox(label)
+            self.option_checks[label] = cb
+            options_layout.addWidget(cb)
+        options_layout.addStretch()
+        detail_layout.addLayout(options_layout)
+
+        root.addWidget(detail_widget, 1)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        detail_layout.addWidget(btns)
+
+        # Populate list
+        for idx, q in enumerate(self.questions, start=1):
+            item = QListWidgetItem(f"Q{idx}")
+            self.list_widget.addItem(item)
+        self.list_widget.currentRowChanged.connect(self._on_select)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def _on_select(self, row: int):
+        if row < 0 or row >= len(self.questions):
+            return
+        q = self.questions[row]
+        self.meta_label.setText(
+            f"Q{q.get('qno','?')} | P{q.get('page','?')} | {q.get('question_set_name','')} | {q.get('magazine','')}"
+        )
+        self.text_label.setText(q.get("text", ""))
+
+        # Images
+        while self.image_layout.count():
+            item = self.image_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for img in q.get("question_images", []):
+            self._add_image(img)
+        # Answer images below
+        for img in q.get("answer_images", []):
+            self._add_image(img, label="Answer")
+        self.image_layout.addStretch()
+
+        # Options
+        correct = set(q.get("correct_options", []))
+        for label, cb in self.option_checks.items():
+            cb.setChecked(label in correct)
+
+    def _add_image(self, img: dict, label: str | None = None):
+        data = base64.b64decode(img.get("data", ""))
+        pixmap = QPixmap()
+        pixmap.loadFromData(data)
+        if not pixmap.isNull():
+            pixmap = pixmap.scaledToWidth(480, Qt.SmoothTransformation)
+        lbl = QLabel()
+        lbl.setPixmap(pixmap)
+        lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+        if label:
+            cap = QLabel(label)
+            cap.setStyleSheet("font-weight: 600; color: #0f172a; padding-top: 4px;")
+            self.image_layout.addWidget(cap)
+        self.image_layout.addWidget(lbl)
+
+    def apply_updates(self):
+        """Write selected correct options back into questions."""
+        correct = [lbl for lbl, cb in self.option_checks.items() if cb.isChecked()]
+        row = self.list_widget.currentRow()
+        if 0 <= row < len(self.questions):
+            self.questions[row]["correct_options"] = correct
+        return self.questions
     
     def _add_tag_badges(self, tags: list[str]):
         """
