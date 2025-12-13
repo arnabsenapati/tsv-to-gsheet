@@ -110,8 +110,15 @@ class QuestionView(QWidget):
 
         # Restore response
         selected = responses.get(str(qid), "")
-        for label, btn in self.option_buttons.items():
-            btn.setChecked(label == selected)
+        # Clear selection first
+        self.option_group.setExclusive(False)
+        for btn in self.option_buttons.values():
+            btn.setChecked(False)
+        self.option_group.setExclusive(True)
+        if selected:
+            btn = self.option_buttons.get(selected)
+            if btn:
+                btn.setChecked(True)
 
     def _on_option_selected(self, button):
         qid = self.question.get("question_id")
