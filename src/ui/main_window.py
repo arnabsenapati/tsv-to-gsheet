@@ -69,7 +69,8 @@ from config.constants import (
 from services.db_service import DatabaseService
 from services.excel_service import process_tsv
 from services.question_set_group_service import QuestionSetGroupService
-from ui.dialogs import MultiSelectTagDialog
+from services.cbt_package import build_payload, save_cqt
+from ui.dialogs import MultiSelectTagDialog, PasswordPromptDialog
 from ui.question_set_grouping_view import QuestionSetGroupingView
 from ui.icon_utils import load_icon
 from ui.widgets import (
@@ -989,6 +990,31 @@ class TSVWatcherWindow(QMainWindow):
         """)
         export_docx_btn.clicked.connect(self.export_current_list_to_docx)
         action_layout.addWidget(export_docx_btn)
+
+        export_cbt_btn = QPushButton("Export CBT (.cqt)")
+        export_cbt_btn.setToolTip("Create a password-protected CBT package from this list")
+        export_cbt_btn.setMinimumHeight(28)
+        export_cbt_btn.setMaximumHeight(28)
+        export_cbt_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0f766e;
+                color: #ffffff;
+                border: 1px solid #115e59;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #0d9488;
+            }
+            QPushButton:disabled {
+                background-color: #cbd5e1;
+                color: #64748b;
+                border: 1px solid #cbd5e1;
+            }
+        """)
+        export_cbt_btn.clicked.connect(self.export_current_list_to_cqt)
+        action_layout.addWidget(export_cbt_btn)
         
         action_layout.addStretch()
         search_layout.addWidget(action_container)
@@ -4093,6 +4119,96 @@ class TSVWatcherWindow(QMainWindow):
             self.log(f"Exported '{self.current_list_name}' to DOCX: {file_path}")
         except Exception as exc:
             QMessageBox.critical(self, "Export Failed", f"Could not save DOCX: {exc}")
+
+    def export_current_list_to_cqt(self) -> None:
+        """Export selected custom list to password-protected .cqt package."""
+        if not self.current_list_name or self.current_list_name not in self.question_lists:
+            QMessageBox.information(self, "No List Selected", "Select a custom list before exporting.")
+            return
+
+        questions = self.question_lists.get(self.current_list_name, [])
+        if not questions:
+            QMessageBox.information(self, "Empty List", "The selected list has no questions to export.")
+            return
+
+        # Ask for password
+        from ui.dialogs import PasswordPromptDialog
+        pwd_dialog = PasswordPromptDialog("Set CBT Password", self)
+        if pwd_dialog.exec() != QDialog.Accepted:
+            return
+        password = pwd_dialog.get_password()
+
+        # Ask where to save
+        default_name = f"{self.current_list_name}.cqt"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save CBT Package",
+            default_name,
+            "CBT Package (*.cqt)",
+        )
+        if not file_path:
+            return
+        if not file_path.lower().endswith(".cqt"):
+            file_path += ".cqt"
+
+        # Build questions payload with images
+        packaged_questions = []
+        import base64
+        for q in questions:
+            qid = q.get("question_id")
+            question_images = []
+            answer_images = []
+            if qid:
+                try:
+                    imgs = self.db_service.get_images(int(qid), "question")
+                    ans_imgs = self.db_service.get_images(int(qid), "answer")
+                    for img in imgs:
+                        question_images.append(
+                            {
+                                "mime": img.get("mime_type", "application/octet-stream"),
+                                "data": base64.b64encode(img.get("data") or b"").decode("ascii"),
+                            }
+                        )
+                    for img in ans_imgs:
+                        answer_images.append(
+                            {
+                                "mime": img.get("mime_type", "application/octet-stream"),
+                                "data": base64.b64encode(img.get("data") or b"").decode("ascii"),
+                            }
+                        )
+                except Exception:
+                    pass
+
+            packaged_questions.append(
+                {
+                    "question_id": qid,
+                    "qno": q.get("qno"),
+                    "page": q.get("page"),
+                    "question_set_name": q.get("question_set_name"),
+                    "magazine": q.get("magazine"),
+                    "chapter": q.get("chapter"),
+                    "high_level_chapter": q.get("high_level_chapter"),
+                    "text": q.get("text", ""),
+                    "answer_text": q.get("answer_text", ""),
+                    "question_images": question_images,
+                    "answer_images": answer_images,
+                    "options": [
+                        {"label": "A", "text": ""},
+                        {"label": "B", "text": ""},
+                        {"label": "C", "text": ""},
+                        {"label": "D", "text": ""},
+                    ],
+                }
+            )
+
+        payload = build_payload(self.current_list_name, packaged_questions)
+        try:
+            save_cqt(file_path, payload, password)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", f"Could not export CBT package:\n{exc}")
+            return
+
+        QMessageBox.information(self, "Export Complete", f"Saved CBT package to:\n{file_path}")
     
     def _format_question_placeholder_metadata(self, question: dict) -> str:
         """Format compact metadata line like 'Qno 13 P 40 Sep'25'."""
@@ -4794,6 +4910,3 @@ class TSVWatcherWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self.stop_watching()
         super().closeEvent(event)
-
-
-

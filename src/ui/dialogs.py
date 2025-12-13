@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QTextEdit,
     QFormLayout,
+    QLineEdit,
 )
 
 from .widgets import ClickableTagBadge
@@ -308,6 +309,42 @@ class QuestionEditDialog(QDialog):
             "chapter": self.chapter_input.text().strip(),
             "high_level_chapter": self.high_chapter_input.text().strip(),
         }
+
+
+class PasswordPromptDialog(QDialog):
+    """Simple password + confirm dialog."""
+
+    def __init__(self, title: str = "Set Password", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_confirm = QLineEdit()
+        self.password_confirm.setEchoMode(QLineEdit.Password)
+        form.addRow("Password:", self.password_input)
+        form.addRow("Confirm:", self.password_confirm)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setMinimumWidth(320)
+
+    def _on_accept(self):
+        if self.password_input.text() != self.password_confirm.text():
+            QMessageBox.warning(self, "Mismatch", "Passwords do not match.")
+            return
+        if not self.password_input.text():
+            QMessageBox.warning(self, "Empty", "Password cannot be empty.")
+            return
+        self.accept()
+
+    def get_password(self) -> str:
+        return self.password_input.text()
     
     def _add_tag_badges(self, tags: list[str]):
         """
