@@ -74,3 +74,15 @@ def save_cqt(output_path: str, payload: bytes, password: str) -> None:
     package = encrypt_payload(payload, password)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(package, f, ensure_ascii=False)
+
+
+def load_cqt(path: str, password: str) -> Dict[str, Any]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = f.read().encode("utf-8")
+    plaintext = decrypt_payload(data, password)
+    return json.loads(plaintext.decode("utf-8"))
+
+
+def save_cqt_payload(path: str, payload: Dict[str, Any], password: str) -> None:
+    data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+    save_cqt(path, data, password)
