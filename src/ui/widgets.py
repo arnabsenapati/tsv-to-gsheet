@@ -4620,6 +4620,7 @@ class NavigationSidebar(QWidget):
             ("", "Question Set Groups", 5, True),
             ("", "Data Import", 6, False),
             ("", "JEE Main Papers", 7, False),
+            ("", "Exams", 8, False),
         ]
 
         
@@ -6534,6 +6535,5 @@ class DragDropQuestionPanel(QWidget):
                 break
 
             main_window = parent_widget
-
 
 

@@ -7,11 +7,13 @@ from __future__ import annotations
 import json
 import mimetypes
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 from utils.helpers import normalize_magazine_edition, normalize_page, normalize_qno
+from services.cbt_package import load_cqt
 
 
 class DatabaseService:
@@ -447,3 +449,222 @@ class DatabaseService:
                 "UPDATE questions SET high_level_chapter = ?, chapter = ? WHERE id = ?",
                 [(target_group, target_group, qid) for qid in question_ids],
             )
+
+    # ------------------------------------------------------------------
+    # Exams (.cqt import)
+    # ------------------------------------------------------------------
+    def _ensure_exam_tables(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS exams (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    list_name TEXT,
+                    imported_at TEXT,
+                    evaluated INTEGER DEFAULT 0,
+                    evaluated_at TEXT,
+                    total_questions INTEGER,
+                    answered INTEGER,
+                    correct INTEGER,
+                    wrong INTEGER,
+                    score INTEGER,
+                    percent REAL,
+                    source_path TEXT,
+                    payload_json TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS exam_questions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    exam_id INTEGER NOT NULL,
+                    q_index INTEGER,
+                    question_json TEXT,
+                    response_json TEXT,
+                    correct INTEGER,
+                    answered INTEGER,
+                    score INTEGER,
+                    FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE
+                )
+                """
+            )
+
+    def import_exam_from_cqt(self, path: str, package_password: str) -> Dict[str, Any]:
+        """Import a .cqt package, compute stats, and persist as an exam record."""
+        self._ensure_exam_tables()
+        payload = load_cqt(path, package_password)
+        questions = payload.get("questions", [])
+        responses = payload.get("responses", {}) or {}
+        evaluated = bool(payload.get("evaluated"))
+        evaluated_at = payload.get("evaluated_at")
+        total = len(questions)
+
+        def _qkey(q: Dict[str, Any], idx: int) -> str:
+            if q.get("question_id") not in (None, ""):
+                return str(q.get("question_id"))
+            if q.get("qno") not in (None, ""):
+                return f"qno_{q.get('qno')}"
+            return f"idx_{idx}"
+
+        def _answered(qtype: str, resp: Any) -> bool:
+            if qtype == "numerical":
+                if resp is None:
+                    return False
+                if isinstance(resp, (int, float)):
+                    return str(resp).strip() != ""
+                if isinstance(resp, str):
+                    return resp.strip() != ""
+                return False
+            else:
+                if isinstance(resp, str):
+                    resp_list = [resp] if resp else []
+                else:
+                    resp_list = resp or []
+                return bool(resp_list)
+
+        def _is_correct(q: Dict[str, Any], resp: Any) -> bool:
+            qtype = q.get("question_type", "mcq_single") or "mcq_single"
+            if qtype == "numerical":
+                answer_val = str(q.get("numerical_answer", "")).strip()
+                sel_val = str(resp).strip() if resp is not None else ""
+                return bool(answer_val) and sel_val == answer_val
+            else:
+                if isinstance(resp, str):
+                    sel_list = [resp] if resp else []
+                else:
+                    sel_list = resp or []
+                sel_set = set(sel_list)
+                correct_opts = set(q.get("correct_options", []))
+                return bool(correct_opts) and sel_set == correct_opts
+
+        answered_cnt = 0
+        correct_cnt = 0
+        wrong_cnt = 0
+        question_rows: List[Tuple] = []
+
+        for idx, q in enumerate(questions):
+            key = _qkey(q, idx)
+            resp = responses.get(str(key))
+            qtype = q.get("question_type", "mcq_single") or "mcq_single"
+            is_ans = _answered(qtype, resp)
+            is_correct = _is_correct(q, resp) if evaluated else False
+            if is_ans:
+                answered_cnt += 1
+            if evaluated:
+                if is_correct:
+                    correct_cnt += 1
+                elif is_ans:
+                    wrong_cnt += 1
+            q_score = 4 if is_correct else (-1 if evaluated and is_ans and not is_correct else 0)
+            question_rows.append(
+                (
+                    idx,
+                    json.dumps(q, ensure_ascii=False),
+                    json.dumps(resp, ensure_ascii=False),
+                    1 if is_correct else 0,
+                    1 if is_ans else 0,
+                    q_score,
+                )
+            )
+
+        score = correct_cnt * 4 - wrong_cnt
+        percent = (correct_cnt * 4 / (total * 4)) * 100 if total else 0.0
+        imported_at = datetime.utcnow().isoformat() + "Z"
+
+        exam_id = None
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO exams (
+                    name, list_name, imported_at, evaluated, evaluated_at, total_questions,
+                    answered, correct, wrong, score, percent, source_path, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    Path(path).name,
+                    payload.get("list_name", ""),
+                    imported_at,
+                    1 if evaluated else 0,
+                    evaluated_at if evaluated else None,
+                    total,
+                    answered_cnt,
+                    correct_cnt,
+                    wrong_cnt,
+                    score,
+                    percent,
+                    str(path),
+                    json.dumps(payload, ensure_ascii=False),
+                ),
+            )
+            exam_id = cur.lastrowid
+            conn.executemany(
+                """
+                INSERT INTO exam_questions (
+                    exam_id, q_index, question_json, response_json, correct, answered, score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [(exam_id, *row) for row in question_rows],
+            )
+
+        return {
+            "exam_id": exam_id,
+            "imported_at": imported_at,
+            "total": total,
+            "answered": answered_cnt,
+            "correct": correct_cnt,
+            "wrong": wrong_cnt,
+            "score": score,
+            "percent": percent,
+            "evaluated": evaluated,
+            "evaluated_at": evaluated_at,
+        }
+
+    def list_exams(self) -> List[Dict[str, Any]]:
+        self._ensure_exam_tables()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM exams
+                ORDER BY imported_at DESC, id DESC
+                """
+            ).fetchall()
+        result = []
+        for row in rows:
+            result.append({k: row[k] for k in row.keys()})
+        return result
+
+    def get_exam_questions(self, exam_id: int) -> List[Dict[str, Any]]:
+        self._ensure_exam_tables()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT q_index, question_json, response_json, correct, answered, score
+                FROM exam_questions
+                WHERE exam_id = ?
+                ORDER BY q_index
+                """,
+                (exam_id,),
+            ).fetchall()
+        result: List[Dict[str, Any]] = []
+        for row in rows:
+            try:
+                question = json.loads(row["question_json"] or "{}")
+            except json.JSONDecodeError:
+                question = {}
+            try:
+                response = json.loads(row["response_json"] or "null")
+            except json.JSONDecodeError:
+                response = None
+            result.append(
+                {
+                    "index": row["q_index"],
+                    "question": question,
+                    "response": response,
+                    "correct": bool(row["correct"]),
+                    "answered": bool(row["answered"]),
+                    "score": row["score"],
+                }
+            )
+        return result

@@ -209,6 +209,79 @@ class MultiSelectTagDialog(QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+    def _add_tag_badges(self, tags: list[str]):
+        """
+        Add tag badges to the layout in a flowing grid (3 per row).
+        """
+        row_layout = None
+        tags_per_row = 0
+        max_tags_per_row = 3
+
+        for tag in sorted(tags):
+            if tags_per_row == 0:
+                row_layout = QHBoxLayout()
+                row_layout.setSpacing(10)
+                self.tags_layout.addLayout(row_layout)
+
+            color = self._get_tag_color(tag)
+            is_selected = tag in self.selected_tags_list
+            badge = ClickableTagBadge(tag, color, is_selected)
+            self.tag_badges[tag] = badge
+            row_layout.addWidget(badge)
+
+            tags_per_row += 1
+            if tags_per_row >= max_tags_per_row:
+                row_layout.addStretch()
+                tags_per_row = 0
+
+        if row_layout and tags_per_row > 0:
+            row_layout.addStretch()
+
+    def _get_tag_color(self, tag: str) -> str:
+        if tag not in self.tag_colors:
+            color_index = len(self.tag_colors) % len(self.available_colors)
+            self.tag_colors[tag] = self.available_colors[color_index]
+        return self.tag_colors[tag]
+
+    def _add_new_tag(self):
+        """Add a new tag from the input field."""
+        tag = self.new_tag_input.text().strip()
+        if not tag:
+            return
+
+        if tag in self.tag_badges:
+            self.tag_badges[tag].is_selected = True
+            self.tag_badges[tag]._update_style()
+            self.new_tag_input.clear()
+            return
+
+        color = self._get_tag_color(tag)
+        badge = ClickableTagBadge(tag, color, is_selected=True)
+        self.tag_badges[tag] = badge
+
+        last_layout = None
+        for i in range(self.tags_layout.count()):
+            item = self.tags_layout.itemAt(i)
+            if isinstance(item, QHBoxLayout):
+                last_layout = item
+
+        if not last_layout or last_layout.count() >= 4:  # 3 badges + stretch
+            new_row = QHBoxLayout()
+            new_row.setSpacing(10)
+            new_row.addWidget(badge)
+            new_row.addStretch()
+            self.tags_layout.addLayout(new_row)
+        else:
+            stretch_item = last_layout.takeAt(last_layout.count() - 1)
+            last_layout.addWidget(badge)
+            if stretch_item:
+                last_layout.addItem(stretch_item)
+
+        self.new_tag_input.clear()
+
+    def get_selected_tags(self) -> list[str]:
+        return [tag for tag, badge in self.tag_badges.items() if badge.is_selected]
+
 
 class QuestionEditDialog(QDialog):
     """Dialog to edit question metadata and text."""
@@ -525,109 +598,3 @@ class CQTAuthorPreviewDialog(QDialog):
         if self.current_row is not None:
             self._save_row(self.current_row)
         self.accept()
-    
-    def _add_tag_badges(self, tags: list[str]):
-        """
-        Add tag badges to the layout in a flowing grid (3 per row).
-        
-        Args:
-            tags: List of tag names to add as badges
-        """
-        row_layout = None
-        tags_per_row = 0
-        max_tags_per_row = 3
-        
-        for tag in sorted(tags):
-            # Create new row if needed
-            if tags_per_row == 0:
-                row_layout = QHBoxLayout()
-                row_layout.setSpacing(10)
-                self.tags_layout.addLayout(row_layout)
-            
-            # Create badge
-            color = self._get_tag_color(tag)
-            is_selected = tag in self.selected_tags_list
-            badge = ClickableTagBadge(tag, color, is_selected)
-            self.tag_badges[tag] = badge
-            row_layout.addWidget(badge)
-            
-            # Move to next row after max tags
-            tags_per_row += 1
-            if tags_per_row >= max_tags_per_row:
-                row_layout.addStretch()
-                tags_per_row = 0
-        
-        # Add stretch to last incomplete row
-        if row_layout and tags_per_row > 0:
-            row_layout.addStretch()
-    
-    def _get_tag_color(self, tag: str) -> str:
-        """
-        Get or assign a color for a tag.
-        
-        Args:
-            tag: Tag name
-            
-        Returns:
-            Hex color code
-        """
-        if tag not in self.tag_colors:
-            # Assign next color from palette (cycling)
-            color_index = len(self.tag_colors) % len(self.available_colors)
-            self.tag_colors[tag] = self.available_colors[color_index]
-        return self.tag_colors[tag]
-    
-    def _add_new_tag(self):
-        """
-        Add a new tag from the input field.
-        If tag exists, just selects it. Otherwise creates new badge.
-        """
-        tag = self.new_tag_input.text().strip()
-        if not tag:
-            return
-        
-        # Check if tag already exists
-        if tag in self.tag_badges:
-            # Already exists - just select it
-            self.tag_badges[tag].is_selected = True
-            self.tag_badges[tag]._update_style()
-            self.new_tag_input.clear()
-            return
-        
-        # Create new tag badge (selected by default)
-        color = self._get_tag_color(tag)
-        badge = ClickableTagBadge(tag, color, is_selected=True)
-        self.tag_badges[tag] = badge
-        
-        # Find last layout row to add to
-        last_layout = None
-        for i in range(self.tags_layout.count()):
-            item = self.tags_layout.itemAt(i)
-            if isinstance(item, QHBoxLayout):
-                last_layout = item
-        
-        # Add to existing row or create new row
-        if not last_layout or last_layout.count() >= 4:  # 3 badges + 1 stretch
-            # Create new row
-            new_row = QHBoxLayout()
-            new_row.setSpacing(10)
-            new_row.addWidget(badge)
-            new_row.addStretch()
-            self.tags_layout.addLayout(new_row)
-        else:
-            # Add to existing row (remove stretch, add badge, re-add stretch)
-            stretch_item = last_layout.takeAt(last_layout.count() - 1)
-            last_layout.addWidget(badge)
-            if stretch_item:
-                last_layout.addItem(stretch_item)
-        
-        self.new_tag_input.clear()
-    
-    def get_selected_tags(self) -> list[str]:
-        """
-        Get list of currently selected tag names.
-        
-        Returns:
-            List of tag names that are selected
-        """
-        return [tag for tag, badge in self.tag_badges.items() if badge.is_selected]

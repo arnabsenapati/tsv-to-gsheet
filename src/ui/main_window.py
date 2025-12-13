@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import base64
 import queue
 import re
 import threading
@@ -22,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -228,6 +229,7 @@ class TSVWatcherWindow(QMainWindow):
         self._create_question_set_grouping_page()  # Index 5
         self._create_import_page()              # Index 6
         self._create_jee_page()                 # Index 7
+        self._create_exams_page()               # Index 8
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -271,6 +273,18 @@ class TSVWatcherWindow(QMainWindow):
         self._refresh_grouping_ui()
         self._load_saved_question_lists()
 
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            else:
+                child = item.layout()
+                if child:
+                    self._clear_layout(child)
+        layout.update()
+
     def _on_navigation_changed(self, index: int):
         """Handle navigation sidebar item selection."""
         self.content_stack.setCurrentIndex(index)
@@ -279,6 +293,8 @@ class TSVWatcherWindow(QMainWindow):
         if index == 2 and (self.question_set_groups_dirty or not self.current_questions):
             self._refresh_question_tab_with_loading()
             self.question_set_groups_dirty = False
+        if index == 8:
+            self._load_exam_list()
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -1207,6 +1223,220 @@ class TSVWatcherWindow(QMainWindow):
         jee_layout.addWidget(jee_splitter, 1)
         
         self.content_stack.addWidget(jee_page)
+
+    # ------------------------------------------------------------------
+    # Exams page (CQT imports)
+    # ------------------------------------------------------------------
+    def _create_exams_page(self):
+        """Create Exams page (index 8)."""
+        exams_page = QWidget()
+        layout = QHBoxLayout(exams_page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        # Left: exam list + import
+        left_card = self._create_card()
+        left_layout = QVBoxLayout(left_card)
+        left_layout.setSpacing(8)
+
+        btn_row = QHBoxLayout()
+        import_btn = QPushButton("Import Exam (.cqt)")
+        import_btn.clicked.connect(self._import_exam_from_cqt)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self._load_exam_list)
+        btn_row.addWidget(import_btn)
+        btn_row.addWidget(refresh_btn)
+        left_layout.addLayout(btn_row)
+
+        self.exam_list_widget = QListWidget()
+        self.exam_list_widget.itemSelectionChanged.connect(self._on_exam_selected)
+        left_layout.addWidget(self.exam_list_widget, 1)
+
+        layout.addWidget(left_card, 0)
+
+        # Right: details
+        right_card = self._create_card()
+        right_layout = QVBoxLayout(right_card)
+        right_layout.setSpacing(8)
+
+        self.exam_header_label = self._create_label("Select an exam to view details")
+        right_layout.addWidget(self.exam_header_label)
+
+        self.exam_stats_label = QLabel("")
+        self.exam_stats_label.setStyleSheet("color: #475569; padding: 2px 0;")
+        right_layout.addWidget(self.exam_stats_label)
+
+        self.exam_summary_label = QLabel("")
+        self.exam_summary_label.setStyleSheet("color: #475569; padding: 2px 0;")
+        self.exam_summary_label.setWordWrap(True)
+        right_layout.addWidget(self.exam_summary_label)
+
+        # Question detail scroll
+        self.exam_detail_container = QWidget()
+        self.exam_detail_layout = QVBoxLayout(self.exam_detail_container)
+        self.exam_detail_layout.setContentsMargins(0, 0, 0, 0)
+        self.exam_detail_layout.setSpacing(10)
+        self.exam_detail_layout.addStretch()
+
+        detail_scroll = QScrollArea()
+        detail_scroll.setWidgetResizable(True)
+        detail_scroll.setWidget(self.exam_detail_container)
+        right_layout.addWidget(detail_scroll, 1)
+
+        layout.addWidget(right_card, 1)
+
+        self.content_stack.addWidget(exams_page)
+
+    def _import_exam_from_cqt(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open CBT Package", "", "CBT Package (*.cqt)")
+        if not file_path:
+            return
+        pwd, ok = QInputDialog.getText(self, "Package Password", "Enter package password:", QLineEdit.Password)
+        if not ok or not pwd:
+            return
+        try:
+            summary = self.db_service.import_exam_from_cqt(file_path, pwd)
+            self.statusBar().showMessage(f"Imported exam: {Path(file_path).name}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Import Failed", f"Could not import exam:\n{exc}")
+            return
+        self._load_exam_list()
+        QMessageBox.information(
+            self,
+            "Import Complete",
+            f"Imported exam with {summary.get('total',0)} questions.\nCorrect: {summary.get('correct',0)} | Wrong: {summary.get('wrong',0)} | Score: {summary.get('score',0)}",
+        )
+
+    def _load_exam_list(self):
+        if not hasattr(self, "exam_list_widget"):
+            return
+        self.exam_list_widget.clear()
+        try:
+            self.exams_data = self.db_service.list_exams()
+        except Exception as exc:
+            QMessageBox.warning(self, "Exams Unavailable", f"Could not load exams:\n{exc}")
+            self.exams_data = []
+            return
+        for exam in self.exams_data:
+            name = exam.get("name") or "Exam"
+            imported = exam.get("imported_at") or ""
+            score = exam.get("score") if exam.get("score") is not None else ""
+            item = QListWidgetItem(f"{name}  ({imported})  Score: {score}")
+            item.setData(Qt.UserRole, exam)
+            self.exam_list_widget.addItem(item)
+        if self.exam_list_widget.count() > 0:
+            self.exam_list_widget.setCurrentRow(0)
+
+    def _on_exam_selected(self):
+        items = self.exam_list_widget.selectedItems()
+        if not items:
+            return
+        exam = items[0].data(Qt.UserRole) or {}
+        exam_id = exam.get("id")
+        if exam_id is None:
+            return
+        header = exam.get("name") or "Exam"
+        list_name = exam.get("list_name") or ""
+        imported = exam.get("imported_at") or ""
+        evaluated_at = exam.get("evaluated_at") or "Not evaluated"
+        self.exam_header_label.setText(f"{header} | {list_name}")
+        stats = f"Imported: {imported} | Evaluated: {evaluated_at}"
+        self.exam_stats_label.setText(stats)
+        summary = f"Questions: {exam.get('total_questions',0)} | Answered: {exam.get('answered',0)} | Correct: {exam.get('correct',0)} | Wrong: {exam.get('wrong',0)} | Score: {exam.get('score',0)} | Percent: {round(exam.get('percent') or 0,2)}%"
+        self.exam_summary_label.setText(summary)
+        try:
+            questions = self.db_service.get_exam_questions(int(exam_id))
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Failed", f"Could not load exam questions:\n{exc}")
+            return
+        evaluated = bool(exam.get("evaluated"))
+        self._render_exam_questions(questions, evaluated)
+
+    def _render_exam_questions(self, questions: List[Dict[str, Any]], evaluated: bool):
+        self._clear_layout(self.exam_detail_layout)
+        for idx, row in enumerate(questions, start=1):
+            widget = self._build_exam_question_widget(row, idx, evaluated)
+            self.exam_detail_layout.addWidget(widget)
+        self.exam_detail_layout.addStretch()
+
+    def _build_exam_question_widget(self, row: Dict[str, Any], display_index: int, evaluated: bool) -> QWidget:
+        q = row.get("question", {}) or {}
+        resp = row.get("response")
+        correct = bool(row.get("correct"))
+        answered = bool(row.get("answered"))
+        score = row.get("score", 0)
+
+        wrapper = QWidget()
+        layout = QVBoxLayout(wrapper)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        wrapper.setStyleSheet("background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;")
+
+        marker = "✔" if evaluated and correct else ("✘" if evaluated and answered else "•")
+        marker_color = "#16a34a" if evaluated and correct else ("#dc2626" if evaluated and answered else "#94a3b8")
+        header = QLabel(f"{marker}  Q{display_index} | P{q.get('page','?')} | {q.get('question_set_name','')} | {q.get('magazine','')}")
+        header.setStyleSheet(f"color: {marker_color}; font-weight: 700;")
+        layout.addWidget(header)
+
+        text_lbl = QLabel(q.get("text", ""))
+        text_lbl.setWordWrap(True)
+        text_lbl.setStyleSheet("color: #0f172a;")
+        layout.addWidget(text_lbl)
+
+        # Question images
+        for img in q.get("question_images", []):
+            data = base64.b64decode(img.get("data", ""))
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            if not pixmap.isNull():
+                pixmap = pixmap.scaledToWidth(420, Qt.SmoothTransformation)
+            img_lbl = QLabel()
+            img_lbl.setPixmap(pixmap)
+            img_lbl.setStyleSheet("border: none;")
+            layout.addWidget(img_lbl)
+
+        # Answer images (only show if evaluated)
+        if evaluated and q.get("answer_images"):
+            divider = QFrame()
+            divider.setFrameShape(QFrame.HLine)
+            divider.setStyleSheet("color: #cbd5e1;")
+            layout.addWidget(divider)
+            ans_title = QLabel("Answer Images")
+            ans_title.setStyleSheet("font-weight: 600; color: #334155;")
+            layout.addWidget(ans_title)
+            for img in q.get("answer_images", []):
+                data = base64.b64decode(img.get("data", ""))
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaledToWidth(420, Qt.SmoothTransformation)
+                img_lbl = QLabel()
+                img_lbl.setPixmap(pixmap)
+                img_lbl.setStyleSheet("border: none;")
+                layout.addWidget(img_lbl)
+
+        # Response / result
+        qtype = q.get("question_type", "mcq_single") or "mcq_single"
+        if qtype == "numerical":
+            resp_text = str(resp).strip() if resp is not None else "-"
+        else:
+            if isinstance(resp, str):
+                resp_list = [resp] if resp else []
+            else:
+                resp_list = resp or []
+            resp_text = ", ".join(resp_list) if resp_list else "-"
+        resp_lbl = QLabel(f"Response: {resp_text}")
+        resp_lbl.setStyleSheet("color: #475569;")
+        layout.addWidget(resp_lbl)
+
+        if evaluated:
+            result_text = "Correct" if correct else ("Incorrect" if answered else "Unanswered")
+            result_color = "#16a34a" if correct else ("#dc2626" if answered else "#94a3b8")
+            result_lbl = QLabel(f"Result: {result_text} | Score: {score}")
+            result_lbl.setStyleSheet(f"color: {result_color}; font-weight: 600;")
+            layout.addWidget(result_lbl)
+
+        return wrapper
 
     def _apply_palette(self) -> None:
         palette = QPalette()

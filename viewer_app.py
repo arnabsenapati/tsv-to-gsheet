@@ -38,8 +38,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QCheckBox,
     QFrame,
-    QRadioButton,
-    QButtonGroup,
 )
 
 from services.cbt_package import load_cqt, save_cqt_payload, verify_eval_password
@@ -49,6 +47,7 @@ class QuestionView(QWidget):
     def __init__(self, parent=None, on_answer_change=None):
         super().__init__(parent)
         self.question: Dict[str, Any] = {}
+        self.qkey: str | None = None
         self.responses: Dict[str, list[str]] = {}
         self.current_type: str = "mcq_single"
         self.evaluated: bool = False
@@ -62,6 +61,9 @@ class QuestionView(QWidget):
         self.text_label.setWordWrap(True)
         self.text_label.setStyleSheet("font-size: 13px; color: #0f172a;")
 
+        self.type_label = QLabel()
+        self.type_label.setStyleSheet("color: #94a3b8; font-weight: 600; padding: 2px 0;")
+
         self.image_container = QWidget()
         self.image_layout = QVBoxLayout(self.image_container)
         self.image_layout.setContentsMargins(0, 0, 0, 0)
@@ -71,21 +73,7 @@ class QuestionView(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.image_container)
 
-        # MCQ single (radio)
-        self.radio_group = QButtonGroup(self)
-        self.radio_buttons: Dict[str, QRadioButton] = {}
-        radio_layout = QHBoxLayout()
-        self.single_widget = QWidget()
-        self.single_widget.setLayout(radio_layout)
-        for label in ["A", "B", "C", "D"]:
-            btn = QRadioButton(label)
-            self.radio_group.addButton(btn)
-            self.radio_buttons[label] = btn
-            radio_layout.addWidget(btn)
-            btn.toggled.connect(lambda state, lbl=label: self._on_radio_toggled(lbl, state))
-        radio_layout.addStretch()
-
-        # MCQ multiple (checkboxes)
+        # MCQ (checkboxes; also used for single-option mode)
         self.option_buttons: Dict[str, QCheckBox] = {}
         multi_layout = QHBoxLayout()
         self.multi_widget = QWidget()
@@ -108,15 +96,16 @@ class QuestionView(QWidget):
         layout.addWidget(self.meta_label)
         layout.addWidget(self.text_label)
         layout.addWidget(scroll, 1)
-        layout.addWidget(self.single_widget)
+        layout.addWidget(self.type_label)
         layout.addWidget(self.multi_widget)
         layout.addWidget(self.numerical_input)
 
-    def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, show_answers: bool = False):
+    def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
         self.question = question
+        self.qkey = qkey
         self.responses = responses
-        qid = question.get("question_id") or ""
+        qid = qkey
         meta = f"Q{display_index} | P{question.get('page', '?')} | {question.get('question_set_name', '')} | {question.get('magazine', '')}"
         self.meta_label.setText(meta)
         self.text_label.setText(question.get("text", ""))
@@ -160,6 +149,15 @@ class QuestionView(QWidget):
         self.image_layout.addStretch()
 
         # Restore response
+        # Always clear UI selections before applying saved response
+        for btn in self.option_buttons.values():
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.blockSignals(False)
+        self.numerical_input.blockSignals(True)
+        self.numerical_input.setText("")
+        self.numerical_input.blockSignals(False)
+
         selected = responses.get(str(qid), [])
         if self.current_type == "numerical":
             val = selected if isinstance(selected, str) else ""
@@ -170,28 +168,24 @@ class QuestionView(QWidget):
         elif self.current_type == "mcq_multiple":
             if isinstance(selected, str):
                 selected = [selected] if selected else []
-            for btn in self.option_buttons.values():
-                btn.setChecked(False)
             for opt in selected:
                 btn = self.option_buttons.get(opt)
                 if btn:
                     btn.setChecked(True)
         else:  # mcq_single
-            # clear radios
-            self.radio_group.blockSignals(True)
-            for btn in self.radio_buttons.values():
-                btn.setChecked(False)
-            self.radio_group.blockSignals(False)
-            if isinstance(selected, str) and selected:
-                btn = self.radio_buttons.get(selected)
+            if isinstance(selected, str):
+                target = selected
+            elif isinstance(selected, list) and selected:
+                target = selected[0]
+            else:
+                target = ""
+            if target:
+                btn = self.option_buttons.get(target)
                 if btn:
                     btn.setChecked(True)
             else:
                 # ensure no default selection stored
                 self.responses[str(qid)] = ""
-            # also clear multi-checkbox state if switching from another type
-            for btn in self.option_buttons.values():
-                btn.setChecked(False)
 
         self._update_enabled_state()
         self._updating = False
@@ -199,44 +193,51 @@ class QuestionView(QWidget):
     def _on_option_toggled(self, label: str, state: int):
         if self._updating or self.evaluated:
             return
-        qid = self.question.get("question_id")
+        qid = self.qkey
         if qid is None:
             return
         selected = self.responses.get(str(qid), [])
-        if isinstance(selected, str):
-            selected = [selected] if selected else []
-        if state == Qt.Checked:
-            if label not in selected:
-                selected.append(label)
+        if self.current_type == "mcq_single":
+            if state == Qt.Checked:
+                # deselect others
+                for opt, btn in self.option_buttons.items():
+                    if opt != label:
+                        btn.blockSignals(True)
+                        btn.setChecked(False)
+                        btn.blockSignals(False)
+                self.responses[str(qid)] = label
+            else:
+                self.responses[str(qid)] = ""
         else:
-            selected = [opt for opt in selected if opt != label]
-        self.responses[str(qid)] = selected
-        self.on_answer_change()
-
-    def _on_radio_toggled(self, label: str, state: bool):
-        if self._updating or self.evaluated:
-            return
-        if not state:
-            return
-        qid = self.question.get("question_id")
-        if qid is None:
-            return
-        self.responses[str(qid)] = label
+            if isinstance(selected, str):
+                selected = [selected] if selected else []
+            if state == Qt.Checked:
+                if label not in selected:
+                    selected.append(label)
+            else:
+                selected = [opt for opt in selected if opt != label]
+            self.responses[str(qid)] = selected
         self.on_answer_change()
 
     def _on_numerical_changed(self, text: str):
         if self._updating or self.evaluated:
             return
-        qid = self.question.get("question_id")
+        qid = self.qkey
         if qid is None:
             return
         self.responses[str(qid)] = text.strip()
         self.on_answer_change()
 
     def _show_controls_for_type(self, qtype: str):
-        self.single_widget.setVisible(qtype == "mcq_single")
-        self.multi_widget.setVisible(qtype == "mcq_multiple")
+        # One checkbox row for both MCQ types; input for numerical
+        self.multi_widget.setVisible(qtype in ("mcq_single", "mcq_multiple"))
         self.numerical_input.setVisible(qtype == "numerical")
+        if qtype == "numerical":
+            self.type_label.setText("Question Type: Numerical")
+        elif qtype == "mcq_multiple":
+            self.type_label.setText("Question Type: MCQ (Multiple correct)")
+        else:
+            self.type_label.setText("Question Type: MCQ (Single correct)")
 
     def set_evaluated(self, evaluated: bool):
         self.evaluated = evaluated
@@ -244,8 +245,6 @@ class QuestionView(QWidget):
 
     def _update_enabled_state(self):
         enabled = not self.evaluated
-        for btn in self.radio_buttons.values():
-            btn.setEnabled(enabled)
         for btn in self.option_buttons.values():
             btn.setEnabled(enabled)
         self.numerical_input.setReadOnly(not enabled)
@@ -288,6 +287,16 @@ class ViewerWindow(QMainWindow):
 
         self._load_questions()
 
+    def _qkey(self, question: Dict[str, Any], idx: int) -> str:
+        """Return a stable key for responses; fall back to list index if missing."""
+        qid = question.get("question_id")
+        if qid is not None and str(qid) != "":
+            return str(qid)
+        qno = question.get("qno")
+        if qno is not None and str(qno) != "":
+            return f"qno_{qno}"
+        return f"idx_{idx}"
+
     def _load_questions(self):
         self.questions = self.payload.get("questions", [])
         for idx, q in enumerate(self.questions, start=1):
@@ -304,7 +313,8 @@ class ViewerWindow(QMainWindow):
         if row < 0 or row >= len(self.questions):
             return
         q = self.questions[row]
-        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, self.evaluated)
+        key = self._qkey(q, row)
+        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, key, self.evaluated)
         self._refresh_answer_markers()
 
     def closeEvent(self, event):
@@ -323,7 +333,8 @@ class ViewerWindow(QMainWindow):
             if not item:
                 continue
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
-            resp = responses.get(str(q.get("question_id")), [])
+            key = self._qkey(q, idx)
+            resp = responses.get(str(key), [])
             if qtype == "numerical":
                 if resp is None:
                     answered = False
@@ -345,7 +356,9 @@ class ViewerWindow(QMainWindow):
             font = item.font()
             font.setUnderline(answered and not self.evaluated)
             item.setFont(font)
-            item.setForeground(QColor("#0f172a") if answered else QColor("#94a3b8"))
+            if not self.evaluated:
+                # answered -> blue with underline; unanswered -> light gray
+                item.setForeground(QColor("#2563eb") if answered else QColor("#94a3b8"))
 
         if self.evaluated:
             # Show correctness markers
@@ -353,8 +366,8 @@ class ViewerWindow(QMainWindow):
                 item = self.list_widget.item(idx)
                 if not item:
                     continue
-                qid = str(q.get("question_id"))
-                sel = responses.get(qid, [])
+                key = str(self._qkey(q, idx))
+                sel = responses.get(key, [])
                 qtype = q.get("question_type", "mcq_single") or "mcq_single"
                 correct = False
                 if qtype == "numerical":
@@ -394,6 +407,7 @@ class ViewerWindow(QMainWindow):
 
         self.evaluated = True
         self.payload["evaluated"] = True
+        self.payload["evaluated_at"] = datetime.utcnow().isoformat() + "Z"
         self.question_view.set_evaluated(True)
         self._refresh_answer_markers()
         # refresh current question to show answer images
