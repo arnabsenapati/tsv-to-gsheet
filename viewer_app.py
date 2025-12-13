@@ -11,6 +11,12 @@ import sys
 from pathlib import Path
 from typing import Dict, Any
 
+# Ensure project src is on path
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
