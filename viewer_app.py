@@ -156,7 +156,6 @@ class ViewerWindow(QMainWindow):
         self.questions = self.payload.get("questions", [])
         for idx, q in enumerate(self.questions, start=1):
             item = QListWidgetItem(f"Q{idx}")
-            # Reserve space for badge on the right
             item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self.list_widget.addItem(item)
         if self.list_widget.count() > 0:
@@ -187,14 +186,10 @@ class ViewerWindow(QMainWindow):
                 continue
             answered = bool(responses.get(str(q.get("question_id")), ""))
             base_label = f"Q{idx + 1}"
-            badge = "   "  # spacer
-            if answered:
-                badge = " \u2705 "  # green check emoji
-                item.setText(f"{base_label}{badge}")
-                # Use rich display with right badge via tab
-                item.setText(f"{base_label}\t{badge}")
-            else:
-                item.setText(base_label)
+            item.setText(base_label)
+            font = item.font()
+            font.setUnderline(answered)
+            item.setFont(font)
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
