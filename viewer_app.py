@@ -48,7 +48,7 @@ class QuestionView(QWidget):
         self.responses: Dict[str, str] = {}
 
         self.meta_label = QLabel()
-        self.meta_label.setStyleSheet("font-weight: 600; color: #0f172a; padding: 4px 0;")
+        self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
 
         self.text_label = QLabel()
         self.text_label.setWordWrap(True)
@@ -83,11 +83,11 @@ class QuestionView(QWidget):
         layout.addWidget(scroll, 1)
         layout.addLayout(options_layout)
 
-    def set_question(self, question: Dict[str, Any], responses: Dict[str, str]):
+    def set_question(self, question: Dict[str, Any], responses: Dict[str, str], display_index: int):
         self.question = question
         self.responses = responses
         qid = question.get("question_id") or ""
-        meta = f"Q{question.get('qno', '?')} | P{question.get('page', '?')} | {question.get('question_set_name', '')} | {question.get('magazine', '')}"
+        meta = f"Q{display_index} | P{question.get('page', '?')} | {question.get('question_set_name', '')} | {question.get('magazine', '')}"
         self.meta_label.setText(meta)
         self.text_label.setText(question.get("text", ""))
 
@@ -146,7 +146,7 @@ class ViewerWindow(QMainWindow):
     def _load_questions(self):
         self.questions = self.payload.get("questions", [])
         for idx, q in enumerate(self.questions, start=1):
-            item = QListWidgetItem(f"Q{q.get('qno', idx)}")
+            item = QListWidgetItem(f"Q{idx}")
             self.list_widget.addItem(item)
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
@@ -155,7 +155,7 @@ class ViewerWindow(QMainWindow):
         if row < 0 or row >= len(self.questions):
             return
         q = self.questions[row]
-        self.question_view.set_question(q, self.payload.get("responses", {}))
+        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1)
 
     def closeEvent(self, event):
         # Persist responses
