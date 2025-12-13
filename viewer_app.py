@@ -184,12 +184,11 @@ class ViewerWindow(QMainWindow):
             if not item:
                 continue
             answered = bool(responses.get(str(q.get("question_id")), ""))
+            base_label = f"Q{idx + 1}"
             if answered:
-                item.setBackground(Qt.green)
-                item.setForeground(Qt.black)
+                item.setText(f"✓ {base_label}")
             else:
-                item.setBackground(Qt.white)
-                item.setForeground(Qt.black)
+                item.setText(base_label)
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
