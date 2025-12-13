@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QButtonGroup,
     QInputDialog,
+    QLineEdit,
 )
 
 from services.cbt_package import load_cqt, save_cqt_payload
