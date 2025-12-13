@@ -362,6 +362,7 @@ class CQTAuthorPreviewDialog(QDialog):
         self.setWindowTitle("Preview & Set Correct Options")
         self.setMinimumSize(900, 700)
         self.questions = questions
+        self.current_row = None
 
         root = QHBoxLayout(self)
         self.list_widget = QListWidget()
@@ -377,6 +378,10 @@ class CQTAuthorPreviewDialog(QDialog):
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #0f172a;")
         detail_layout.addWidget(self.meta_label)
+
+        self.type_label = QLabel()
+        self.type_label.setStyleSheet("color: #475569; font-weight: 600;")
+        detail_layout.addWidget(self.type_label)
 
         self.text_label = QLabel()
         self.text_label.setWordWrap(True)
@@ -401,13 +406,20 @@ class CQTAuthorPreviewDialog(QDialog):
             cb = QCheckBox(label)
             self.option_checks[label] = cb
             options_layout.addWidget(cb)
+            cb.stateChanged.connect(self._update_type_label)
         options_layout.addStretch()
         detail_layout.addLayout(options_layout)
+
+        # Numerical answer input (for numerical type)
+        self.numerical_input = QLineEdit()
+        self.numerical_input.setPlaceholderText("Numerical answer (for numerical questions)")
+        self.numerical_input.textChanged.connect(self._update_type_label)
+        detail_layout.addWidget(self.numerical_input)
 
         root.addWidget(detail_widget, 1)
 
         btns = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self.accept)
+        btns.accepted.connect(self._on_accept)
         btns.rejected.connect(self.reject)
         detail_layout.addWidget(btns)
 
@@ -420,8 +432,12 @@ class CQTAuthorPreviewDialog(QDialog):
             self.list_widget.setCurrentRow(0)
 
     def _on_select(self, row: int):
+        # Persist edits for previous row before switching
+        if self.current_row is not None:
+            self._save_row(self.current_row)
         if row < 0 or row >= len(self.questions):
             return
+        self.current_row = row
         q = self.questions[row]
         self.meta_label.setText(
             f"Q{q.get('qno','?')} | P{q.get('page','?')} | {q.get('question_set_name','')} | {q.get('magazine','')}"
@@ -444,6 +460,8 @@ class CQTAuthorPreviewDialog(QDialog):
         correct = set(q.get("correct_options", []))
         for label, cb in self.option_checks.items():
             cb.setChecked(label in correct)
+        self.numerical_input.setText(str(q.get("numerical_answer", "") or ""))
+        self._update_type_label()
 
     def _add_image(self, img: dict, label: str | None = None):
         data = base64.b64decode(img.get("data", ""))
@@ -462,11 +480,51 @@ class CQTAuthorPreviewDialog(QDialog):
 
     def apply_updates(self):
         """Write selected correct options back into questions."""
-        correct = [lbl for lbl, cb in self.option_checks.items() if cb.isChecked()]
-        row = self.list_widget.currentRow()
-        if 0 <= row < len(self.questions):
-            self.questions[row]["correct_options"] = correct
+        if self.current_row is not None:
+            self._save_row(self.current_row)
         return self.questions
+
+    def _save_row(self, row: int):
+        """Persist selections for a given row."""
+        if row < 0 or row >= len(self.questions):
+            return
+        correct = [lbl for lbl, cb in self.option_checks.items() if cb.isChecked()]
+        numerical_value = self.numerical_input.text().strip()
+        # Infer question type
+        if numerical_value:
+            q_type = "numerical"
+            correct = []  # numerical uses value instead of options
+        elif len(correct) > 1:
+            q_type = "mcq_multiple"
+        elif len(correct) == 1:
+            q_type = "mcq_single"
+        else:
+            q_type = "mcq_single"
+
+        q = self.questions[row]
+        q["correct_options"] = correct
+        q["numerical_answer"] = numerical_value
+        q["question_type"] = q_type
+        self._update_type_label()
+
+    def _update_type_label(self):
+        """Update type label based on current inputs."""
+        numerical_value = self.numerical_input.text().strip()
+        correct = [lbl for lbl, cb in self.option_checks.items() if cb.isChecked()]
+        if numerical_value:
+            text = "Type: Numerical"
+        elif len(correct) > 1:
+            text = "Type: MCQ (Multiple correct)"
+        elif len(correct) == 1:
+            text = "Type: MCQ (Single correct)"
+        else:
+            text = "Type: MCQ (Single correct)"
+        self.type_label.setText(text)
+
+    def _on_accept(self):
+        if self.current_row is not None:
+            self._save_row(self.current_row)
+        self.accept()
     
     def _add_tag_badges(self, tags: list[str]):
         """

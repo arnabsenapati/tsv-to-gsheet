@@ -4196,6 +4196,8 @@ class TSVWatcherWindow(QMainWindow):
                     "question_images": question_images,
                     "answer_images": answer_images,
                     "correct_options": q.get("correct_options", []),
+                    "numerical_answer": q.get("numerical_answer", ""),
+                    "question_type": q.get("question_type", "mcq_single"),
                     "options": [
                         {"label": "A", "text": ""},
                         {"label": "B", "text": ""},
