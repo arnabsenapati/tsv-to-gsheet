@@ -42,10 +42,11 @@ from services.cbt_package import load_cqt, save_cqt_payload
 
 
 class QuestionView(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, on_answer_change=None):
         super().__init__(parent)
         self.question: Dict[str, Any] = {}
         self.responses: Dict[str, str] = {}
+        self.on_answer_change = on_answer_change or (lambda: None)
 
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
@@ -125,6 +126,7 @@ class QuestionView(QWidget):
         if qid is None:
             return
         self.responses[str(qid)] = button.text()
+        self.on_answer_change()
 
 
 class ViewerWindow(QMainWindow):
@@ -143,7 +145,7 @@ class ViewerWindow(QMainWindow):
         self.list_widget.setFixedWidth(180)
         root.addWidget(self.list_widget)
 
-        self.question_view = QuestionView()
+        self.question_view = QuestionView(on_answer_change=self._refresh_answer_markers)
         root.addWidget(self.question_view, 1)
 
         self.list_widget.currentRowChanged.connect(self._on_question_selected)
@@ -157,12 +159,14 @@ class ViewerWindow(QMainWindow):
             self.list_widget.addItem(item)
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
+        self._refresh_answer_markers()
 
     def _on_question_selected(self, row: int):
         if row < 0 or row >= len(self.questions):
             return
         q = self.questions[row]
         self.question_view.set_question(q, self.payload.get("responses", {}), row + 1)
+        self._refresh_answer_markers()
 
     def closeEvent(self, event):
         # Persist responses
@@ -172,6 +176,20 @@ class ViewerWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.warning(self, "Save Failed", f"Could not save responses:\n{exc}")
         super().closeEvent(event)
+
+    def _refresh_answer_markers(self):
+        responses = self.payload.get("responses", {})
+        for idx, q in enumerate(self.questions):
+            item = self.list_widget.item(idx)
+            if not item:
+                continue
+            answered = bool(responses.get(str(q.get("question_id")), ""))
+            if answered:
+                item.setBackground(Qt.green)
+                item.setForeground(Qt.black)
+            else:
+                item.setBackground(Qt.white)
+                item.setForeground(Qt.black)
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
