@@ -1,2 +1,3 @@
-python-docx
 cryptography
+fpdf2
+Pillow

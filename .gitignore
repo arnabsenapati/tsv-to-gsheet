@@ -10,7 +10,14 @@ __pycache__/
 sample_jee_papers.xlsx
 sample_jee_papers.tsv
 create_sample_jee_excel.py
+
+# PyInstaller specs and build artifacts
 TSVWatcher.spec
 build/
 dist/
 *.spec
+!TSV-to-Excel-Watcher.spec
+!viewer_app.spec
+
+# Profiling output
+profile.out

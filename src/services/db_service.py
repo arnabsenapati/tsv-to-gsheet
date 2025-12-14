@@ -9,6 +9,7 @@ import mimetypes
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
@@ -22,6 +23,38 @@ class DatabaseService:
 
     def set_db_path(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
+
+    def backup_database(self, max_backups: int = 10) -> Path | None:
+        """
+        Create a timestamped copy of the database in a sibling `backups` folder.
+
+        Returns the backup path if created, otherwise None.
+        """
+        db_path = Path(self.db_path)
+        if not db_path.is_file():
+            return None
+
+        backup_dir = db_path.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        suffix = db_path.suffix
+        backup_name = f"{db_path.stem}-{timestamp}{suffix}"
+        backup_path = backup_dir / backup_name
+
+        shutil.copy2(db_path, backup_path)
+
+        # Retain only the newest `max_backups` files for this DB
+        pattern = f"{db_path.stem}-*{suffix}"
+        backups = sorted(
+            (p for p in backup_dir.glob(pattern) if p.is_file()),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in backups[max_backups:]:
+            stale.unlink(missing_ok=True)
+
+        return backup_path
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)

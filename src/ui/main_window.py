@@ -20,6 +20,7 @@ import re
 import threading
 import time
 import math
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -49,6 +50,7 @@ from PySide6.QtWidgets import (
     QSpacerItem,
     QSpinBox,
     QSplitter,
+    QStyle,
     QStackedLayout,
     QStackedWidget,
     QTabWidget,
@@ -190,6 +192,8 @@ class TSVWatcherWindow(QMainWindow):
         self.status_animation_timer = QTimer()
         self.status_animation_timer.timeout.connect(self._animate_status)
         
+        # Backup DB before any reads on startup
+        self._backup_current_database()
         self._load_group_tags()
 
         self._build_ui()
@@ -1016,11 +1020,11 @@ class TSVWatcherWindow(QMainWindow):
         self.list_copy_mode_combo.currentTextChanged.connect(self._on_list_copy_mode_changed)
         action_layout.addWidget(self.list_copy_mode_combo)
         
-        export_docx_btn = QPushButton("Export DOCX")
-        export_docx_btn.setToolTip("Create a Word file with placeholders for each question in this list")
-        export_docx_btn.setMinimumHeight(28)
-        export_docx_btn.setMaximumHeight(28)
-        export_docx_btn.setStyleSheet("""
+        export_pdf_btn = QPushButton("Export PDF")
+        export_pdf_btn.setToolTip("Create a PDF with metadata and question images for this list")
+        export_pdf_btn.setMinimumHeight(28)
+        export_pdf_btn.setMaximumHeight(28)
+        export_pdf_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1d4ed8;
                 color: #ffffff;
@@ -1038,8 +1042,8 @@ class TSVWatcherWindow(QMainWindow):
                 border: 1px solid #cbd5e1;
             }
         """)
-        export_docx_btn.clicked.connect(self.export_current_list_to_docx)
-        action_layout.addWidget(export_docx_btn)
+        export_pdf_btn.clicked.connect(self.export_current_list_to_pdf)
+        action_layout.addWidget(export_pdf_btn)
 
         export_cbt_btn = QPushButton("Export CBT (.cqt)")
         export_cbt_btn.setToolTip("Create a password-protected CBT package from this list")
@@ -1567,6 +1571,7 @@ class TSVWatcherWindow(QMainWindow):
         self.current_db_path = Path(file_path)
         self.db_path_edit.setText(file_path)
         self.db_service.set_db_path(self.current_db_path)
+        self._backup_current_database(log_result=True)
         self._save_last_selection()
 
     def load_subject_from_db(self) -> None:
@@ -1581,6 +1586,7 @@ class TSVWatcherWindow(QMainWindow):
             return
         self.current_db_path = db_path
         self.db_service.set_db_path(db_path)
+        self._backup_current_database(log_result=True)
         self.current_subject = subject
         try:
             df = self.db_service.fetch_questions_df(subject)
@@ -1784,6 +1790,20 @@ class TSVWatcherWindow(QMainWindow):
         self._current_status_text = ""
         self._current_status_type = ""
 
+    def _backup_current_database(self, log_result: bool = False) -> None:
+        """Create a timestamped backup of the active DB, keeping the newest 10 copies."""
+        if not self.db_service:
+            return
+        try:
+            backup_path = self.db_service.backup_database()
+        except Exception as exc:
+            if log_result:
+                self.log(f"Database backup skipped: {exc}")
+            return
+
+        if log_result and backup_path:
+            self.log(f"Database backup created: {backup_path}")
+
     def _load_last_selection(self) -> None:
         if not LAST_SELECTION_FILE.exists():
             return
@@ -1800,6 +1820,7 @@ class TSVWatcherWindow(QMainWindow):
             self.db_path_edit.setText(db_path)
             self.current_db_path = Path(db_path)
             self.db_service.set_db_path(self.current_db_path)
+            self._backup_current_database(log_result=True)
         subject = data.get("subject", "")
         if subject and hasattr(self, "subject_combo"):
             idx = self.subject_combo.findText(subject, Qt.MatchFixedString)
@@ -3793,10 +3814,33 @@ class TSVWatcherWindow(QMainWindow):
             magazine = meta.get("magazine", "")
             if magazine:
                 display_text += f" - {magazine}"
-            
-            item = QListWidgetItem(display_text)
+
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, list_name)
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(6, 2, 6, 2)
+            row_layout.setSpacing(6)
+
+            label = QLabel(display_text)
+            label.setStyleSheet("color: #0f172a; font-weight: 600;")
+            row_layout.addWidget(label, 1)
+
+            reload_btn = QPushButton()
+            reload_btn.setToolTip(f"Reload '{list_name}' from database")
+            reload_btn.setFixedSize(28, 28)
+            reload_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+            reload_btn.setStyleSheet(
+                "QPushButton { background-color: #e0f2fe; border: 1px solid #93c5fd; "
+                "border-radius: 4px; } QPushButton:hover { background-color: #bfdbfe; }"
+            )
+            reload_btn.clicked.connect(lambda _, name=list_name: self._reload_question_list(name))
+            row_layout.addWidget(reload_btn, 0, Qt.AlignRight)
+
             self.saved_lists_widget.addItem(item)
+            self.saved_lists_widget.setItemWidget(item, row_widget)
+            item.setSizeHint(row_widget.sizeHint())
         
         # Trigger selection of first item if any lists loaded
         if self.saved_lists_widget.count() > 0:
@@ -3805,6 +3849,25 @@ class TSVWatcherWindow(QMainWindow):
         # Update drag-drop panel dropdown with loaded lists
         self.drag_drop_panel.update_list_selector(self.question_lists)
         self._refresh_compare_options()
+
+    def _reload_question_list(self, list_name: str) -> None:
+        """Reload a single custom list from the database and refresh the UI row."""
+        target = list_name
+        self._load_saved_question_lists()
+
+        # Restore selection to the reloaded list if it still exists
+        for idx in range(self.saved_lists_widget.count()):
+            item = self.saved_lists_widget.item(idx)
+            if item.data(Qt.UserRole) == target:
+                self.saved_lists_widget.setCurrentRow(idx)
+                self.log(f"Reloaded list '{target}' from database")
+                return
+
+        QMessageBox.information(
+            self,
+            "List Missing",
+            f"The list '{target}' no longer exists in the database.",
+        )
     
     def _save_question_list(self, list_name: str, save_filters: bool = False) -> None:
         """Save a question list to file.
@@ -4317,8 +4380,8 @@ class TSVWatcherWindow(QMainWindow):
         """Handle copy mode selection change in custom list."""
         self.list_copy_mode = mode
     
-    def export_current_list_to_docx(self) -> None:
-        """Create a DOCX with placeholders for the selected custom question list."""
+    def export_current_list_to_pdf(self) -> None:
+        """Create a PDF with metadata and embedded question/answer images for the selected list."""
         if not self.current_list_name or self.current_list_name not in self.question_lists:
             QMessageBox.information(self, "No List Selected", "Select a custom list before exporting.")
             return
@@ -4329,28 +4392,26 @@ class TSVWatcherWindow(QMainWindow):
             return
         
         try:
-            from docx import Document
-            from docx.shared import Pt
+            from fpdf import FPDF
         except ImportError:
             QMessageBox.critical(
                 self,
                 "Missing Dependency",
-                "python-docx is required to export Word files.\nInstall it with: pip install python-docx",
+                "fpdf2 is required to export PDF files.\nInstall it with: pip install fpdf2",
             )
             return
         
-        default_name = f"{self.current_list_name}.docx"
-        default_path = default_name
+        default_name = f"{self.current_list_name}.pdf"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Question Placeholders",
-            default_path,
-            "Word Document (*.docx)",
+            "Save Question PDF",
+            default_name,
+            "PDF Files (*.pdf)",
         )
         if not file_path:
             return
-        if not file_path.lower().endswith(".docx"):
-            file_path += ".docx"
+        if not file_path.lower().endswith(".pdf"):
+            file_path += ".pdf"
         
         def _numeric_sort_value(value) -> float:
             """Convert page/question numbers to numeric values for sorting."""
@@ -4390,7 +4451,7 @@ class TSVWatcherWindow(QMainWindow):
         sorted_questions = [q for _, q in sorted(enumerate(questions), key=_question_sort_key)]
 
         # Debug: log final sorted metadata to help verify ordering
-        self.log("DOCX export order (magazine | page -> qno):")
+        self.log("PDF export order (magazine | page -> qno):")
         for pos, q in enumerate(sorted_questions, start=1):
             mag_raw = q.get("magazine") or q.get("magazine_name") or q.get("edition") or ""
             mag_norm = normalize_magazine_edition(str(mag_raw))
@@ -4402,33 +4463,113 @@ class TSVWatcherWindow(QMainWindow):
                 f"qno='{qno_raw}' (num={_numeric_sort_value(qno_raw)})"
             )
 
+        pdf = FPDF(format="A4")
+        pdf.set_auto_page_break(auto=True, margin=15)
+        page_width = pdf.w - 2 * pdf.l_margin
+        title_font = "Helvetica"
+        body_font = "Helvetica"
+
+        # Try to register a Unicode-capable font so we don't choke on en dashes, etc.
+        unicode_fonts = [
+            Path("C:/Windows/Fonts/arial.ttf"),
+            Path("C:/Windows/Fonts/arialuni.ttf"),
+        ]
+        unicode_font = next((p for p in unicode_fonts if p.exists()), None)
+        if unicode_font:
+            try:
+                pdf.add_font("AppUnicode", "", str(unicode_font), uni=True)
+                bold_candidate = Path("C:/Windows/Fonts/arialbd.ttf")
+                bold_font = bold_candidate if bold_candidate.exists() else unicode_font
+                pdf.add_font("AppUnicode", "B", str(bold_font), uni=True)
+                title_font = "AppUnicode"
+                body_font = "AppUnicode"
+            except Exception as exc:
+                self.log(f"Unicode font registration failed, falling back to Helvetica: {exc}")
+
+        def _safe_multicell(text: str, height: float = 8, font: tuple[str, str, int] | None = None) -> None:
+            """Write text, replacing unsupported chars if needed to avoid crashes."""
+            if font:
+                fname, style, size = font
+                pdf.set_font(fname, style, size)
+            try:
+                pdf.multi_cell(0, height, text)
+            except Exception:
+                sanitized = str(text).encode("latin-1", "replace").decode("latin-1")
+                pdf.multi_cell(0, height, sanitized)
+
+        for idx, question in enumerate(sorted_questions, start=1):
+            pdf.add_page()
+            pdf.set_font(title_font, "B", 14)
+            pdf.cell(0, 10, f"Question {idx}", ln=1)
+
+            # Metadata
+            pdf.set_font(body_font, "", 11)
+            meta_fields = [
+                ("Magazine", question.get("magazine") or question.get("magazine_name") or question.get("edition") or ""),
+                ("Question Set", question.get("question_set_name") or question.get("question_set") or ""),
+                ("Chapter", question.get("group") or question.get("high_level_chapter") or question.get("chapter") or ""),
+                ("Page", question.get("page") or question.get("Page") or question.get("page_no") or ""),
+                ("Question No", question.get("qno") or question.get("question_no") or ""),
+            ]
+            for label, value in meta_fields:
+                if value:
+                    _safe_multicell(f"{label}: {value}")
+
+            text = question.get("text") or question.get("question_text") or ""
+            if text:
+                pdf.ln(2)
+                pdf.set_font(body_font, "", 12)
+                _safe_multicell(str(text), height=8)
+
+            qid = question.get("question_id") or question.get("row_number")
+            if qid and self.db_service:
+                try:
+                    question_images = self.db_service.get_images(int(qid), "question")
+                    answer_images = self.db_service.get_images(int(qid), "answer")
+                except Exception as exc:
+                    self.log(f"Could not load images for question {qid}: {exc}")
+                    question_images = []
+                    answer_images = []
+
+                def _mime_to_fpdf_type(mime: str) -> str | None:
+                    mime = (mime or "").lower()
+                    if "png" in mime:
+                        return "PNG"
+                    if "jpeg" in mime or "jpg" in mime:
+                        return "JPEG"
+                    return None
+
+                def _add_images(title: str, images: list[dict]) -> None:
+                    if not images:
+                        return
+                    pdf.ln(2)
+                    pdf.set_font(body_font, "B", 12)
+                    pdf.cell(0, 8, title, ln=1)
+                    for img in images:
+                        img_type = _mime_to_fpdf_type(img.get("mime_type"))
+                        if not img_type:
+                            self.log(f"Skipping image with unsupported type: {img.get('mime_type')}")
+                            continue
+                        img_bytes = img.get("data")
+                        if not img_bytes:
+                            continue
+                        stream = BytesIO(img_bytes)
+                        stream.seek(0)
+                        try:
+                            pdf.image(stream, w=page_width, type=img_type)
+                        except Exception as exc:
+                            self.log(f"Failed to embed image in PDF: {exc}")
+                    pdf.ln(2)
+
+                _add_images("Question Images", question_images)
+                _add_images("Answer Images", answer_images)
+
         try:
-            doc = Document()
-            doc.core_properties.title = f"{self.current_list_name} Questions"
-            
-            for idx, question in enumerate(sorted_questions, start=1):
-                title_para = doc.add_paragraph()
-                title_run = title_para.add_run(f"Question Number {idx}")
-                title_run.bold = True
-                title_run.font.size = Pt(14)
-                
-                meta_text = self._format_question_placeholder_metadata(question)
-                if meta_text:
-                    meta_para = doc.add_paragraph()
-                    meta_run = meta_para.add_run(meta_text)
-                    meta_run.font.size = Pt(8)
-                    meta_run.italic = True
-                
-                spacer_para = doc.add_paragraph()
-                spacer_run = spacer_para.add_run()
-                for _ in range(5):
-                    spacer_run.add_break()
-            
-            doc.save(file_path)
-            QMessageBox.information(self, "Exported", f"Saved DOCX placeholders to:\n{file_path}")
-            self.log(f"Exported '{self.current_list_name}' to DOCX: {file_path}")
+            pdf.output(file_path)
+            QMessageBox.information(self, "Exported", f"Saved PDF to:\n{file_path}")
+            self.log(f"Exported '{self.current_list_name}' to PDF: {file_path}")
         except Exception as exc:
-            QMessageBox.critical(self, "Export Failed", f"Could not save DOCX: {exc}")
+            QMessageBox.critical(self, "Export Failed", f"Could not save PDF: {exc}")
 
     def export_current_list_to_cqt(self) -> None:
         """Export selected custom list to password-protected .cqt package."""
@@ -4535,34 +4676,6 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         QMessageBox.information(self, "Export Complete", f"Saved CBT package to:\n{file_path}")
-    
-    def _format_question_placeholder_metadata(self, question: dict) -> str:
-        """Format compact metadata line like 'Qno 13 P 40 Sep'25'."""
-        qno = str(question.get("qno") or question.get("question_no") or "?").strip() or "?"
-        
-        page_raw = question.get("page") or question.get("Page") or question.get("page_no")
-        page_text = ""
-        if page_raw is not None:
-            page_text = str(page_raw).strip()
-            try:
-                num = float(page_text)
-                page_text = str(int(num)) if num.is_integer() else page_text.rstrip("0").rstrip(".")
-            except (ValueError, TypeError):
-                pass
-        
-        magazine = str(
-            question.get("magazine")
-            or question.get("magazine_name")
-            or question.get("edition")
-            or ""
-        ).strip()
-        
-        parts = [f"Qno {qno}"]
-        if page_text:
-            parts.append(f"P {page_text}")
-        if magazine:
-            parts.append(magazine)
-        return " ".join(parts).strip()
     
     def on_saved_list_selected(self) -> None:
         """Handle selection of a saved question list."""
