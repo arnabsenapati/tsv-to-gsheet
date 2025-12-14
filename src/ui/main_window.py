@@ -151,8 +151,6 @@ class TSVWatcherWindow(QMainWindow):
         self.current_db_path: Path = DEFAULT_DB_PATH
         self.current_subject: str | None = None
         self.use_database: bool = False
-        self.question_page: int = 0
-        self.question_page_size: int = 200
         
         # Custom list search variables
         self.list_question_set_search_term: str = ""
@@ -646,37 +644,6 @@ class TSVWatcherWindow(QMainWindow):
         action_layout.addWidget(self.copy_mode_combo)
         
         search_layout.addWidget(action_container)
-
-        # Pagination controls for question cards
-        pagination_container = QWidget()
-        pagination_container.setStyleSheet("""
-            QWidget {
-                background-color: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 6px;
-                padding: 6px;
-            }
-        """)
-        pagination_layout = QHBoxLayout(pagination_container)
-        pagination_layout.setContentsMargins(8, 4, 8, 4)
-        pagination_layout.setSpacing(8)
-
-        self.prev_page_btn = QPushButton("Prev")
-        self.prev_page_btn.clicked.connect(self._go_prev_question_page)
-        pagination_layout.addWidget(self.prev_page_btn)
-
-        self.next_page_btn = QPushButton("Next")
-        self.next_page_btn.clicked.connect(self._go_next_question_page)
-        pagination_layout.addWidget(self.next_page_btn)
-
-        self.question_page_label = QLabel("Page 0/0")
-        self.question_page_label.setStyleSheet("color: #475569;")
-        pagination_layout.addWidget(self.question_page_label)
-        pagination_layout.addStretch()
-
-        self._question_tab_controls.extend([self.prev_page_btn, self.next_page_btn])
-
-        search_layout.addWidget(pagination_container)
 
         question_layout.addLayout(search_layout)
         
@@ -3085,7 +3052,6 @@ class TSVWatcherWindow(QMainWindow):
         if not hasattr(self, "question_tree"):
             return
         self.all_questions = questions or []
-        self.question_page = 0
         self._apply_question_search()
 
     def _refresh_question_tab_with_loading(self) -> None:
@@ -3198,33 +3164,12 @@ class TSVWatcherWindow(QMainWindow):
         # Populate card view with accordion groups
         if hasattr(self, "question_card_view"):
             total_questions = len(filtered)
-            page_size = max(self.question_page_size, 1)
-            total_pages = max(math.ceil(total_questions / page_size), 1)
-            # Clamp current page
-            if self.question_page >= total_pages:
-                self.question_page = total_pages - 1
-            start_idx = self.question_page * page_size
-            end_idx = start_idx + page_size
-            paged_groups: dict[str, list[dict]] = {}
-            count_accum = 0
             for group_key in ordered_keys:
                 group_questions = groups.get(group_key, [])
-                group_slice: list[dict] = []
-                for q in group_questions:
-                    if count_accum >= end_idx:
-                        break
-                    if start_idx <= count_accum < end_idx:
-                        group_slice.append(q)
-                    count_accum += 1
-                if group_slice:
-                    paged_groups[group_key] = group_slice
-            for group_key in ordered_keys:
-                if group_key not in paged_groups:
+                if not group_questions:
                     continue
-                group_questions = paged_groups[group_key]
                 tags = self.question_set_group_tags.get(group_key, [])
                 self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors, show_page_range=False)
-            self._update_question_pagination_controls(total_pages, total_questions)
         
         # Restore scroll position if it was saved
         if scroll_value is not None and hasattr(self, "question_card_view"):
@@ -3232,36 +3177,14 @@ class TSVWatcherWindow(QMainWindow):
             if scrollbar:
                 scrollbar.setValue(scroll_value)
 
-    def _update_question_pagination_controls(self, total_pages: int, total_questions: int) -> None:
-        """Update pagination label and button states for question cards."""
-        if not hasattr(self, "question_page_label"):
-            return
-        current_page = self.question_page + 1 if total_pages else 0
-        self.question_page_label.setText(f"Page {current_page}/{total_pages} | {total_questions} questions")
-        if hasattr(self, "prev_page_btn") and hasattr(self, "next_page_btn"):
-            self.prev_page_btn.setEnabled(self.question_page > 0)
-            self.next_page_btn.setEnabled(self.question_page + 1 < total_pages)
-
-    def _go_prev_question_page(self) -> None:
-        if self.question_page > 0:
-            self.question_page -= 1
-            self._apply_question_search(preserve_scroll=False)
-
-    def _go_next_question_page(self) -> None:
-        # total pages computed inside _apply_question_search, but guard to avoid runaway
-        self.question_page += 1
-        self._apply_question_search(preserve_scroll=False)
-
     def on_question_set_search_changed(self, text: str) -> None:
         """Handle Question Set search box text change."""
         self.question_set_search_term = text.strip()
-        self.question_page = 0
         self._apply_question_search()
 
     def on_magazine_search_changed(self, text: str) -> None:
         """Handle Magazine search box text change."""
         self.magazine_search_term = text.strip()
-        self.question_page = 0
         self._apply_question_search()
 
     def clear_question_search(self) -> None:
@@ -3269,7 +3192,6 @@ class TSVWatcherWindow(QMainWindow):
         self.question_set_search_term = ""
         self.magazine_search_term = ""
         self.selected_tag_filters = []
-        self.question_page = 0
         if hasattr(self, "question_set_search"):
             self.question_set_search.clear()
         if hasattr(self, "tag_filter_display"):
