@@ -4486,16 +4486,22 @@ class TSVWatcherWindow(QMainWindow):
             except Exception as exc:
                 self.log(f"Unicode font registration failed, falling back to Helvetica: {exc}")
 
-        def _safe_multicell(text: str, height: float = 8, font: tuple[str, str, int] | None = None) -> None:
-            """Write text, replacing unsupported chars if needed to avoid crashes."""
+        def _safe_multicell(
+            text: str,
+            height: float = 8,
+            font: tuple[str, str, int] | None = None,
+        ) -> None:
+            """Write text safely, forcing a sane width and replacing unsupported chars if needed."""
             if font:
                 fname, style, size = font
                 pdf.set_font(fname, style, size)
+            width = max(20, page_width)  # avoid zero/negative widths
+            pdf.set_x(pdf.l_margin)  # reset X so width calculation is correct
             try:
-                pdf.multi_cell(0, height, text)
+                pdf.multi_cell(width, height, text)
             except Exception:
                 sanitized = str(text).encode("latin-1", "replace").decode("latin-1")
-                pdf.multi_cell(0, height, sanitized)
+                pdf.multi_cell(width, height, sanitized)
 
         for idx, question in enumerate(sorted_questions, start=1):
             pdf.add_page()
