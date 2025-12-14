@@ -4508,34 +4508,28 @@ class TSVWatcherWindow(QMainWindow):
             pdf.set_font(title_font, "B", 14)
             pdf.cell(0, 10, f"Question {idx}", ln=1)
 
-            # Metadata
-            pdf.set_font(body_font, "", 11)
-            meta_fields = [
-                ("Magazine", question.get("magazine") or question.get("magazine_name") or question.get("edition") or ""),
-                ("Question Set", question.get("question_set_name") or question.get("question_set") or ""),
-                ("Chapter", question.get("group") or question.get("high_level_chapter") or question.get("chapter") or ""),
-                ("Page", question.get("page") or question.get("Page") or question.get("page_no") or ""),
-                ("Question No", question.get("qno") or question.get("question_no") or ""),
+            # Metadata in a single compact line
+            pdf.set_font(body_font, "", 8)  # compact metadata
+            qno = question.get("qno") or question.get("question_no") or ""
+            page_val = question.get("page") or question.get("Page") or question.get("page_no") or ""
+            qset = question.get("question_set_name") or question.get("question_set") or ""
+            magazine = question.get("magazine") or question.get("magazine_name") or question.get("edition") or ""
+            meta_parts = [
+                f"Q{qno}" if qno else "Q?",
+                f"P{page_val}" if page_val else "P?",
+                qset or "Unknown",
+                magazine or "Unknown",
             ]
-            for label, value in meta_fields:
-                if value:
-                    _safe_multicell(f"{label}: {value}")
-
-            text = question.get("text") or question.get("question_text") or ""
-            if text:
-                pdf.ln(2)
-                pdf.set_font(body_font, "", 12)
-                _safe_multicell(str(text), height=8)
+            meta_line = " | ".join(str(p).strip() for p in meta_parts)
+            _safe_multicell(meta_line)
 
             qid = question.get("question_id") or question.get("row_number")
             if qid and self.db_service:
                 try:
                     question_images = self.db_service.get_images(int(qid), "question")
-                    answer_images = self.db_service.get_images(int(qid), "answer")
                 except Exception as exc:
                     self.log(f"Could not load images for question {qid}: {exc}")
                     question_images = []
-                    answer_images = []
 
                 def _mime_to_fpdf_type(mime: str) -> str | None:
                     mime = (mime or "").lower()
@@ -4549,8 +4543,7 @@ class TSVWatcherWindow(QMainWindow):
                     if not images:
                         return
                     pdf.ln(2)
-                    pdf.set_font(body_font, "B", 12)
-                    pdf.cell(0, 8, title, ln=1)
+                    pdf.set_font(body_font, "B", 9)
                     for img in images:
                         img_type = _mime_to_fpdf_type(img.get("mime_type"))
                         if not img_type:
@@ -4562,13 +4555,19 @@ class TSVWatcherWindow(QMainWindow):
                         stream = BytesIO(img_bytes)
                         stream.seek(0)
                         try:
-                            pdf.image(stream, w=page_width, type=img_type)
+                            pdf.image(stream, w=0, type=img_type)
                         except Exception as exc:
                             self.log(f"Failed to embed image in PDF: {exc}")
                     pdf.ln(2)
 
-                _add_images("Question Images", question_images)
-                _add_images("Answer Images", answer_images)
+                _add_images("", question_images)
+
+            # Draw a boundary line after each question block
+            pdf.ln(2)
+            y = pdf.get_y()
+            pdf.set_draw_color(180, 180, 180)
+            pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+            pdf.ln(2)
 
         try:
             pdf.output(file_path)
