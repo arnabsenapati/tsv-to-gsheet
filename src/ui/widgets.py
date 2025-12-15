@@ -1875,7 +1875,12 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setIcon(icon)
         self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
         if has_images != previous:
-            self._build_card()
+            if hasattr(self, "card"):
+                try:
+                    self.card.has_images = has_images
+                    self.card._build_card()
+                except Exception:
+                    pass
 
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
