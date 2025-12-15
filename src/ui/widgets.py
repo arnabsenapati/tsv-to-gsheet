@@ -1870,8 +1870,12 @@ class QuestionCardWithRemoveButton(QWidget):
                     icon = load_icon("image_filled.svg")
             except Exception:
                 pass
+        previous = getattr(self, "has_images", False)
+        self.has_images = has_images
         self.image_btn.setIcon(icon)
         self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
+        if has_images != previous:
+            self._build_card()
 
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
@@ -2121,21 +2125,15 @@ class QuestionCardWidget(QLabel):
         self.db_service = self._find_db_service()
 
         self.is_selected = False
-
         self.original_stylesheet = ""
-
         self.is_custom_list_card = False  # Flag set by wrapper when used in custom list view
-
-        
+        self.has_images = False  # Tracks whether this question has any images
 
         # Enable drag
-
         self.setAcceptDrops(False)  # Cards don't accept drops
 
-        
-
         # Build card HTML
-
+        self.has_images = self._compute_has_images()
         self._build_card()
 
         
@@ -2234,6 +2232,17 @@ class QuestionCardWidget(QLabel):
 
     
 
+    def _compute_has_images(self) -> bool:
+        """Determine if this question has any images stored."""
+        if not (self.db_service and self.question_id):
+            return False
+        try:
+            counts = self.db_service.get_image_counts(int(self.question_id))
+            return bool(counts and any(v > 0 for v in counts.values()))
+        except Exception:
+            return False
+
+
     def _build_card(self):
 
         """Build HTML content for the card."""
@@ -2316,6 +2325,10 @@ class QuestionCardWidget(QLabel):
 
             selection_icon = '<span style="color: #10b981; font-size: 18px; font-weight: bold; margin-right: 8px;">✓</span>'
 
+
+        camera_html = ""
+        if self.has_images:
+            camera_html = '<span style="margin-left: 6px; font-size: 12px; color: #0ea5e9;">📷</span>'
         
 
         # Build card HTML
@@ -2328,7 +2341,7 @@ class QuestionCardWidget(QLabel):
 
                 {selection_icon}<span style="color: #1e40af; font-size: 16px; font-weight: bold;">{qno}</span>
 
-                <span style="color: #64748b; font-size: 12px; margin-left: 12px;">Page {page}</span>
+                <span style="color: #64748b; font-size: 12px; margin-left: 12px;">Page {page}</span>{camera_html}
 
                 {tag_html}
 
@@ -6535,5 +6548,3 @@ class DragDropQuestionPanel(QWidget):
                 break
 
             main_window = parent_widget
-
-
