@@ -2187,13 +2187,6 @@ class QuestionCardWidget(QLabel):
 
         self.setMaximumHeight(150)
 
-        # Hover preview timer/popup
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(1000)
-        self._hover_timer.setSingleShot(True)
-        self._hover_timer.timeout.connect(self._show_hover_preview)
-        self._preview_popup: QWidget | None = None
-
         # Image button
         self.image_btn = QPushButton(self)
         self.image_btn.setIcon(load_icon("image.svg"))
@@ -2415,17 +2408,14 @@ class QuestionCardWidget(QLabel):
         return truncated + "..."
 
     def enterEvent(self, event):
-        """Show image button and start delayed preview on hover."""
+        """Show image button on hover."""
         self.image_btn.setVisible(True)
-        self._hover_timer.start()
         self.image_btn.move(self.width() - 32, 4)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Hide image button and cancel preview."""
+        """Hide image button when leaving."""
         self.image_btn.setVisible(False)
-        self._hover_timer.stop()
-        self._hide_hover_preview()
         super().leaveEvent(event)
 
     def resizeEvent(self, event):
@@ -2442,97 +2432,6 @@ class QuestionCardWidget(QLabel):
                 return getattr(parent, "db_service")
             parent = parent.parent()
         return None
-
-    def _hide_hover_preview(self):
-        """Hide and clean up preview popup."""
-        if hasattr(self, "_preview_popup") and self._preview_popup:
-            self._preview_popup.hide()
-            self._preview_popup.deleteLater()
-            self._preview_popup = None
-
-    def _show_hover_preview(self):
-        """Show first question image in a small popup after hover delay."""
-        self._hide_hover_preview()
-
-        if not (self.db_service and self.question_id):
-            return
-
-        try:
-            images = self.db_service.get_images(int(self.question_id), "question")
-        except Exception:
-            return
-
-        if not images:
-            return
-
-        popup = QWidget(None, Qt.ToolTip)
-        popup.setAttribute(Qt.WA_DeleteOnClose)
-        popup.setStyleSheet("background: #ffffff; border: 3px solid #0284c7; border-radius: 10px; padding: 8px;")
-        shadow = QGraphicsDropShadowEffect(popup)
-        shadow.setBlurRadius(24)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 110))
-        popup.setGraphicsEffect(shadow)
-        layout = QVBoxLayout(popup)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(8)
-
-        for img in images:
-            pixmap = QPixmap()
-            pixmap.loadFromData(bytes(img["data"]))
-            if pixmap.isNull():
-                continue
-            pixmap = pixmap.scaledToWidth(320, Qt.SmoothTransformation)
-            lbl = QLabel()
-            lbl.setPixmap(pixmap)
-            lbl.setStyleSheet("padding: 0px; border: none; margin: 0;")
-            layout.addWidget(lbl)
-
-        if layout.count() == 0:
-            return
-
-        # Position relative to card column: left column -> show on right, right column -> show on left
-        parent = self.parent()
-        if parent and parent.width() > 0:
-            col_idx = getattr(self, "column_index", None) or getattr(parent, "column_index", None)
-            if col_idx is not None:
-                show_on_right = (col_idx == 0)
-            else:
-                local_center_x = self.pos().x() + (self.width() / 2)
-                show_on_right = local_center_x <= (parent.width() / 2)
-        else:
-            card_center_x = self.mapToGlobal(self.rect().center()).x()
-            window = self.window()
-            window_center_x = window.geometry().center().x() if window else QGuiApplication.primaryScreen().geometry().center().x()
-            show_on_right = card_center_x <= window_center_x
-
-        if show_on_right:
-            global_pos = self.mapToGlobal(QPoint(self.width(), 0))
-            popup_pos = global_pos + QPoint(12, 8)
-        else:
-            global_pos = self.mapToGlobal(QPoint(0, 0))
-            popup_pos = global_pos - QPoint(pixmap.width() + 20, -8)
-
-        screen = QGuiApplication.primaryScreen()
-        if screen:
-            screen_geo = screen.availableGeometry()
-
-            # Adjust if the popup would go off-screen
-            if popup_pos.x() + popup.frameGeometry().width() > screen_geo.right():
-                popup_pos.setX(screen_geo.right() - popup.frameGeometry().width() - 4)
-            if popup_pos.y() + popup.frameGeometry().height() > screen_geo.bottom():
-                popup_pos.setY(screen_geo.bottom() - popup.frameGeometry().height() - 4)
-            if popup_pos.x() < screen_geo.left():
-                popup_pos.setX(screen_geo.left() + 4)
-            if popup_pos.y() < screen_geo.top():
-                popup_pos.setY(screen_geo.top() + 4)
-
-        popup.move(popup_pos)
-        popup.show()
-
-        self._preview_popup = popup
-        # Close preview when clicked
-        popup.mousePressEvent = lambda e: self._hide_hover_preview()
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
