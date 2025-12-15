@@ -1904,7 +1904,7 @@ class QuestionCardWithRemoveButton(QWidget):
             tab = QWidget()
             layout = QVBoxLayout(tab)
             layout.setContentsMargins(8, 8, 8, 8)
-            layout.setSpacing(8)
+            layout.setSpacing(4)
 
             buttons = QHBoxLayout()
             add_btn = QPushButton("Add from files")
@@ -1931,6 +1931,8 @@ class QuestionCardWithRemoveButton(QWidget):
             content = QWidget()
             content_layout = QVBoxLayout(content)
             content_layout.setAlignment(Qt.AlignTop)
+            content_layout.setSpacing(0)
+            content_layout.setContentsMargins(0, 0, 0, 0)
             scroll.setWidget(content)
             layout.addWidget(scroll)
 
@@ -1960,7 +1962,7 @@ class QuestionCardWithRemoveButton(QWidget):
                         pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
                     lbl = QLabel()
                     lbl.setPixmap(pixmap)
-                    lbl.setStyleSheet("padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px;")
+                    lbl.setStyleSheet("padding: 0px; border: none; margin: 0;")
                     content_layout.addWidget(lbl)
 
             refresh()
