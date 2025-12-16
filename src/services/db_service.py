@@ -43,6 +43,7 @@ class DatabaseService:
         backup_path = backup_dir / backup_name
 
         shutil.copy2(db_path, backup_path)
+        print(f"[DB Backup] Created: {backup_path}")
 
         # Retain only the newest `max_backups` files for this DB
         pattern = f"{db_path.stem}-*{suffix}"
