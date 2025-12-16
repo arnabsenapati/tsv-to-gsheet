@@ -1538,7 +1538,6 @@ class TSVWatcherWindow(QMainWindow):
         self.current_db_path = Path(file_path)
         self.db_path_edit.setText(file_path)
         self.db_service.set_db_path(self.current_db_path)
-        self._backup_current_database(log_result=True)
         self._save_last_selection()
 
     def load_subject_from_db(self) -> None:
@@ -1553,7 +1552,6 @@ class TSVWatcherWindow(QMainWindow):
             return
         self.current_db_path = db_path
         self.db_service.set_db_path(db_path)
-        self._backup_current_database(log_result=True)
         self.current_subject = subject
         try:
             df = self.db_service.fetch_questions_df(subject)
@@ -1787,7 +1785,6 @@ class TSVWatcherWindow(QMainWindow):
             self.db_path_edit.setText(db_path)
             self.current_db_path = Path(db_path)
             self.db_service.set_db_path(self.current_db_path)
-            self._backup_current_database(log_result=True)
         subject = data.get("subject", "")
         if subject and hasattr(self, "subject_combo"):
             idx = self.subject_combo.findText(subject, Qt.MatchFixedString)
