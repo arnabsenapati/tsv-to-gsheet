@@ -21,6 +21,7 @@ import threading
 import time
 import math
 import sqlite3
+import shutil
 from io import BytesIO
 from pathlib import Path
 
@@ -1769,6 +1770,43 @@ class TSVWatcherWindow(QMainWindow):
 
         if log_result and backup_path:
             self.log(f"Database backup created: {backup_path}")
+
+    def _backup_jee_database(self, db_path: Path, max_backups: int = 10, log_result: bool = False) -> None:
+        """Backup the JEE DB unless the latest backup already matches the file's mtime."""
+        db_path = Path(db_path)
+        if not db_path.is_file():
+            return
+        try:
+            src_mtime = db_path.stat().st_mtime
+            backup_dir = db_path.parent / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            pattern = f"{db_path.stem}-*{db_path.suffix}"
+            backups = sorted(
+                (p for p in backup_dir.glob(pattern) if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if backups and abs(backups[0].stat().st_mtime - src_mtime) < 1e-6:
+                if log_result:
+                    self.log("JEE DB backup skipped (no change since last backup)")
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup_path = backup_dir / f"{db_path.stem}-{timestamp}{db_path.suffix}"
+            shutil.copy2(db_path, backup_path)
+            if log_result:
+                self.log(f"JEE DB backup created: {backup_path}")
+
+            backups = sorted(
+                (p for p in backup_dir.glob(pattern) if p.is_file()),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for stale in backups[max_backups:]:
+                stale.unlink(missing_ok=True)
+        except Exception as exc:
+            if log_result:
+                self.log(f"JEE DB backup skipped: {exc}")
 
     def _load_last_selection(self) -> None:
         if not LAST_SELECTION_FILE.exists():
@@ -5134,6 +5172,7 @@ class TSVWatcherWindow(QMainWindow):
             return
         
         try:
+            self._backup_jee_database(self.jee_papers_file, log_result=True)
             with sqlite3.connect(self.jee_papers_file) as conn:
                 df = pd.read_sql_query(
                     "SELECT question_number, jee_session, year, subject, chapter FROM jee_questions",
