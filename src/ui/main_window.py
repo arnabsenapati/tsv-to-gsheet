@@ -20,6 +20,7 @@ import re
 import threading
 import time
 import math
+import sqlite3
 from io import BytesIO
 from pathlib import Path
 
@@ -1155,7 +1156,7 @@ class TSVWatcherWindow(QMainWindow):
         browse_jee_btn = QPushButton("Browse")
         browse_jee_btn.setMaximumHeight(26)
         browse_jee_btn.setMaximumWidth(75)
-        browse_jee_btn.clicked.connect(self.select_jee_papers_file)
+        browse_jee_btn.clicked.connect(self.select_jee_db_file)
         controls_layout.addWidget(browse_jee_btn)
         
         # Spacer
@@ -5112,44 +5113,53 @@ class TSVWatcherWindow(QMainWindow):
     # JEE Main Papers Methods
     # ============================================================================
     
-    def select_jee_papers_file(self) -> None:
-        """Open file dialog to select JEE papers Excel file."""
+    def select_jee_db_file(self) -> None:
+        """Open file dialog to select JEE papers SQLite file."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select JEE Papers File",
+            "Select JEE Papers Database",
             "",
-            "Excel files (*.xlsx *.xls);;All files (*.*)",
+            "SQLite DB (*.db *.sqlite);;All files (*.*)",
         )
         if file_path:
             self.jee_papers_file = Path(file_path)
             self.jee_file_edit.setText(file_path)
             self._save_last_selection()
             self.load_jee_papers_data()
-    
+
     def load_jee_papers_data(self) -> None:
-        """Load and process JEE papers data from Excel file."""
+        """Load and process JEE papers data from SQLite file (table: jee_questions)."""
         if not self.jee_papers_file or not self.jee_papers_file.exists():
-            self.log("JEE papers file not found.")
+            self.log("JEE papers DB not found.")
             return
         
         try:
-            # Read Excel file from "Data" sheet, columns A:E
-            self.jee_papers_df = pd.read_excel(
-                self.jee_papers_file, 
-                sheet_name='Data',
-                usecols='A:E'
+            with sqlite3.connect(self.jee_papers_file) as conn:
+                df = pd.read_sql_query(
+                    "SELECT question_number, jee_session, year, subject, chapter FROM jee_questions",
+                    conn,
+                )
+            # Normalize column names to match existing UI expectations
+            df = df.rename(
+                columns={
+                    "question_number": "Question Number",
+                    "jee_session": "JEE Main Session",
+                    "year": "Year",
+                    "subject": "Subject",
+                    "chapter": "Chapter",
+                }
             )
-            
+            self.jee_papers_df = df
             # Validate required columns
             required_columns = ['Question Number', 'JEE Main Session', 'Year', 'Subject', 'Chapter']
             missing_columns = [col for col in required_columns if col not in self.jee_papers_df.columns]
             
             if missing_columns:
-                self.log(f"Error: Missing required columns: {', '.join(missing_columns)}")
+                self.log(f"Error: Missing required columns in JEE DB: {', '.join(missing_columns)}")
                 QMessageBox.warning(
                     self,
-                    "Invalid File Format",
-                    f"Missing required columns: {', '.join(missing_columns)}\nExpected columns in sheet 'Data': {', '.join(required_columns)}"
+                    "Invalid Database",
+                    f"Missing required columns in table 'jee_questions': {', '.join(missing_columns)}\nExpected columns: {', '.join(required_columns)}"
                 )
                 return
             
@@ -5158,23 +5168,14 @@ class TSVWatcherWindow(QMainWindow):
             self.jee_subject_combo.clear()
             self.jee_subject_combo.addItems(subjects)
             
-            self.log(f"Loaded {len(self.jee_papers_df)} questions from JEE papers Excel file (Sheet: 'Data', Columns: A:E).")
+            self.log(f"Loaded {len(self.jee_papers_df)} questions from JEE papers database.")
             
             # Update tables if a subject is selected
             if subjects:
                 self.update_jee_tables()
                 
-        except ValueError as e:
-            # Handle missing sheet or invalid range
-            error_msg = str(e)
-            if 'Data' in error_msg:
-                self.log(f"Error: Sheet 'Data' not found in Excel file.")
-                QMessageBox.critical(self, "Error", "Sheet 'Data' not found in the Excel file.\nPlease ensure the file has a sheet named 'Data'.")
-            else:
-                self.log(f"Error loading JEE papers file: {error_msg}")
-                QMessageBox.critical(self, "Error", f"Failed to load file: {error_msg}")
         except Exception as e:
-            self.log(f"Error loading JEE papers file: {e}")
+            self.log(f"Error loading JEE papers database: {e}")
             QMessageBox.critical(self, "Error", f"Failed to load file: {e}")
     
     def update_jee_tables(self) -> None:
