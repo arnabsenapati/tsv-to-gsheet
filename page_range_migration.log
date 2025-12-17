@@ -1,0 +1,13 @@
+Backup created: G:\My Drive\Aditya\IITJEE\Database\question_bank-backup-20251215-063703.db
+Renamed page_range -> page_range_old and added INTEGER page_range
+Updated 25638 rows in questions.page_range
+No non-numeric page_range values found
+Dropped legacy column page_range_old
+Backup created: G:\My Drive\Aditya\IITJEE\Database\question_bank-backup-20251215-063817.db
+SQLite version: 3.45.1
+Renamed page_range -> page_range_old and added INTEGER page_range
+Migration completed successfully
+Updated 25638 rows in questions.page_range
+No non-numeric page_range values found
+Dropped legacy column page_range_old
+Migration completed successfully
