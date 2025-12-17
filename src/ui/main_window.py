@@ -1139,6 +1139,7 @@ class TSVWatcherWindow(QMainWindow):
         jee_layout = QVBoxLayout(jee_page)
         jee_layout.setSpacing(8)
         jee_layout.setContentsMargins(10, 10, 10, 10)
+        label_style = "color: #0f172a; font-weight: 600;"
         
         # Compact controls in single row
         controls_layout = QHBoxLayout()
@@ -1146,6 +1147,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # File selection
         file_label = QLabel("File:")
+        file_label.setStyleSheet(label_style)
         file_label.setMaximumWidth(35)
         controls_layout.addWidget(file_label)
         
@@ -1165,6 +1167,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # Subject dropdown
         subject_label = QLabel("Subject:")
+        subject_label.setStyleSheet(label_style)
         subject_label.setMaximumWidth(50)
         controls_layout.addWidget(subject_label)
         
@@ -1187,7 +1190,7 @@ class TSVWatcherWindow(QMainWindow):
         chapters_layout.setSpacing(4)
         
         chapters_header = QLabel("Chapters (by Question Count)")
-        chapters_header.setStyleSheet("font-weight: bold; padding: 4px;")
+        chapters_header.setStyleSheet("font-weight: bold; padding: 4px; color: #0f172a;")
         chapters_layout.addWidget(chapters_header)
         
         self.jee_chapters_table = QTableWidget(0, 2)
@@ -1211,7 +1214,7 @@ class TSVWatcherWindow(QMainWindow):
         questions_layout.setSpacing(4)
         
         self.jee_questions_label = QLabel("Select a chapter to view questions")
-        self.jee_questions_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        self.jee_questions_label.setStyleSheet("font-weight: bold; padding: 4px; color: #0f172a;")
         questions_layout.addWidget(self.jee_questions_label)
         
         self.jee_questions_table = QTableWidget(0, 0)
