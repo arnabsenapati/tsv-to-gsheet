@@ -197,8 +197,10 @@ class QuestionView(QWidget):
         if qid is None:
             return
         selected = self.responses.get(str(qid), [])
+        # Qt sends int states (0/1/2); convert to boolean checked flag
+        is_checked = state == Qt.CheckState.Checked.value if isinstance(state, int) else state == Qt.CheckState.Checked
         if self.current_type == "mcq_single":
-            if state == Qt.Checked:
+            if is_checked:
                 # deselect others
                 for opt, btn in self.option_buttons.items():
                     if opt != label:
@@ -211,7 +213,7 @@ class QuestionView(QWidget):
         else:
             if isinstance(selected, str):
                 selected = [selected] if selected else []
-            if state == Qt.Checked:
+            if is_checked:
                 if label not in selected:
                     selected.append(label)
             else:
@@ -258,7 +260,7 @@ class ViewerWindow(QMainWindow):
         self.password = password
         self.evaluated = bool(data.get("evaluated"))
         # Ensure responses dict exists and is shared
-        self.payload.setdefault("responses", {})
+        self.responses = self.payload.setdefault("responses", {})
 
         self.setWindowTitle(f"CBT Viewer - {data.get('list_name', '')}")
         central = QWidget()
@@ -270,7 +272,7 @@ class ViewerWindow(QMainWindow):
         self.list_widget.setFixedWidth(180)
         top_row.addWidget(self.list_widget)
 
-        self.question_view = QuestionView(on_answer_change=self._refresh_answer_markers)
+        self.question_view = QuestionView(on_answer_change=self._on_answer_change)
         top_row.addWidget(self.question_view, 1)
 
         root.addLayout(top_row, 1)
@@ -314,12 +316,22 @@ class ViewerWindow(QMainWindow):
             return
         q = self.questions[row]
         key = self._qkey(q, row)
-        self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, key, self.evaluated)
+        self.question_view.set_question(q, self.responses, row + 1, key, self.evaluated)
         self._refresh_answer_markers()
+
+    def _on_answer_change(self):
+        """Refresh markers and persist responses to the package on every change for debugging."""
+        self.payload["responses"] = self.responses
+        self._refresh_answer_markers()
+        try:
+            save_cqt_payload(str(self.package_path), self.payload, self.password)
+            print(f"[viewer] Persisted responses after change: {self.responses}", flush=True)
+        except Exception as exc:
+            print(f"[viewer] Failed to persist responses: {exc}", flush=True)
 
     def closeEvent(self, event):
         # Persist responses
-        self.payload["responses"] = self.question_view.responses
+        self.payload["responses"] = self.responses
         try:
             save_cqt_payload(str(self.package_path), self.payload, self.password)
         except Exception as exc:
@@ -327,7 +339,7 @@ class ViewerWindow(QMainWindow):
         super().closeEvent(event)
 
     def _refresh_answer_markers(self):
-        responses = self.payload.get("responses", {})
+        responses = self.responses
         for idx, q in enumerate(self.questions):
             item = self.list_widget.item(idx)
             if not item:
@@ -414,7 +426,8 @@ class ViewerWindow(QMainWindow):
         row = self.list_widget.currentRow()
         if row >= 0:
             q = self.questions[row]
-            self.question_view.set_question(q, self.payload.get("responses", {}), row + 1, self.evaluated)
+            key = self._qkey(q, row)
+            self.question_view.set_question(q, self.responses, row + 1, key, show_answers=True)
         # Persist immediately so evaluated flag is saved
         try:
             save_cqt_payload(str(self.package_path), self.payload, self.password)
