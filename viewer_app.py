@@ -19,8 +19,9 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QColor
+from PySide6.QtCore import Qt, QBuffer, QPointF
+from PySide6.QtGui import QPixmap, QColor, QPainter, QPen, QImage
+from PySide6.QtCore import QBuffer
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -38,9 +39,108 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QCheckBox,
     QFrame,
+    QSplitter,
 )
 
 from services.cbt_package import load_cqt, save_cqt_payload, verify_eval_password
+
+
+class SketchBoard(QWidget):
+    """Simple drawing surface that can export/import PNG as base64."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pen_color = QColor("#0f172a")
+        self.pen_width = 3
+        self._strokes: list[list[QPointF]] = []
+        self._current: list[QPointF] = []
+        self._background: QPixmap | None = None
+        self.setMinimumHeight(220)
+        self.setAutoFillBackground(True)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._current = [event.position()]
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        if self._current:
+            self._current.append(event.position())
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._current:
+            self._strokes.append(self._current)
+            self._current = []
+            self.update()
+            self._emit_changed()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), Qt.white)
+        if self._background and not self._background.isNull():
+            painter.drawPixmap(self.rect(), self._background)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(QPen(self.pen_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        for stroke in self._strokes:
+            if len(stroke) > 1:
+                for i in range(1, len(stroke)):
+                    painter.drawLine(stroke[i - 1], stroke[i])
+        if len(self._current) > 1:
+            for i in range(1, len(self._current)):
+                painter.drawLine(self._current[i - 1], self._current[i])
+        painter.end()
+
+    def clear_board(self):
+        self._strokes.clear()
+        self._current = []
+        self._background = None
+        self.update()
+        self._emit_changed()
+
+    def to_png_base64(self) -> str:
+        image = QImage(self.size(), QImage.Format_ARGB32)
+        image.fill(Qt.white)
+        painter = QPainter(image)
+        if self._background and not self._background.isNull():
+            painter.drawPixmap(self.rect(), self._background)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(QPen(self.pen_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        for stroke in self._strokes:
+            if len(stroke) > 1:
+                for i in range(1, len(stroke)):
+                    painter.drawLine(stroke[i - 1], stroke[i])
+        if len(self._current) > 1:
+            for i in range(1, len(self._current)):
+                painter.drawLine(self._current[i - 1], self._current[i])
+        painter.end()
+        buffer = QBuffer()
+        buffer.open(QBuffer.ReadWrite)
+        image.save(buffer, "PNG")
+        png_bytes = buffer.data()
+        buffer.close()
+        return base64.b64encode(png_bytes).decode("ascii")
+
+    def load_from_base64(self, data: str | None):
+        if not data:
+            self.clear_board()
+            return
+        try:
+            pixmap = QPixmap()
+            pixmap.loadFromData(base64.b64decode(data))
+            if pixmap.isNull():
+                self.clear_board()
+                return
+            self._background = pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self._strokes.clear()
+            self._current = []
+            self.update()
+        except Exception:
+            self.clear_board()
+
+    def _emit_changed(self):
+        # Hook method to let parent know the sketch changed; overridden later
+        pass
 
 
 class QuestionView(QWidget):
@@ -73,6 +173,27 @@ class QuestionView(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.image_container)
 
+        self.board = SketchBoard()
+        # Patch hook so board can notify when strokes change
+        self.board._emit_changed = self._on_board_changed
+        self.clear_board_btn = QPushButton("Clear Sketch")
+        self.clear_board_btn.clicked.connect(self._clear_sketch)
+        board_controls = QHBoxLayout()
+        board_controls.addWidget(self.clear_board_btn)
+        board_controls.addStretch()
+        board_container = QWidget()
+        board_container_layout = QVBoxLayout(board_container)
+        board_container_layout.setContentsMargins(0, 0, 0, 0)
+        board_container_layout.setSpacing(6)
+        board_container_layout.addLayout(board_controls)
+        board_container_layout.addWidget(self.board, 1)
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.addWidget(scroll)
+        self.splitter.addWidget(board_container)
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 2)
+
         # MCQ (checkboxes; also used for single-option mode)
         self.option_buttons: Dict[str, QCheckBox] = {}
         multi_layout = QHBoxLayout()
@@ -95,10 +216,36 @@ class QuestionView(QWidget):
         layout.setSpacing(8)
         layout.addWidget(self.meta_label)
         layout.addWidget(self.text_label)
-        layout.addWidget(scroll, 1)
+        layout.addWidget(self.splitter, 1)
         layout.addWidget(self.type_label)
         layout.addWidget(self.multi_widget)
         layout.addWidget(self.numerical_input)
+
+    def _extract_answer_and_sketch(self, resp) -> tuple[Any, str | None]:
+        if isinstance(resp, dict):
+            return resp.get("answer"), resp.get("sketch_png")
+        return resp, None
+
+    def _set_answer_value(self, answer: Any):
+        if self.qkey is None:
+            return
+        current_resp = self.responses.get(str(self.qkey))
+        _, sketch = self._extract_answer_and_sketch(current_resp)
+        if sketch is None and not isinstance(current_resp, dict):
+            self.responses[str(self.qkey)] = answer
+        else:
+            self.responses[str(self.qkey)] = {"answer": answer, "sketch_png": sketch}
+
+    def _set_sketch_value(self, sketch_b64: str | None):
+        if self.qkey is None:
+            return
+        answer, _ = self._extract_answer_and_sketch(self.responses.get(str(self.qkey)))
+        if answer is None:
+            if self.current_type == "mcq_multiple":
+                answer = []
+            else:
+                answer = ""
+        self.responses[str(self.qkey)] = {"answer": answer, "sketch_png": sketch_b64}
 
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
@@ -158,12 +305,13 @@ class QuestionView(QWidget):
         self.numerical_input.setText("")
         self.numerical_input.blockSignals(False)
 
-        selected = responses.get(str(qid), [])
+        selected_raw = responses.get(str(qid), [])
+        selected, sketch_b64 = self._extract_answer_and_sketch(selected_raw)
         if self.current_type == "numerical":
             val = selected if isinstance(selected, str) else ""
             if not isinstance(selected, str):
                 # ensure no stale option selection for numerical
-                self.responses[str(qid)] = val
+                self._set_answer_value(val)
             self.numerical_input.setText(val)
         elif self.current_type == "mcq_multiple":
             if isinstance(selected, str):
@@ -185,10 +333,12 @@ class QuestionView(QWidget):
                     btn.setChecked(True)
             else:
                 # ensure no default selection stored
-                self.responses[str(qid)] = ""
+                self._set_answer_value("")
 
         self._update_enabled_state()
         self._updating = False
+        # Load sketch (if any) into the board tab
+        self.board.load_from_base64(sketch_b64)
 
     def _on_option_toggled(self, label: str, state: int):
         if self._updating or self.evaluated:
@@ -196,7 +346,8 @@ class QuestionView(QWidget):
         qid = self.qkey
         if qid is None:
             return
-        selected = self.responses.get(str(qid), [])
+        selected_raw = self.responses.get(str(qid), [])
+        selected, _ = self._extract_answer_and_sketch(selected_raw)
         # Qt sends int states (0/1/2); convert to boolean checked flag
         is_checked = state == Qt.CheckState.Checked.value if isinstance(state, int) else state == Qt.CheckState.Checked
         if self.current_type == "mcq_single":
@@ -207,18 +358,21 @@ class QuestionView(QWidget):
                         btn.blockSignals(True)
                         btn.setChecked(False)
                         btn.blockSignals(False)
-                self.responses[str(qid)] = label
+                new_answer = label
             else:
-                self.responses[str(qid)] = ""
+                new_answer = ""
+            self._set_answer_value(new_answer)
         else:
             if isinstance(selected, str):
                 selected = [selected] if selected else []
+            elif not isinstance(selected, list):
+                selected = []
             if is_checked:
                 if label not in selected:
                     selected.append(label)
             else:
                 selected = [opt for opt in selected if opt != label]
-            self.responses[str(qid)] = selected
+            self._set_answer_value(selected)
         self.on_answer_change()
 
     def _on_numerical_changed(self, text: str):
@@ -227,7 +381,28 @@ class QuestionView(QWidget):
         qid = self.qkey
         if qid is None:
             return
-        self.responses[str(qid)] = text.strip()
+        self._set_answer_value(text.strip())
+        self.on_answer_change()
+
+    def _save_sketch(self):
+        if self.qkey is None:
+            return
+        sketch_b64 = self.board.to_png_base64()
+        self._set_sketch_value(sketch_b64)
+        self.on_answer_change()
+
+    def _clear_sketch(self):
+        self.board.clear_board()
+        if self.qkey is None:
+            return
+        self._set_sketch_value(None)
+        self.on_answer_change()
+
+    def _on_board_changed(self):
+        if self.qkey is None:
+            return
+        sketch_b64 = self.board.to_png_base64()
+        self._set_sketch_value(sketch_b64)
         self.on_answer_change()
 
     def _show_controls_for_type(self, qtype: str):
@@ -320,7 +495,7 @@ class ViewerWindow(QMainWindow):
         self._refresh_answer_markers()
 
     def _on_answer_change(self):
-        """Refresh markers and persist responses to the package on every change for debugging."""
+        """Refresh markers and persist responses to the package on every change."""
         self.payload["responses"] = self.responses
         self._refresh_answer_markers()
         try:
@@ -345,7 +520,8 @@ class ViewerWindow(QMainWindow):
                 continue
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
             key = self._qkey(q, idx)
-            resp = responses.get(str(key), [])
+            resp_raw = responses.get(str(key), [])
+            resp, _ = self.question_view._extract_answer_and_sketch(resp_raw) if hasattr(self, "question_view") else (resp_raw, None)
             if qtype == "numerical":
                 if resp is None:
                     answered = False
@@ -378,7 +554,8 @@ class ViewerWindow(QMainWindow):
                 if not item:
                     continue
                 key = str(self._qkey(q, idx))
-                sel = responses.get(key, [])
+                sel_raw = responses.get(key, [])
+                sel, _ = self.question_view._extract_answer_and_sketch(sel_raw) if hasattr(self, "question_view") else (sel_raw, None)
                 qtype = q.get("question_type", "mcq_single") or "mcq_single"
                 correct = False
                 if qtype == "numerical":
