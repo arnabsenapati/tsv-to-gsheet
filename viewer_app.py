@@ -40,6 +40,8 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QSplitter,
+    QButtonGroup,
+    QRadioButton,
 )
 
 from services.cbt_package import load_cqt, save_cqt_payload, verify_eval_password
@@ -50,25 +52,64 @@ class SketchBoard(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.pen_color = QColor("#0f172a")
+        self.pen_color = QColor("#e5e7eb")
         self.pen_width = 3
+        self.color_group = QButtonGroup(self)
+        self.colors = [
+            "#e5e7eb",  # light gray
+            "#f97316",  # light orange
+            "#38bdf8",  # light blue
+            "#a855f7",  # light purple
+            "#22c55e",  # light green
+        ]
         self._strokes: list[list[QPointF]] = []
         self._current: list[QPointF] = []
         self._background: QPixmap | None = None
+        self._scroll_area = None
+        self._pan_start: QPointF | None = None
+        self._pan_origin = (0, 0)
+        # A4 aspect ratio ~210x297; choose screen-friendly size (width doubled for extra space)
+        self.setFixedSize(1680, 1188)
         self.setMinimumHeight(220)
         self.setAutoFillBackground(True)
 
+    def set_scroll_area(self, scroll_area):
+        self._scroll_area = scroll_area
+
+    def set_pen_color(self, color: str):
+        self.pen_color = QColor(color)
+
     def mousePressEvent(self, event):
+        if event.button() == Qt.RightButton:
+            if self._scroll_area:
+                self._pan_start = event.position()
+                h = self._scroll_area.horizontalScrollBar()
+                v = self._scroll_area.verticalScrollBar()
+                self._pan_origin = (h.value(), v.value())
+                self.setCursor(Qt.ClosedHandCursor)
+            return
         if event.button() == Qt.LeftButton:
             self._current = [event.position()]
             self.update()
 
     def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.RightButton and self._scroll_area and self._pan_start is not None:
+            dx = event.position().x() - self._pan_start.x()
+            dy = event.position().y() - self._pan_start.y()
+            h = self._scroll_area.horizontalScrollBar()
+            v = self._scroll_area.verticalScrollBar()
+            h.setValue(int(self._pan_origin[0] - dx))
+            v.setValue(int(self._pan_origin[1] - dy))
+            return
         if self._current:
             self._current.append(event.position())
             self.update()
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.RightButton:
+            self._pan_start = None
+            self.setCursor(Qt.ArrowCursor)
+            return
         if event.button() == Qt.LeftButton and self._current:
             self._strokes.append(self._current)
             self._current = []
@@ -77,7 +118,7 @@ class SketchBoard(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), Qt.white)
+        painter.fillRect(self.rect(), Qt.black)
         if self._background and not self._background.isNull():
             painter.drawPixmap(self.rect(), self._background)
         painter.setRenderHint(QPainter.Antialiasing, True)
@@ -100,7 +141,7 @@ class SketchBoard(QWidget):
 
     def to_png_base64(self) -> str:
         image = QImage(self.size(), QImage.Format_ARGB32)
-        image.fill(Qt.white)
+        image.fill(Qt.black)
         painter = QPainter(image)
         if self._background and not self._background.isNull():
             painter.drawPixmap(self.rect(), self._background)
@@ -176,17 +217,69 @@ class QuestionView(QWidget):
         self.board = SketchBoard()
         # Patch hook so board can notify when strokes change
         self.board._emit_changed = self._on_board_changed
+        color_row = QHBoxLayout()
+        color_row.setSpacing(4)
+        color_row.addStretch()
+        for idx, color in enumerate(self.board.colors):
+            btn = QRadioButton()
+            btn.setStyleSheet(
+                f"""
+                QRadioButton::indicator {{
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    background: {color};
+                    border: 1px solid #cbd5e1;
+                }}
+                QRadioButton::indicator:checked {{
+                    border: 2px solid #2563eb;
+                }}
+                """
+            )
+            if idx == 0:
+                btn.setChecked(True)
+            btn.toggled.connect(lambda checked, c=color: checked and self.board.set_pen_color(c))
+            self.board.color_group.addButton(btn)
+            color_row.addWidget(btn)
+        color_row.addStretch()
+        board_scroll = QScrollArea()
+        board_scroll.setWidgetResizable(False)
+        board_scroll.setWidget(self.board)
+        board_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        board_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.board.set_scroll_area(board_scroll)
         self.clear_board_btn = QPushButton("Clear Sketch")
         self.clear_board_btn.clicked.connect(self._clear_sketch)
         board_controls = QHBoxLayout()
         board_controls.addWidget(self.clear_board_btn)
+        for idx, color in enumerate(self.board.colors):
+            btn = QRadioButton()
+            btn.setStyleSheet(
+                f"""
+                QRadioButton::indicator {{
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 9px;
+                    background: {color};
+                    border: 1px solid #cbd5e1;
+                }}
+                QRadioButton::indicator:checked {{
+                    border: 2px solid #2563eb;
+                }}
+                """
+            )
+            if idx == 0:
+                btn.setChecked(True)
+            btn.toggled.connect(lambda checked, c=color: checked and self.board.set_pen_color(c))
+            self.board.color_group.addButton(btn)
+            board_controls.addWidget(btn)
         board_controls.addStretch()
         board_container = QWidget()
         board_container_layout = QVBoxLayout(board_container)
         board_container_layout.setContentsMargins(0, 0, 0, 0)
         board_container_layout.setSpacing(6)
         board_container_layout.addLayout(board_controls)
-        board_container_layout.addWidget(self.board, 1)
+        board_container_layout.addWidget(board_scroll, 1)
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(scroll)

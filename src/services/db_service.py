@@ -509,6 +509,13 @@ class DatabaseService:
                 )
                 """
             )
+            self._add_column_if_missing(conn, "exam_questions", "eval_status", "TEXT")
+            self._add_column_if_missing(conn, "exam_questions", "eval_comment", "TEXT")
+
+    def _add_column_if_missing(self, conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+        cols = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS exam_questions (
@@ -674,7 +681,7 @@ class DatabaseService:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT q_index, question_json, response_json, correct, answered, score
+                SELECT q_index, question_json, response_json, correct, answered, score, eval_status, eval_comment
                 FROM exam_questions
                 WHERE exam_id = ?
                 ORDER BY q_index
@@ -699,6 +706,82 @@ class DatabaseService:
                     "correct": bool(row["correct"]),
                     "answered": bool(row["answered"]),
                     "score": row["score"],
+                    "eval_status": row["eval_status"],
+                    "eval_comment": row["eval_comment"],
                 }
             )
         return result
+
+    def get_exam_by_id(self, exam_id: int) -> Dict[str, Any] | None:
+        self._ensure_exam_tables()
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM exams WHERE id = ?", (exam_id,)).fetchone()
+        if not row:
+            return None
+        return {k: row[k] for k in row.keys()}
+
+    def delete_exam(self, exam_id: int) -> None:
+        """Delete an exam and its questions."""
+        self._ensure_exam_tables()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
+
+    def update_exam_question_evaluation(self, exam_id: int, q_index: int, status: str, comment: str) -> Dict[str, Any]:
+        """
+        Override evaluation for a question and recompute exam aggregates.
+        status: 'correct' | 'incorrect' | 'unanswered'
+        comment: required note for this override
+        """
+        self._ensure_exam_tables()
+        if not comment:
+            raise ValueError("Evaluation comment is required.")
+        status = (status or "").lower()
+        if status not in ("correct", "incorrect", "unanswered"):
+            raise ValueError("Invalid evaluation status.")
+        correct = 1 if status == "correct" else 0
+        answered = 0 if status == "unanswered" else 1
+        score = 4 if status == "correct" else (-1 if status == "incorrect" else 0)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE exam_questions
+                SET correct = ?, answered = ?, score = ?, eval_status = ?, eval_comment = ?
+                WHERE exam_id = ? AND q_index = ?
+                """,
+                (correct, answered, score, status, comment, exam_id, q_index),
+            )
+            agg = conn.execute(
+                """
+                SELECT
+                    SUM(correct) AS correct,
+                    SUM(answered) AS answered,
+                    COUNT(*) AS total,
+                    SUM(score) AS score
+                FROM exam_questions
+                WHERE exam_id = ?
+                """,
+                (exam_id,),
+            ).fetchone()
+            correct_cnt = int(agg["correct"] or 0)
+            answered_cnt = int(agg["answered"] or 0)
+            total = int(agg["total"] or 0)
+            score_sum = int(agg["score"] or 0)
+            wrong_cnt = max(answered_cnt - correct_cnt, 0)
+            percent = (score_sum / (total * 4)) * 100 if total else 0.0
+            evaluated_at = datetime.utcnow().isoformat() + "Z"
+            conn.execute(
+                """
+                UPDATE exams
+                SET correct = ?, answered = ?, wrong = ?, score = ?, percent = ?, evaluated = 1, evaluated_at = ?
+                WHERE id = ?
+                """,
+                (correct_cnt, answered_cnt, wrong_cnt, score_sum, percent, evaluated_at, exam_id),
+            )
+        return {
+            "correct": correct_cnt,
+            "answered": answered_cnt,
+            "wrong": wrong_cnt,
+            "score": score_sum,
+            "percent": percent,
+            "evaluated_at": evaluated_at,
+        }

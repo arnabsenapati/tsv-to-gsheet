@@ -22,12 +22,13 @@ import time
 import math
 import sqlite3
 import shutil
+import tempfile
 from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -59,6 +60,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
+    QPlainTextEdit,
     QFrame,
     QTreeWidget,
     QTreeWidgetItem,
@@ -1085,12 +1087,42 @@ class TSVWatcherWindow(QMainWindow):
         self.start_button.clicked.connect(self.start_watching)
         self.stop_button = QPushButton("Stop Watching")
         self.stop_button.clicked.connect(self.stop_watching)
+        self.clipboard_import_button = QPushButton("Import TSV from Clipboard")
+        self.clipboard_import_button.setToolTip("Paste TSV text from the clipboard and import it directly")
+        self.clipboard_import_button.clicked.connect(self.import_tsv_from_clipboard)
         control_layout.addWidget(self.refresh_button)
         control_layout.addWidget(self.start_button)
         control_layout.addWidget(self.stop_button)
+        control_layout.addWidget(self.clipboard_import_button)
         control_layout.addStretch()
         import_form_layout.addLayout(control_layout)
         import_layout.addWidget(import_form_card)
+
+        clipboard_card = self._create_card()
+        clipboard_layout = QVBoxLayout(clipboard_card)
+        clipboard_layout.addWidget(self._create_label("Clipboard TSV (review before import)"))
+
+        clipboard_btn_row = QHBoxLayout()
+        self.clipboard_paste_button = QPushButton("Paste Clipboard")
+        self.clipboard_paste_button.clicked.connect(self.paste_clipboard_to_textarea)
+        self.clipboard_clear_button = QPushButton("Clear")
+        self.clipboard_clear_button.clicked.connect(self.clear_clipboard_textarea)
+        self.clipboard_import_text_button = QPushButton("Import Text Below")
+        self.clipboard_import_text_button.clicked.connect(self.import_tsv_from_textarea)
+        clipboard_btn_row.addWidget(self.clipboard_paste_button)
+        clipboard_btn_row.addWidget(self.clipboard_clear_button)
+        clipboard_btn_row.addWidget(self.clipboard_import_text_button)
+        clipboard_btn_row.addStretch()
+        clipboard_layout.addLayout(clipboard_btn_row)
+
+        self.clipboard_text_edit = QPlainTextEdit()
+        self.clipboard_text_edit.setPlaceholderText("Paste TSV content here to review before importing.")
+        self.clipboard_text_edit.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.clipboard_text_edit.setMinimumHeight(180)
+        self.clipboard_text_edit.setStyleSheet("font-family: Consolas, 'Courier New', monospace; font-size: 12px;")
+        clipboard_layout.addWidget(self.clipboard_text_edit)
+
+        import_layout.addWidget(clipboard_card)
 
         status_card = self._create_card()
         status_layout = QVBoxLayout(status_card)
@@ -1243,6 +1275,7 @@ class TSVWatcherWindow(QMainWindow):
         layout = QHBoxLayout(exams_page)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
+        self.current_exam_id: int | None = None
 
         # Left: exam list + import
         left_card = self._create_card()
@@ -1250,19 +1283,30 @@ class TSVWatcherWindow(QMainWindow):
         left_layout.setSpacing(8)
 
         btn_row = QHBoxLayout()
-        import_btn = QPushButton("Import Exam (.cqt)")
+        import_btn = QPushButton()
+        import_btn.setIcon(self.style().standardIcon(QStyle.SP_DirOpenIcon))
+        import_btn.setToolTip("Import Exam (.cqt)")
+        import_btn.setFixedSize(QSize(32, 28))
         import_btn.clicked.connect(self._import_exam_from_cqt)
-        refresh_btn = QPushButton("Refresh")
+        refresh_btn = QPushButton()
+        refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh_btn.setToolTip("Refresh")
+        refresh_btn.setFixedSize(QSize(32, 28))
         refresh_btn.clicked.connect(self._load_exam_list)
+        delete_btn = QPushButton()
+        delete_btn.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        delete_btn.setToolTip("Delete selected exam")
+        delete_btn.setFixedSize(QSize(32, 28))
+        delete_btn.clicked.connect(self._delete_selected_exam)
         btn_row.addWidget(import_btn)
         btn_row.addWidget(refresh_btn)
+        btn_row.addWidget(delete_btn)
+        btn_row.addStretch()
         left_layout.addLayout(btn_row)
 
         self.exam_list_widget = QListWidget()
         self.exam_list_widget.itemSelectionChanged.connect(self._on_exam_selected)
         left_layout.addWidget(self.exam_list_widget, 1)
-
-        layout.addWidget(left_card, 0)
 
         # Right: details
         right_card = self._create_card()
@@ -1293,7 +1337,14 @@ class TSVWatcherWindow(QMainWindow):
         detail_scroll.setWidget(self.exam_detail_container)
         right_layout.addWidget(detail_scroll, 1)
 
-        layout.addWidget(right_card, 1)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(left_card)
+        splitter.addWidget(right_card)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([320, 680])
+
+        layout.addWidget(splitter)
 
         self.content_stack.addWidget(exams_page)
 
@@ -1328,23 +1379,47 @@ class TSVWatcherWindow(QMainWindow):
             self.exams_data = []
             return
         for exam in self.exams_data:
-            name = exam.get("name") or "Exam"
-            imported = exam.get("imported_at") or ""
-            score = exam.get("score") if exam.get("score") is not None else ""
-            item = QListWidgetItem(f"{name}  ({imported})  Score: {score}")
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, exam)
+            widget = self._build_exam_list_item_widget(exam)
+            item.setSizeHint(widget.sizeHint())
             self.exam_list_widget.addItem(item)
+            self.exam_list_widget.setItemWidget(item, widget)
         if self.exam_list_widget.count() > 0:
             self.exam_list_widget.setCurrentRow(0)
+
+    def _format_exam_list_text(self, exam: Dict[str, Any]) -> str:
+        name = exam.get("name") or "Exam"
+        imported = exam.get("imported_at") or ""
+        score = exam.get("score") if exam.get("score") is not None else ""
+        return f"{name}  ({imported})  Score: {score}"
+
+    def _build_exam_list_item_widget(self, exam: Dict[str, Any]) -> QWidget:
+        text = self._format_exam_list_text(exam)
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(6)
+
+        label = QLabel(text)
+        label.setStyleSheet("color: #0f172a;")
+        layout.addWidget(label, 1)
+
+        container.setLayout(layout)
+        return container
 
     def _on_exam_selected(self):
         items = self.exam_list_widget.selectedItems()
         if not items:
             return
         exam = items[0].data(Qt.UserRole) or {}
+        self._render_exam_detail(exam)
+
+    def _render_exam_detail(self, exam: Dict[str, Any]) -> None:
         exam_id = exam.get("id")
         if exam_id is None:
             return
+        self.current_exam_id = int(exam_id)
         header = exam.get("name") or "Exam"
         list_name = exam.get("list_name") or ""
         imported = exam.get("imported_at") or ""
@@ -1362,6 +1437,62 @@ class TSVWatcherWindow(QMainWindow):
         evaluated = bool(exam.get("evaluated"))
         self._render_exam_questions(questions, evaluated)
 
+    def _refresh_current_exam_view(self):
+        if not self.current_exam_id:
+            return
+        try:
+            exam = self.db_service.get_exam_by_id(int(self.current_exam_id))
+            if not exam:
+                return
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Failed", f"Could not refresh exam:\n{exc}")
+            return
+        self._render_exam_detail(exam)
+        self._update_exam_list_item(exam)
+
+    def _update_exam_list_item(self, exam: Dict[str, Any]) -> None:
+        if not hasattr(self, "exam_list_widget"):
+            return
+        for i in range(self.exam_list_widget.count()):
+            item = self.exam_list_widget.item(i)
+            data = item.data(Qt.UserRole) or {}
+            if data.get("id") == exam.get("id"):
+                item.setData(Qt.UserRole, exam)
+                widget = self._build_exam_list_item_widget(exam)
+                item.setSizeHint(widget.sizeHint())
+                self.exam_list_widget.setItemWidget(item, widget)
+                break
+
+    def _delete_selected_exam(self):
+        items = self.exam_list_widget.selectedItems()
+        if not items:
+            QMessageBox.information(self, "No Selection", "Please select an exam to delete.")
+            return
+        exam = items[0].data(Qt.UserRole) or {}
+        exam_id = exam.get("id")
+        if exam_id is None:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Delete Exam",
+            f"Delete exam '{exam.get('name') or 'Exam'}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        try:
+            self.db_service.delete_exam(int(exam_id))
+        except Exception as exc:
+            QMessageBox.warning(self, "Delete Failed", f"Could not delete exam:\n{exc}")
+            return
+        self._load_exam_list()
+        self._clear_layout(self.exam_detail_layout)
+        self.exam_header_label.setText("Select an exam to view details")
+        self.exam_stats_label.setText("")
+        self.exam_summary_label.setText("")
+        self.current_exam_id = None
+
     def _render_exam_questions(self, questions: List[Dict[str, Any]], evaluated: bool):
         self._clear_layout(self.exam_detail_layout)
         for idx, row in enumerate(questions, start=1):
@@ -1369,6 +1500,19 @@ class TSVWatcherWindow(QMainWindow):
             self.exam_detail_layout.addWidget(widget)
         self.exam_detail_layout.addStretch()
 
+    def _apply_question_evaluation(self, q_index: int, status: str, comment: str):
+        if not self.current_exam_id:
+            QMessageBox.warning(self, "No Exam Selected", "Select an exam before updating evaluation.")
+            return
+        if not comment.strip():
+            QMessageBox.warning(self, "Comment Required", "Please enter a comment for this evaluation change.")
+            return
+        try:
+            self.db_service.update_exam_question_evaluation(int(self.current_exam_id), q_index, status, comment.strip())
+        except Exception as exc:
+            QMessageBox.warning(self, "Update Failed", f"Could not update evaluation:\n{exc}")
+            return
+        self._refresh_current_exam_view()
     def _build_exam_question_widget(self, row: Dict[str, Any], display_index: int, evaluated: bool) -> QWidget:
         q = row.get("question", {}) or {}
         resp = row.get("response")
@@ -1445,6 +1589,59 @@ class TSVWatcherWindow(QMainWindow):
             result_lbl = QLabel(f"Result: {result_text} | Score: {score}")
             result_lbl.setStyleSheet(f"color: {result_color}; font-weight: 600;")
             layout.addWidget(result_lbl)
+
+        # Evaluation override controls
+        eval_status = row.get("eval_status") or ("correct" if correct else ("incorrect" if answered else "unanswered"))
+        eval_comment = row.get("eval_comment") or ""
+
+        status_row = QHBoxLayout()
+        status_row.setSpacing(6)
+        status_lbl = QLabel("Evaluation:")
+        status_lbl.setStyleSheet("font-weight: 600; color: #0f172a;")
+        status_row.addWidget(status_lbl)
+
+        status_combo = QComboBox()
+        status_combo.addItem("Correct", "correct")
+        status_combo.addItem("Incorrect", "incorrect")
+        status_combo.addItem("Unanswered", "unanswered")
+        status_combo.setStyleSheet("color: #0f172a;")
+        # set current index
+        for i in range(status_combo.count()):
+            if status_combo.itemData(i) == eval_status:
+                status_combo.setCurrentIndex(i)
+                break
+        status_row.addWidget(status_combo)
+
+        comment_input = QLineEdit()
+        comment_input.setPlaceholderText("Enter comment for this change")
+        comment_input.setText("")
+        comment_input.setStyleSheet("color: #0f172a;")
+        status_row.addWidget(comment_input, 1)
+
+        apply_btn = QPushButton()
+        apply_btn.setToolTip("Save evaluation and comment")
+        apply_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        apply_btn.setFixedSize(QSize(30, 26))
+        apply_btn.setEnabled(False)
+        status_row.addWidget(apply_btn)
+        status_row.addStretch()
+        layout.addLayout(status_row)
+
+        comment_lbl = QLabel(f"Last comment: {eval_comment or '-'}")
+        comment_lbl.setStyleSheet("color: #0f172a;")
+        layout.addWidget(comment_lbl)
+
+        def _toggle_apply():
+            apply_btn.setEnabled(bool(comment_input.text().strip()))
+
+        comment_input.textChanged.connect(_toggle_apply)
+        apply_btn.clicked.connect(
+            lambda: self._apply_question_evaluation(
+                row.get("index", display_index - 1),
+                status_combo.currentData(),
+                comment_input.text(),
+            )
+        )
 
         return wrapper
 
@@ -4905,6 +5102,90 @@ class TSVWatcherWindow(QMainWindow):
             self.output_edit.setText(file_path)
             self._save_last_selection()
             self.load_subject_from_db()
+
+    def import_tsv_from_clipboard(self) -> None:
+        """Import TSV content directly from the clipboard."""
+        clipboard = QGuiApplication.clipboard()
+        tsv_text = clipboard.text() if clipboard else ""
+        self.clipboard_text_edit.setPlainText(tsv_text)
+        self._import_tsv_content(tsv_text, source_label="clipboard_import")
+
+    def import_tsv_from_textarea(self) -> None:
+        """Import TSV content from the on-page text area after review."""
+        tsv_text = self.clipboard_text_edit.toPlainText()
+        self._import_tsv_content(tsv_text, source_label="textarea_import")
+
+    def paste_clipboard_to_textarea(self) -> None:
+        """Paste clipboard text into the review area without importing."""
+        clipboard = QGuiApplication.clipboard()
+        if clipboard:
+            self.clipboard_text_edit.setPlainText(clipboard.text())
+
+    def clear_clipboard_textarea(self) -> None:
+        """Clear the review textarea."""
+        self.clipboard_text_edit.clear()
+
+    def _import_tsv_content(self, tsv_text: str, source_label: str) -> None:
+        """Common TSV import flow from provided text."""
+        if not tsv_text or not tsv_text.strip():
+            QMessageBox.warning(self, "TSV Empty", "No TSV content to import.")
+            return
+        if "\t" not in tsv_text:
+            QMessageBox.warning(self, "Invalid TSV", "Provided text does not look like TSV data (no tab characters found).")
+            return
+
+        db_path = Path(self.db_path_edit.text().strip() or DEFAULT_DB_PATH)
+        subject = self.subject_combo.currentText() if hasattr(self, "subject_combo") else ""
+        if not subject:
+            QMessageBox.critical(self, "Invalid Subject", "Please select a subject before importing.")
+            return
+        if not db_path.is_file():
+            QMessageBox.critical(self, "Invalid Database", f"Database file not found:\n{db_path}")
+            return
+
+        self.current_db_path = db_path
+        self.db_service.set_db_path(db_path)
+        self.current_subject = subject
+
+        timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{source_label}_{timestamp}.tsv"
+        self.update_file_status(filename, "Processing", "Validating TSV...")
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                delete=False,
+                suffix=".tsv",
+                newline="",
+                encoding="utf-8",
+            ) as tmp_file:
+                tmp_file.write(tsv_text)
+                tmp_path = Path(tmp_file.name)
+
+            self.set_status(f'Importing data from "{filename}"', "importing")
+            result_message = process_tsv(tmp_path, self.db_service, subject)
+            self.update_file_status(filename, "Completed", result_message)
+            self.log(f"Imported TSV ({filename}): {result_message}")
+            self.set_status(f'TSV imported from "{filename}" {result_message}', "success")
+            self.load_subject_from_db()
+            QMessageBox.information(self, "Import Complete", f"TSV imported.\n{result_message}")
+        except Exception as exc:
+            error_message = str(exc)
+            self.update_file_status(filename, "Error", error_message)
+            self.log(f"Error importing TSV ({filename}): {error_message}")
+            self.set_status(f"Error importing TSV: {error_message}", "error")
+            QMessageBox.critical(self, "Import Failed", f"Could not import TSV:\n{error_message}")
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+        finally:
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
 
     def refresh_file_list(self) -> None:
         input_path = Path(self.input_edit.text().strip())
