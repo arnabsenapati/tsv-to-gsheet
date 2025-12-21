@@ -325,7 +325,6 @@ class ViewerWindow(QMainWindow):
         self._refresh_answer_markers()
         try:
             save_cqt_payload(str(self.package_path), self.payload, self.password)
-            print(f"[viewer] Persisted responses after change: {self.responses}", flush=True)
         except Exception as exc:
             print(f"[viewer] Failed to persist responses: {exc}", flush=True)
 
