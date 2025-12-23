@@ -54,6 +54,7 @@ class SketchBoard(QWidget):
         super().__init__(parent)
         self.pen_color = QColor("#e5e7eb")
         self.pen_width = 3
+        self.current_color = QColor(self.pen_color)
         self.color_group = QButtonGroup(self)
         self.colors = [
             "#e5e7eb",  # light gray
@@ -62,7 +63,7 @@ class SketchBoard(QWidget):
             "#a855f7",  # light purple
             "#22c55e",  # light green
         ]
-        self._strokes: list[list[QPointF]] = []
+        self._strokes: list[dict[str, Any]] = []
         self._current: list[QPointF] = []
         self._background: QPixmap | None = None
         self._scroll_area = None
@@ -78,6 +79,7 @@ class SketchBoard(QWidget):
 
     def set_pen_color(self, color: str):
         self.pen_color = QColor(color)
+        self.current_color = QColor(color)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:
@@ -111,7 +113,7 @@ class SketchBoard(QWidget):
             self.setCursor(Qt.ArrowCursor)
             return
         if event.button() == Qt.LeftButton and self._current:
-            self._strokes.append(self._current)
+            self._strokes.append({"color": QColor(self.current_color), "points": list(self._current)})
             self._current = []
             self.update()
             self._emit_changed()
@@ -122,12 +124,15 @@ class SketchBoard(QWidget):
         if self._background and not self._background.isNull():
             painter.drawPixmap(self.rect(), self._background)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(self.pen_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         for stroke in self._strokes:
-            if len(stroke) > 1:
-                for i in range(1, len(stroke)):
-                    painter.drawLine(stroke[i - 1], stroke[i])
+            pts = stroke.get("points") or []
+            col = stroke.get("color", self.pen_color)
+            painter.setPen(QPen(col, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            if len(pts) > 1:
+                for i in range(1, len(pts)):
+                    painter.drawLine(pts[i - 1], pts[i])
         if len(self._current) > 1:
+            painter.setPen(QPen(self.current_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             for i in range(1, len(self._current)):
                 painter.drawLine(self._current[i - 1], self._current[i])
         painter.end()
@@ -146,12 +151,15 @@ class SketchBoard(QWidget):
         if self._background and not self._background.isNull():
             painter.drawPixmap(self.rect(), self._background)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(self.pen_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         for stroke in self._strokes:
-            if len(stroke) > 1:
-                for i in range(1, len(stroke)):
-                    painter.drawLine(stroke[i - 1], stroke[i])
+            pts = stroke.get("points") or []
+            col = stroke.get("color", self.pen_color)
+            painter.setPen(QPen(col, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            if len(pts) > 1:
+                for i in range(1, len(pts)):
+                    painter.drawLine(pts[i - 1], pts[i])
         if len(self._current) > 1:
+            painter.setPen(QPen(self.current_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             for i in range(1, len(self._current)):
                 painter.drawLine(self._current[i - 1], self._current[i])
         painter.end()
@@ -210,9 +218,9 @@ class QuestionView(QWidget):
         self.image_layout.setContentsMargins(0, 0, 0, 0)
         self.image_layout.setSpacing(6)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.image_container)
+        self.image_scroll = QScrollArea()
+        self.image_scroll.setWidgetResizable(True)
+        self.image_scroll.setWidget(self.image_container)
 
         self.board = SketchBoard()
         # Patch hook so board can notify when strokes change
@@ -282,7 +290,7 @@ class QuestionView(QWidget):
         board_container_layout.addWidget(board_scroll, 1)
 
         self.splitter = QSplitter(Qt.Horizontal)
-        self.splitter.addWidget(scroll)
+        self.splitter.addWidget(self.image_scroll)
         self.splitter.addWidget(board_container)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 2)
@@ -353,6 +361,9 @@ class QuestionView(QWidget):
         self._show_controls_for_type(self.current_type)
 
         # Images
+        available_width = 360
+        if self.image_scroll and self.image_scroll.viewport():
+            available_width = max(360, min(1400, self.image_scroll.viewport().width() - 16))
         while self.image_layout.count():
             item = self.image_layout.takeAt(0)
             if item.widget():
@@ -362,7 +373,7 @@ class QuestionView(QWidget):
             pixmap = QPixmap()
             pixmap.loadFromData(data)
             if not pixmap.isNull():
-                pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                pixmap = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
             lbl = QLabel()
             lbl.setPixmap(pixmap)
             lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
@@ -381,7 +392,7 @@ class QuestionView(QWidget):
                 pixmap = QPixmap()
                 pixmap.loadFromData(data)
                 if not pixmap.isNull():
-                    pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                    pixmap = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
                 lbl = QLabel()
                 lbl.setPixmap(pixmap)
                 lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
