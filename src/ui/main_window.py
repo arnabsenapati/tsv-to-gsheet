@@ -2525,10 +2525,7 @@ class TSVWatcherWindow(QMainWindow):
             text = str(value).strip().lower()
             if text == "questionid":
                 id_col_idx = idx
-                print(f"[debug] mag questions: found questionid column at {id_col_idx}", flush=True)
                 break
-        if not id_col_idx:
-            print("[debug] mag questions: no questionid column found", flush=True)
 
         questions: list[dict] = []
         magazine_series = df.iloc[:, magazine_col - 1]
@@ -2536,9 +2533,10 @@ class TSVWatcherWindow(QMainWindow):
         qno_series = df.iloc[:, qno_col - 1]
         page_series = df.iloc[:, page_col - 1]
         qtext_series = df.iloc[:, question_text_col - 1]
+        id_series = df.iloc[:, id_col_idx - 1] if id_col_idx else None
 
-        for mag_value, qset_value, qno_value, page_value, qtext_value in zip(
-            magazine_series, qset_series, qno_series, page_series, qtext_series
+        for idx, (mag_value, qset_value, qno_value, page_value, qtext_value) in enumerate(
+            zip(magazine_series, qset_series, qno_series, page_series, qtext_series)
         ):
             if pd.isna(mag_value) or pd.isna(qset_value):
                 continue
@@ -2556,7 +2554,7 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
             if id_col_idx:
-                raw_id = values[id_col_idx - 1]
+                raw_id = id_series.iloc[idx] if id_series is not None else None
                 if pd.isna(raw_id) or str(raw_id).strip() == "":
                     questions[-1]["question_id"] = None
                 else:
@@ -2567,7 +2565,6 @@ class TSVWatcherWindow(QMainWindow):
                             questions[-1]["question_id"] = str(raw_id).strip()
                         except Exception:
                             questions[-1]["question_id"] = None
-            print(f"[debug] mag questions add qno={questions[-1].get('qno')} page={questions[-1].get('page')} qid={questions[-1].get('question_id')}", flush=True)
         # Group using QuestionSetGroup.json
         group_mapping = {}
         group_order = []
