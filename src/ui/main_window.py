@@ -16,6 +16,7 @@ import datetime as dt
 import json
 import base64
 import queue
+import subprocess
 import re
 import threading
 import time
@@ -777,17 +778,38 @@ class TSVWatcherWindow(QMainWindow):
         saved_lists_card = self._create_card()
         saved_lists_layout = QVBoxLayout(saved_lists_card)
         saved_lists_layout.addWidget(self._create_label("Saved Lists"))
-        
+
         list_controls_layout = QHBoxLayout()
-        new_list_btn = QPushButton("New List")
+        new_list_btn = QPushButton()
+        new_list_btn.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
+        new_list_btn.setToolTip("New List")
+        new_list_btn.setFixedSize(QSize(32, 28))
         new_list_btn.clicked.connect(self.create_new_question_list)
-        rename_list_btn = QPushButton("Rename")
+        rename_list_btn = QPushButton()
+        rename_list_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogContentsView))
+        rename_list_btn.setToolTip("Rename List")
+        rename_list_btn.setFixedSize(QSize(32, 28))
         rename_list_btn.clicked.connect(self.rename_question_list)
-        delete_list_btn = QPushButton("Delete")
+        delete_list_btn = QPushButton()
+        delete_list_btn.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        delete_list_btn.setToolTip("Delete List")
+        delete_list_btn.setFixedSize(QSize(32, 28))
         delete_list_btn.clicked.connect(self.delete_question_list)
+        theory_btn = QPushButton()
+        theory_btn.setIcon(self.style().standardIcon(QStyle.SP_ArrowUp))
+        theory_btn.setToolTip("Upload Theory")
+        theory_btn.setFixedSize(QSize(32, 28))
+        theory_btn.clicked.connect(self._open_theory_dialog)
+        theory_pdf_btn = QPushButton()
+        theory_pdf_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        theory_pdf_btn.setToolTip("Download Theory PDF")
+        theory_pdf_btn.setFixedSize(QSize(32, 28))
+        theory_pdf_btn.clicked.connect(self._download_theory_pdf)
         list_controls_layout.addWidget(new_list_btn)
         list_controls_layout.addWidget(rename_list_btn)
         list_controls_layout.addWidget(delete_list_btn)
+        list_controls_layout.addWidget(theory_btn)
+        list_controls_layout.addWidget(theory_pdf_btn)
         saved_lists_layout.addLayout(list_controls_layout)
         
         self.saved_lists_widget = QListWidget()
@@ -4151,6 +4173,123 @@ class TSVWatcherWindow(QMainWindow):
                     item.widget().deleteLater()
         self._refresh_compare_options()
         self.log(f"Deleted question list: {list_name}")
+
+    def _current_list_name(self) -> str | None:
+        item = self.saved_lists_widget.currentItem()
+        if not item:
+            return None
+        return item.data(Qt.UserRole)
+
+    def _open_theory_dialog(self) -> None:
+        list_name = self._current_list_name()
+        if not list_name:
+            QMessageBox.information(self, "No List Selected", "Please select a list first.")
+            return
+        existing = ""
+        try:
+            existing = self.db_service.get_list_theory(list_name) if self.db_service else ""
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Failed", f"Could not load theory text:\n{exc}")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Upload Theory - {list_name}")
+        dlg_layout = QVBoxLayout(dialog)
+
+        info_lbl = QLabel("Paste LaTeX content below. It will be saved with this list.")
+        info_lbl.setStyleSheet("color: #0f172a; font-weight: 600;")
+        dlg_layout.addWidget(info_lbl)
+
+        text_edit = QTextEdit()
+        text_edit.setPlainText(existing)
+        text_edit.setStyleSheet("font-family: Consolas, 'Courier New', monospace;")
+        dlg_layout.addWidget(text_edit, 1)
+
+        btn_row = QHBoxLayout()
+        paste_btn = QPushButton("Paste")
+        paste_btn.clicked.connect(lambda: text_edit.paste())
+        save_btn = QPushButton("Save")
+        cancel_btn = QPushButton("Cancel")
+        btn_row.addWidget(paste_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(cancel_btn)
+        dlg_layout.addLayout(btn_row)
+
+        save_btn.clicked.connect(lambda: self._save_theory_text(dialog, list_name, text_edit.toPlainText()))
+        cancel_btn.clicked.connect(dialog.reject)
+
+        dialog.resize(620, 520)
+        dialog.exec()
+
+    def _save_theory_text(self, dialog: QDialog, list_name: str, text: str) -> None:
+        try:
+            if self.db_service:
+                self.db_service.set_list_theory(list_name, text)
+            self.question_lists_metadata.setdefault(list_name, {})["theory_latex"] = text
+        except Exception as exc:
+            QMessageBox.warning(self, "Save Failed", f"Could not save theory:\n{exc}")
+            return
+        self.statusBar().showMessage(f"Saved theory for list '{list_name}'", 4000)
+        dialog.accept()
+
+    def _download_theory_pdf(self) -> None:
+        list_name = self._current_list_name()
+        if not list_name:
+            QMessageBox.information(self, "No List Selected", "Please select a list first.")
+            return
+        try:
+            tex_source = self.db_service.get_list_theory(list_name) if self.db_service else ""
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Failed", f"Could not load theory:\n{exc}")
+            return
+        if not tex_source.strip():
+            QMessageBox.information(self, "No Theory", "No theory text available for this list.")
+            return
+
+        latex_path = shutil.which("lualatex") or r"C:\Users\senap\AppData\Local\Programs\MiKTeX\miktex\bin\x64\lualatex.exe"
+        latex_path = latex_path if latex_path and Path(latex_path).exists() else None
+        if not latex_path:
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save LaTeX Source", f"{list_name}.tex", "TeX files (*.tex)")
+            if not save_path:
+                return
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(tex_source)
+            except Exception as exc:
+                QMessageBox.warning(self, "Save Failed", f"Could not save .tex file:\n{exc}")
+            return
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tex_path = Path(tmpdir) / "theory.tex"
+            try:
+                tex_path.write_text(tex_source, encoding="utf-8")
+            except Exception as exc:
+                QMessageBox.warning(self, "Write Failed", f"Could not write temp .tex:\n{exc}")
+                return
+            try:
+                subprocess.run(
+                    [latex_path, "-interaction=nonstopmode", tex_path.name],
+                    cwd=tex_path.parent,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception as exc:
+                QMessageBox.warning(self, "PDF Failed", f"pdflatex failed:\n{exc}")
+                return
+            pdf_path = tex_path.with_suffix(".pdf")
+            if not pdf_path.exists():
+                QMessageBox.warning(self, "PDF Failed", "PDF was not generated.")
+                return
+            save_path, _ = QFileDialog.getSaveFileName(self, "Save Theory PDF", f"{list_name}.pdf", "PDF files (*.pdf)")
+            if not save_path:
+                return
+            try:
+                shutil.copy2(pdf_path, save_path)
+                QMessageBox.information(self, "Saved", f"Saved PDF to:\n{save_path}")
+            except Exception as exc:
+                QMessageBox.warning(self, "Save Failed", f"Could not save PDF:\n{exc}")
     
     def add_selected_to_list(self) -> None:
         """Toggle the drag-drop panel for adding questions to a list."""

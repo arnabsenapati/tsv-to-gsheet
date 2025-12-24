@@ -1,0 +1,634 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+\title{Clustered Theory \& Formula Sheet}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% -------------------------
+% Module A
+% -------------------------
+\section*{\textbf{Module A: Vector Algebra \& Direction Cosines (Dot/Cross/Trig)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Dot product} measures alignment; used for \textbf{angles, projections, perpendicularity}.
+  \item \textbf{Cross product} gives a perpendicular vector; used for \textbf{area}, \textbf{normals}, and \textbf{line/plane directions}.
+  \item \textbf{Direction cosines/ratios} convert geometry of a line/vector into algebra.
+  \item Trig multiple-angle identities convert expressions like \(\cos 6\alpha\) into functions of \(\cos 3\alpha\).
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Dot product:}
+  \[
+    \vec a\cdot \vec b = a_x b_x + a_y b_y + a_z b_z = |\vec a||\vec b|\cos\theta.
+  \]
+  \item \textbf{Perpendicularity:} \(\vec a\perp \vec b \iff \vec a\cdot \vec b = 0.\)
+  \item \textbf{Projection:}
+  \[
+    \text{scalar proj of }\vec a\text{ on }\vec b = \frac{\vec a\cdot \vec b}{|\vec b|},\quad
+    \text{vector proj} = \frac{\vec a\cdot \vec b}{|\vec b|^2}\,\vec b.
+  \]
+  \item \textbf{Cross product magnitude:}
+  \[
+    |\vec a\times \vec b| = |\vec a||\vec b|\sin\theta.
+  \]
+  \item \textbf{Cross product (determinant form):}
+  \[
+    \vec a\times \vec b =
+    \begin{vmatrix}
+      \hat i & \hat j & \hat k\\
+      a_x & a_y & a_z\\
+      b_x & b_y & b_z
+    \end{vmatrix}.
+  \]
+  \item \textbf{Direction ratios/cosines:} if DRs are \((l,m,n)\), then DCs are
+  \[
+    \left(\frac{l}{\sqrt{l^2+m^2+n^2}},\frac{m}{\sqrt{l^2+m^2+n^2}},\frac{n}{\sqrt{l^2+m^2+n^2}}\right),
+    \quad l^2+m^2+n^2=1\text{ for DCs}.
+  \]
+  \item \textbf{Angle between vectors:}
+  \[
+    \cos\theta=\frac{\vec a\cdot \vec b}{|\vec a||\vec b|}.
+  \]
+  \item \textbf{Multiple-angle tools (useful for \(\cos 6\alpha\) style):}
+  \[
+    \cos 2\theta = 2\cos^2\theta - 1,\quad
+    \cos 3\theta = 4\cos^3\theta - 3\cos\theta,
+  \]
+  \[
+    \cos 6\theta = 2\cos^2 3\theta - 1 = 32\cos^6\theta - 48\cos^4\theta + 18\cos^2\theta - 1.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item \(\pi\) radians \(=180^\circ\).
+  \item Unit vectors: \(\hat i,\hat j,\hat k\) along \(x,y,z\) axes.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Coordinates carry a length unit; dot product has \((\text{length})^2\); cross product magnitude has \((\text{length})^2\).
+  \item Angles are unitless; ensure you do not mix degrees and radians.
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Convert geometric statements into vectors (direction vectors, normals).
+  \item Use \(\cdot\) for angles/perpendicularity; use \(\times\) for normals/areas.
+  \item Normalize only at the end (avoid early messy radicals).
+  \item For trig sums like \(\cos 6\alpha+\cos 6\beta+\cos 6\gamma\), rewrite using \(\cos 3\alpha\) and \(l^2+m^2+n^2=1\).
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Dropping absolute value in angle formulas (cos uses magnitude).
+  \item Confusing direction ratios with direction cosines.
+  \item Mixing radians and degrees (the oldest trap in the book).
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Dot:  a · b = |a||b|cosθ  (alignment meter)
+Cross: a × b  ⟂ to both, magnitude = area of parallelogram
+\end{verbatim}
+
+% -------------------------
+% Module B
+% -------------------------
+\section*{\textbf{Module B: 3D Lines (Forms, Parallel/Perpendicular, Distances)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item A line is determined by a \textbf{point} and a \textbf{direction vector}.
+  \item \textbf{Skew lines} (non-parallel, non-intersecting) need vector methods for distance.
+  \item \textbf{Foot of perpendicular} comes from projection/orthogonality conditions.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Vector/parametric form:} \(\vec r=\vec r_0 + t\vec d\).
+  \item \textbf{Cartesian form:} \(\dfrac{x-x_0}{l}=\dfrac{y-y_0}{m}=\dfrac{z-z_0}{n}\) (direction ratios \((l,m,n)\)).
+  \item \textbf{Parallel lines:} \(\vec d_1 \parallel \vec d_2 \iff \vec d_1\times \vec d_2=\vec 0.\)
+  \item \textbf{Perpendicular lines:} \(\vec d_1\perp \vec d_2 \iff \vec d_1\cdot \vec d_2=0.\)
+  \item \textbf{Shortest distance between skew lines}
+  \[
+    L_1:\vec r=\vec a+t\vec d_1,\quad L_2:\vec r=\vec b+u\vec d_2
+  \]
+  \[
+    \text{S.D.}=\frac{|(\vec b-\vec a)\cdot(\vec d_1\times \vec d_2)|}{|\vec d_1\times \vec d_2|}\quad (\vec d_1\times \vec d_2\neq 0).
+  \]
+  \item \textbf{Condition for intersection (non-parallel):} solve \(\vec a+t\vec d_1=\vec b+u\vec d_2\).
+  \item \textbf{Foot of perpendicular from point \(P\) to line \(L\):}
+  \[
+    L:\vec r=\vec a+t\vec d,\quad \text{foot }F=\vec a+t_0\vec d,
+  \]
+  \[
+    (\vec P-\vec F)\cdot \vec d=0 \ \Rightarrow\ t_0=\frac{(\vec P-\vec a)\cdot \vec d}{|\vec d|^2}.
+  \]
+  \item \textbf{Distance from point \(P\) to line \(L\):}
+  \[
+    d(P,L)=\frac{|(\vec P-\vec a)\times \vec d|}{|\vec d|}.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None beyond standard vector operations.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Distances have same unit as coordinates.
+  \item Cross-product numerator in distance formulas has \((\text{length})^2\); divide by \(|\vec d|\) to return length.
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Rewrite each line as \(\vec r=\vec a+t\vec d\).
+  \item For shortest distance, compute \(\vec d_1\times\vec d_2\) and apply the triple-product formula.
+  \item For feet/perpendiculars, use dot-product orthogonality.
+  \item For division by a coordinate plane (e.g., \(x=0\)), use section formula on endpoints.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Using skew-line distance formula when lines are parallel (\(\vec d_1\times\vec d_2=0\)).
+  \item Forgetting \(\pm\) sign conventions in ratios (directed division).
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Skew lines:  L1  ///////      L2  \\\\\\\
+Common perpendicular direction = d1 × d2
+\end{verbatim}
+
+% -------------------------
+% Module C
+% -------------------------
+\section*{\textbf{Module C: 3D Planes (Equations, Families, Angles, Rotation, Intercepts)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item Plane is determined by a \textbf{point} and a \textbf{normal}, or by \textbf{three non-collinear points}.
+  \item \textbf{Family of planes through intersection of two planes} is a standard JEE weapon.
+  \item \textbf{Angle between planes} comes from angle between their normals.
+  \item Rotations about a fixed line often reduce to: \textbf{planes through same line} + \textbf{angle condition}.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Normal form:} \(\vec n\cdot(\vec r-\vec r_0)=0\).
+  \item \textbf{Cartesian:} \(ax+by+cz+d=0\) with normal \(\vec n=(a,b,c)\).
+  \item \textbf{Plane through 3 points \(A,B,C\):}
+  \[
+    \vec n=(\overrightarrow{AB})\times(\overrightarrow{AC}),\quad \vec n\cdot(\vec r-\vec r_A)=0.
+  \]
+  \item \textbf{Plane through line joining two points \(U,V\) and a third point \(P\):}
+  \[
+    \vec n=(\overrightarrow{UV})\times(\overrightarrow{UP}),\quad \vec n\cdot(\vec r-\vec r_U)=0.
+  \]
+  \item \textbf{Intercept form (when intercepts exist):}
+  \[
+    \frac{x}{a}+\frac{y}{b}+\frac{z}{c}=1,\quad \text{intercepts }=a,b,c.
+  \]
+  \item \textbf{Plane through intersection of planes \(P_1=0\) and \(P_2=0\):}
+  \[
+    P_1+\lambda P_2=0\quad(\lambda\in\mathbb R).
+  \]
+  \item \textbf{Angle between planes \(a_1x+b_1y+c_1z+d_1=0\) and \(a_2x+b_2y+c_2z+d_2=0\):}
+  \[
+    \cos\theta=\frac{|a_1a_2+b_1b_2+c_1c_2|}{\sqrt{a_1^2+b_1^2+c_1^2}\ \sqrt{a_2^2+b_2^2+c_2^2}}.
+  \]
+  \item \textbf{Plane parallel to a direction \(\vec v\):} \(\vec n\cdot \vec v=0\) (direction lies in plane).
+  \item \textbf{Three planes intersect in a line (common line):} their normals are linearly dependent:
+  \[
+    \det\begin{pmatrix}
+      a_1 & b_1 & c_1\\
+      a_2 & b_2 & c_2\\
+      a_3 & b_3 & c_3
+    \end{pmatrix}=0.
+  \]
+  \item \textbf{Rotation about the line of intersection with \(z=0\) (common pattern):}
+  if initial plane is \(ax+by=0\) and rotated plane is \(ax+by+cz=0\), then axis direction is \((b,-a,0)\).
+  Since both normals are \(\perp\) to axis, the dihedral angle \(\alpha\) satisfies
+  \[
+    \cos\alpha=\frac{(a,b,0)\cdot(a,b,c)}{\sqrt{a^2+b^2}\sqrt{a^2+b^2+c^2}}
+    =\frac{\sqrt{a^2+b^2}}{\sqrt{a^2+b^2+c^2}}
+    \Rightarrow c=\pm \sqrt{a^2+b^2}\tan\alpha.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None; only coordinate geometry.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item In \(ax+by+cz+d=0\), if \(x,y,z\) are lengths, then \(d\) has same unit as \(ax\).
+  \item Intercepts \(a,b,c\) have length units.
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Build the plane family (through intersection line) using \(P_1+\lambda P_2=0\).
+  \item Impose extra condition: passes through point / parallel to line / angle with another plane.
+  \item For intercept questions, convert to intercept form and compute required sums.
+  \item For common-line of three planes, use determinant \(=0\) to get parameter count.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Using angle between planes formula without absolute value (cos must be nonnegative here).
+  \item Assuming a unique plane when actually a \textbf{family} exists (planes through a line).
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Plane normal n
+      ^
+      |
+------|------  plane
+\end{verbatim}
+
+% -------------------------
+% Module D
+% -------------------------
+\section*{\textbf{Module D: Line--Plane Interaction \& Projection (Intersection lines, Projection of a line)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Line of intersection of planes} is found via normals and a point satisfying both.
+  \item \textbf{Projection of a line onto a plane} preserves direction as the line's direction projected onto the plane.
+  \item Planes through intersection line + direction constraints solve many JEE mixed questions.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Direction of intersection line} of planes with normals \(\vec n_1,\vec n_2\):
+  \[
+    \vec d = \vec n_1\times \vec n_2.
+  \]
+  \item \textbf{Projection of a vector \(\vec d\) on plane with normal \(\vec n\):}
+  \[
+    \vec d_{\parallel} = \vec d - \frac{\vec d\cdot \vec n}{|\vec n|^2}\vec n.
+  \]
+  \item \textbf{Projection of line \(L\) onto plane \(\Pi\):}
+  \begin{itemize}[leftmargin=*]
+    \item Take one point \(A\) on \(L\), drop perpendicular to \(\Pi\) to get \(A'\).
+    \item Direction of projected line is \(\vec d_{\parallel}\) (projection of line direction onto \(\Pi\)).
+  \end{itemize}
+  \item \textbf{Line given as intersection of two planes:}
+  \[
+    \Pi_1=0,\ \Pi_2=0 \Rightarrow \text{line direction } \vec d = \vec n_1\times \vec n_2.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Projection keeps vector units unchanged.
+  \item Always check \(\vec d_{\parallel}\) is not \(\vec 0\) (line not perpendicular to plane).
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Convert line to direction vector \(\vec d\); convert plane to normal \(\vec n\).
+  \item For intersection line of planes: compute \(\vec n_1\times\vec n_2\) and find a point.
+  \item For projection: find projected point and projected direction, then write line equation.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Projecting the normal instead of the line direction.
+  \item Forgetting that the projection line must lie entirely in the target plane.
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Line L above plane Π:
+   P •
+     |⊥
+   P'•-------> projected line in Π
+\end{verbatim}
+
+% -------------------------
+% Module E
+% -------------------------
+\section*{\textbf{Module E: Point--Plane Operations (Distance, Foot, Reflection, Images)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item Distance/foot/image are all the same idea: move along the \textbf{plane normal}.
+  \item Reflection in plane preserves perpendicular distance and flips side.
+  \item Side test uses sign of plane expression.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Distance from point \(P(x_1,y_1,z_1)\) to plane \(ax+by+cz+d=0\):}
+  \[
+    d=\frac{|ax_1+by_1+cz_1+d|}{\sqrt{a^2+b^2+c^2}}.
+  \]
+  \item \textbf{Side of plane:} points \(P,Q\) are on same side iff
+  \[
+    (a x_P+b y_P+c z_P+d)(a x_Q+b y_Q+c z_Q+d)>0.
+  \]
+  \item \textbf{Foot of perpendicular from \(P\) to plane \(ax+by+cz+d=0\):}
+  \[
+    F = P - \frac{a x_P+b y_P+c z_P+d}{a^2+b^2+c^2}\,(a,b,c).
+  \]
+  \item \textbf{Image (reflection) of \(P\) in the plane:}
+  \[
+    P' = P - 2\frac{a x_P+b y_P+c z_P+d}{a^2+b^2+c^2}\,(a,b,c).
+  \]
+  \item \textbf{Perpendicular distance between parallel planes}
+  \[
+    ax+by+cz+d_1=0,\quad ax+by+cz+d_2=0:
+    \quad d=\frac{|d_1-d_2|}{\sqrt{a^2+b^2+c^2}}.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item In foot/image formulas, the scalar factor is dimensionless; displacement is along \((a,b,c)\) scaled appropriately.
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Compute \(S=ax_1+by_1+cz_1+d\).
+  \item Distance: \(|S|/\sqrt{a^2+b^2+c^2}\).
+  \item Foot: subtract \(\dfrac{S}{a^2+b^2+c^2}(a,b,c)\).
+  \item Image: subtract \(\dfrac{2S}{a^2+b^2+c^2}(a,b,c)\).
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Forgetting the factor \(2\) in reflection (image).
+  \item Not using absolute value in distance.
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+P •
+  \      n (normal)
+   \_____
+        | plane
+   _____/
+  /
+P'•   (reflection across plane)
+\end{verbatim}
+
+% -------------------------
+% Module F
+% -------------------------
+\section*{\textbf{Module F: Sphere \& Tetrahedron in 3D (Sphere form, radius, plane--sphere distance, volume)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item Sphere problems reduce to \textbf{center} and \textbf{radius}.
+  \item Plane--sphere shortest distance is a clean \textbf{(center-to-plane distance)} minus \textbf{radius}.
+  \item Tetrahedron volume is a determinant/triple-product result.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{General sphere:}
+  \[
+    x^2+y^2+z^2+2ux+2vy+2wz+d=0
+    \Rightarrow \text{center }(-u,-v,-w),\ r=\sqrt{u^2+v^2+w^2-d}.
+  \]
+  \item \textbf{Shortest distance from plane \(\Pi\) to sphere:}
+  \[
+    \text{let }D=\text{distance from center to plane},\quad
+    \text{shortest distance}=\max(0,\ D-r).
+  \]
+  \item \textbf{Volume of tetrahedron with vertices }A,B,C,D:
+  \[
+    V=\frac{1}{6}\left|\det\left[\overrightarrow{AB}\ \overrightarrow{AC}\ \overrightarrow{AD}\right]\right|
+    =\frac{1}{6}\left|(\overrightarrow{AB})\cdot((\overrightarrow{AC})\times(\overrightarrow{AD}))\right|.
+  \]
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Sphere radius has length units.
+  \item Tetrahedron volume has \((\text{length})^3\); determinant gives \((\text{length})^3\).
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Complete squares to identify sphere center and \(r\).
+  \item Compute center-to-plane distance using Module E.
+  \item For tetrahedron, build vectors from one vertex and evaluate determinant/triple product.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Using \(D-r\) without \(\max(0,\cdot)\) when plane cuts the sphere.
+  \item Missing the factor \(1/6\) in tetrahedron volume.
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Plane Π         Sphere (center C, radius r)
+--------        (  C•  )
+   |D             r
+Distance(Π, sphere) = max(0, D - r)
+\end{verbatim}
+
+% -------------------------
+% Module G
+% -------------------------
+\section*{\textbf{Module G: Section/Ratio \& Point Geometry in 3D (Division points, angle bisector, triangle area)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item Many coordinate answers are just \textbf{section formula} in disguise.
+  \item Angle bisector point on a side uses the \textbf{Angle Bisector Theorem}.
+  \item Triangle area from vectors uses cross product.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Distance between points:}
+  \[
+    PQ=\sqrt{(x_2-x_1)^2+(y_2-y_1)^2+(z_2-z_1)^2}.
+  \]
+  \item \textbf{Internal division (section formula):}
+  if \(P\) divides \(A(x_1,y_1,z_1)\), \(B(x_2,y_2,z_2)\) in ratio \(m:n\) (i.e., \(AP:PB=m:n\)),
+  \[
+    P=\left(\frac{mx_2+nx_1}{m+n},\frac{my_2+ny_1}{m+n},\frac{mz_2+nz_1}{m+n}\right).
+  \]
+  \item \textbf{Directed division (sign-sensitive):} allow \(m,n\) negative for external division.
+  \item \textbf{Angle bisector theorem in \(\triangle ABC\):}
+  if bisector of \(\angle A\) meets \(BC\) at \(D\), then
+  \[
+    \frac{BD}{DC}=\frac{AB}{AC},
+  \]
+  hence apply section formula on segment \(BC\).
+  \item \textbf{Triangle area:}
+  \[
+    \text{Area}(\triangle PQR)=\frac{1}{2}\left|(\overrightarrow{PQ})\times(\overrightarrow{PR})\right|,
+    \quad \text{so } \left(\text{Area}\right)^2=\frac{1}{4}\left|(\overrightarrow{PQ})\times(\overrightarrow{PR})\right|^2.
+  \]
+  \item \textbf{Intersection of two segments \(P+t(Q-P)\) and \(R+u(S-R)\):} solve for \(t,u\) and then substitute.
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Ratios \(m:n\) are unitless; computed coordinates keep coordinate units.
+  \item Area has \((\text{length})^2\); squared area has \((\text{length})^4\).
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item For any ``point divides segment'' question: write ratio \(\to\) section formula.
+  \item For angle bisector: compute \(AB,AC\) (distances) \(\to BD:DC\) \(\to\) section on \(BC\).
+  \item For triangle area: compute two side vectors from same vertex and cross them.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Swapping \(m,n\) (remember: coefficient on \(x_2\) corresponds to segment portion toward \(B\)).
+  \item Forgetting external division uses signed ratios.
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+B •-----• D -----• C
+     BD      DC
+Angle bisector at A gives  BD/DC = AB/AC
+\end{verbatim}
+
+% -------------------------
+% Module H
+% -------------------------
+\section*{\textbf{Module H: Optimization with Variable Planes Through a Line (Max--min distance setups)}}
+\subsection*{\textbf{1) Concept snapshot}}
+\begin{itemize}[leftmargin=*]
+  \item If a plane \(\Pi\) varies but must contain a fixed line \(l_1\), then its normal \(\vec n\) must satisfy \(\vec n\cdot \vec d_1=0\) where \(\vec d_1\) is direction of \(l_1\).
+  \item Distance from a point (or a line) to \(\Pi\) often becomes an expression in \(\vec n\) that can be optimized using \textbf{projection/Cauchy--Schwarz}.
+  \item ``Maximize the minimum distance'' usually means: choose \(\Pi\) to be \textbf{perpendicular to the common perpendicular direction} between objects.
+\end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Plane containing a given line \(l_1:\ \vec r=\vec a+t\vec d_1\):}
+  \[
+    \Pi:\ \vec n\cdot(\vec r-\vec a)=0\quad \text{with constraint }\ \vec n\cdot \vec d_1=0.
+  \]
+  \item \textbf{Distance from point \(P\) to \(\Pi\):}
+  \[
+    d(P,\Pi)=\frac{|\vec n\cdot(\vec P-\vec a)|}{|\vec n|}.
+  \]
+  \item \textbf{Distance from a line \(l_2:\vec r=\vec b+u\vec d_2\) to \(\Pi\) (minimum over points on \(l_2\)):}
+  \[
+    \min_u \frac{|\vec n\cdot(\vec b-\vec a)+u(\vec n\cdot \vec d_2)|}{|\vec n|}.
+  \]
+  \begin{itemize}[leftmargin=*]
+    \item If \(\vec n\cdot \vec d_2\neq 0\), choose \(u\) to make numerator \(0\) \(\Rightarrow\) min distance \(=0\) (line meets plane).
+    \item If \(\vec n\cdot \vec d_2=0\), distance is constant along \(l_2\):
+    \[
+      d(l_2,\Pi)=\frac{|\vec n\cdot(\vec b-\vec a)|}{|\vec n|}.
+    \]
+  \end{itemize}
+  \item \textbf{Optimization hint (Cauchy--Schwarz):}
+  to maximize \(\dfrac{|\vec n\cdot \vec w|}{|\vec n|}\) under linear constraints on \(\vec n\),
+  choose \(\vec n\) aligned with the component of \(\vec w\) in the allowed subspace.
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item None.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Distance expressions \(|\vec n\cdot(\cdot)|/|\vec n|\) return length units as expected.
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Parameterize \(l_1,l_2\) and write general plane through \(l_1\): \(\vec n\cdot(\vec r-\vec a)=0\), \(\vec n\cdot\vec d_1=0\).
+  \item Express \(d(H)\) (minimum distance from \(l_2\) to plane) using the cases \(\vec n\cdot\vec d_2=0\) vs \(\neq 0\).
+  \item For a nonzero minimum distance, enforce \(\vec n\cdot\vec d_2=0\) (so \(l_2\) is parallel to plane).
+  \item Reduce to maximizing \(\dfrac{|\vec n\cdot(\vec b-\vec a)|}{|\vec n|}\) with both constraints \(\vec n\cdot\vec d_1=0\) and \(\vec n\cdot\vec d_2=0\).
+  \item Choose \(\vec n\) along \(\vec d_1\times \vec d_2\) (up to scaling) and compute the resulting distance.
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Allowing \(\vec n\cdot\vec d_2\neq 0\) while expecting positive minimum distance (it usually forces intersection \(\Rightarrow 0\)).
+  \item Forgetting the plane must pass through \emph{every} point on \(l_1\) (hence the normal constraint).
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+Family of planes through line l1:
+   \  |  /   (fan of planes)
+----\ | /----  axis = l1
+     \|/
+\end{verbatim}
+
+% -------------------------
+% Coverage Validation
+% -------------------------
+\section*{Coverage Validation}
+\begin{itemize}[leftmargin=*]
+  \item \checkmark\ [Page 1] ``If the line through the points A(4, 1, 2), B(5,...'' $\rightarrow$ Module B, Module C
+  \item \checkmark\ [Page 2] ``Consider the three points as A(2, 0, 3), B(O, 3, 2)...'' $\rightarrow$ Module G, Module A
+  \item \checkmark\ [Page 3] ``Consider, the vertices of a tetrahedron as A(O, 0, 0), B(3,0,0)...'' $\rightarrow$ Module F, Module A
+  \item \checkmark\ [Page 4] ``The equation of the plane which has the property that the point Q(5, 4, 5)...'' $\rightarrow$ Module E
+  \item \checkmark\ [Page 5] ``The projection of line 3x - y + 2z - 1 = 0 = x+2y-2-2...'' $\rightarrow$ Module D, Module C
+  \item \checkmark\ [Page 6] ``The line (symmetric form) intersects the curve xy=\dots, z=0,...'' $\rightarrow$ Module B, Module C
+  \item \checkmark\ [Page 7] ``Let A be vector parallel to the line of intersection of planes ...'' $\rightarrow$ Module A, Module C, Module D
+  \item \checkmark\ [Page 8] ``From any point P(a, b, c) are drawn perpendiculars ... Equation of the plane OMN...'' $\rightarrow$ Module G, Module C
+  \item \checkmark\ [Page 9] ``The equation of the plane through the intersection of the planes x+y+z=1 and 2x+3y-z+4=0...'' $\rightarrow$ Module C, Module D
+  \item \checkmark\ [Page 10] ``The plane passing through the point (-2, -2, 2) and containing the line joining the points (1,1,1)...'' $\rightarrow$ Module C
+  \item \checkmark\ [Page 11] ``If P(2, 3, 1) is a point and L=x-y-z-2=0 is a plane then...'' $\rightarrow$ Module E
+  \item \checkmark\ [Page 12] ``If a line makes angles 3\(\alpha\), 3\(\beta\), 3\(\gamma\) with the coordinate axes, find the value of \(\cos6\alpha+\cos6\beta+\cos6\gamma\)...'' $\rightarrow$ Module A
+  \item \checkmark\ [Page 13] ``The plane \(ax+by=0\) is rotated through an angle \(\alpha\) about its line of intersection with \(z=0\)...'' $\rightarrow$ Module C
+  \item \checkmark\ [Page 14] ``If the planes \(kx+4y+z=0\), \(4x+ky+2z=0\) and \(2x+2y+z=0\) intersect along a straight line...'' $\rightarrow$ Module C
+  \item \checkmark\ [Page 15] ``The direction ratios of a normal to the plane through (1,0,0), (0,1,0) which makes an angle \(\pi/4\) with the plane \(x+y=3\)...'' $\rightarrow$ Module C, Module A
+  \item \checkmark\ [Page 16] ``If the equation of the plane passing through the line of intersection of the planes \(2x-y+z=3\) and \(4x-3y+5z+9=0\) and parallel to a line...'' $\rightarrow$ Module C, Module D
+  \item \checkmark\ [Page 17] ``Let the image of the point P(1,2,3) in the plane \(2x-y+z=9\) be Q... square of the area of triangle PQR...'' $\rightarrow$ Module E, Module G
+  \item \checkmark\ [Page 18] ``The shortest distance from the plane \(12x+4y+3z=327\) to the sphere \(x^2+y^2+z^2+4x-2y-6z=155\)...'' $\rightarrow$ Module F, Module E
+  \item \checkmark\ [Page 19] ``Find the points on z-axis which are at a distance \(\sqrt{21}\) from the point A(1,2,3)...'' $\rightarrow$ Module G
+  \item \checkmark\ [Page 20] ``Let \(l_1\) and \(l_2\) be the lines ... planes containing \(l_1\) ... maximize \(d(H)\) ...'' $\rightarrow$ Module H, Module B, Module C, Module E
+  \item \checkmark\ [Page 21] ``If the shortest distance between the lines (given) is \(\sqrt{a}\), then the value of \(a\) is...'' $\rightarrow$ Module B, Module A
+  \item \checkmark\ [Page 22] ``Given the points P,Q,R,S are (4,7,8), (-1,-2,1), (2,3,4), (1,2,5)... if PQ and RS intersect...'' $\rightarrow$ Module G, Module B
+  \item \checkmark\ [Page 23] ``If the position vectors of the vertices A, B and C of a triangle ABC are respectively ... then the position vector of the point where the bisector of angle A meets BC...'' $\rightarrow$ Module G, Module A
+  \item \checkmark\ [Page 24] ``If the straight lines (given) are coplanar, then the planes containing these two lines are...'' $\rightarrow$ Module B, Module C, Module D
+  \item \checkmark\ [Page 25] ``Given four points A(2,1,0), B(1,0,1), C(3,0,1), D(0,0,2)... perpendicular distance of D from plane ABC...'' $\rightarrow$ Module C, Module E
+  \item \checkmark\ [Page 26] ``If the position vector of the point of intersection of the line \(\vec r=\dots\) and the plane \(\vec r\cdot(2\hat i-6\hat j+3\hat k)+5=0\) is \(a\hat i+b\hat j+c\hat k\)...'' $\rightarrow$ Module B, Module C
+  \item \checkmark\ [Page 27] ``If the foot of the perpendicular drawn from the point (1,0,3) on a line passing through (a,7,1) is (given)...'' $\rightarrow$ Module B, Module E
+  \item \checkmark\ [Page 28] ``If the foot of perpendicular from the point P(4,6,2) to the line (intersection of planes) is (a,b,c)...'' $\rightarrow$ Module B, Module E
+  \item \checkmark\ [Page 29] ``If the shortest distance between the lines \(\vec r=\dots\) and \(\vec r=\dots\) is 9, then \(a\) is equal to...'' $\rightarrow$ Module B, Module A
+  \item \checkmark\ [Page 30] ``The ratio in which the line segment joining (2,4,5) and (3,5,-4) is divided by the yz-plane...'' $\rightarrow$ Module G, Module B
+\end{itemize}
+
+\end{document}

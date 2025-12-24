@@ -468,6 +468,37 @@ class DatabaseService:
                 )
                 position += 1
 
+    def get_list_theory(self, list_name: str) -> str:
+        with self._connect() as conn:
+            row = conn.execute("SELECT metadata_json FROM question_lists WHERE name = ?", (list_name,)).fetchone()
+        if not row or not row["metadata_json"]:
+            return ""
+        try:
+            meta = json.loads(row["metadata_json"]) or {}
+        except Exception:
+            meta = {}
+        return meta.get("theory_latex", "") or ""
+
+    def set_list_theory(self, list_name: str, theory_text: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT metadata_json FROM question_lists WHERE name = ?", (list_name,)).fetchone()
+            meta = {}
+            if row and row["metadata_json"]:
+                try:
+                    meta = json.loads(row["metadata_json"]) or {}
+                except Exception:
+                    meta = {}
+            meta["theory_latex"] = theory_text or ""
+            meta_json = json.dumps(meta, ensure_ascii=False, indent=2)
+            conn.execute(
+                """
+                INSERT INTO question_lists(name, metadata_json)
+                VALUES (?, ?)
+                ON CONFLICT(name) DO UPDATE SET metadata_json = excluded.metadata_json
+                """,
+                (list_name, meta_json),
+            )
+
     def delete_question_list(self, list_name: str) -> None:
         with self._connect() as conn:
             row = conn.execute("SELECT id FROM question_lists WHERE name = ?", (list_name,)).fetchone()
