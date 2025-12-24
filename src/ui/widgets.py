@@ -2410,21 +2410,27 @@ class QuestionCardWidget(QLabel):
         return truncated + "..."
 
     def enterEvent(self, event):
-        """Show image button on hover."""
+        """Show image/edit buttons on hover."""
         self.image_btn.setVisible(True)
-        self.image_btn.move(self.width() - 32, 4)
+        # Always show edit button so user can see the affordance; dialog will guard missing IDs.
+        self.edit_btn.setVisible(True)
+        self._position_top_buttons()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        """Hide image button when leaving."""
+        """Hide hover buttons when leaving."""
         self.image_btn.setVisible(False)
+        self.edit_btn.setVisible(False)
         super().leaveEvent(event)
 
     def resizeEvent(self, event):
-        """Keep image button anchored top-right on resize."""
+        """Keep hover buttons anchored top-right on resize."""
         super().resizeEvent(event)
+        self._position_top_buttons()
+
+    def _position_top_buttons(self):
         self.image_btn.move(self.width() - 32, 4)
-        self.edit_btn.move(self.width() - 92, 6)
+        self.edit_btn.move(self.width() - 64, 4)
 
     def _find_db_service(self):
         """Walk parents to find db_service if available."""
