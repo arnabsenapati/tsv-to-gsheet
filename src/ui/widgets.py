@@ -4551,6 +4551,7 @@ class NavigationSidebar(QWidget):
             ("", "Data Import", 6, False),
             ("", "JEE Main Papers", 7, False),
             ("", "Exams", 8, False),
+            ("", "Data Quality", 9, False),
         ]
 
         

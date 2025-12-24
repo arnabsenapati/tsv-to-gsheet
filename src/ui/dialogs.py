@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QScrollArea,
+    QCompleter,
 )
 from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
 import base64
 
 from .widgets import ClickableTagBadge
@@ -286,11 +286,12 @@ class MultiSelectTagDialog(QDialog):
 class QuestionEditDialog(QDialog):
     """Dialog to edit question metadata and text."""
 
-    def __init__(self, question: dict, parent=None):
+    def __init__(self, question: dict, parent=None, lookups: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Edit Question")
         self.setMinimumSize(520, 640)
         self.question = question.copy()
+        self.lookups = lookups or {}
 
         self.setStyleSheet("""
             QDialog {
@@ -358,6 +359,11 @@ class QuestionEditDialog(QDialog):
         self.high_chapter_input = QLineEdit(str(question.get("high_level_chapter", "")))
         add_row("High-level Chapter:", self.high_chapter_input)
 
+        self._apply_completer(self.set_name_input, self.lookups.get("question_set_name", []))
+        self._apply_completer(self.mag_input, self.lookups.get("magazine", []))
+        self._apply_completer(self.chapter_input, self.lookups.get("chapter", []))
+        self._apply_completer(self.high_chapter_input, self.lookups.get("high_level_chapter", []))
+
         self.text_input = QTextEdit(str(question.get("text", "")))
         self.text_input.setMinimumHeight(140)
         add_row("Question Text:", self.text_input)
@@ -389,6 +395,14 @@ class QuestionEditDialog(QDialog):
             "chapter": self.chapter_input.text().strip(),
             "high_level_chapter": self.high_chapter_input.text().strip(),
         }
+
+    def _apply_completer(self, line_edit: QLineEdit, items: list[str]):
+        if not items:
+            return
+        completer = QCompleter(items)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        line_edit.setCompleter(completer)
 
 
 class PasswordPromptDialog(QDialog):

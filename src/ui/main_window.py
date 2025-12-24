@@ -78,6 +78,7 @@ from config.constants import (
 from services.db_service import DatabaseService
 from services.excel_service import process_tsv
 from services.question_set_group_service import QuestionSetGroupService
+from ui.dialogs import QuestionEditDialog
 from services.cbt_package import build_payload, save_cqt, hash_eval_password
 from ui.dialogs import MultiSelectTagDialog, PasswordPromptDialog, CQTAuthorPreviewDialog
 from ui.question_set_grouping_view import QuestionSetGroupingView
@@ -194,7 +195,22 @@ class TSVWatcherWindow(QMainWindow):
         self.status_animation_frame = 0
         self.status_animation_timer = QTimer()
         self.status_animation_timer.timeout.connect(self._animate_status)
-        
+
+        # Data quality required fields
+        self.data_quality_required = [
+            "subject_id",
+            "magazine",
+            "normalized_magazine",
+            "edition",
+            "question_set",
+            "question_set_name",
+            "chapter",
+            "high_level_chapter",
+            "question_number",
+            "question_text",
+            "page_range",
+        ]
+
         # Backup DB before any reads on startup
         self._backup_current_database()
         self._load_group_tags()
@@ -240,6 +256,7 @@ class TSVWatcherWindow(QMainWindow):
         self._create_import_page()              # Index 6
         self._create_jee_page()                 # Index 7
         self._create_exams_page()               # Index 8
+        self._create_data_quality_page()        # Index 9
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -305,6 +322,8 @@ class TSVWatcherWindow(QMainWindow):
             self.question_set_groups_dirty = False
         if index == 8:
             self._load_exam_list()
+        if index == 9:
+            self._load_data_quality_table()
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -1369,6 +1388,97 @@ class TSVWatcherWindow(QMainWindow):
         layout.addWidget(splitter)
 
         self.content_stack.addWidget(exams_page)
+
+    # ------------------------------------------------------------------
+    # Data Quality page
+    # ------------------------------------------------------------------
+    def _create_data_quality_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(8)
+
+        header_row = QHBoxLayout()
+        header_row.addWidget(self._create_label("Data Quality - Missing Fields"))
+        refresh_btn = QPushButton()
+        refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh_btn.setToolTip("Refresh")
+        refresh_btn.setFixedSize(QSize(32, 28))
+        refresh_btn.clicked.connect(self._load_data_quality_table)
+        header_row.addStretch()
+        header_row.addWidget(refresh_btn)
+        card_layout.addLayout(header_row)
+
+        self.data_quality_table = QTableWidget(0, 7)
+        self.data_quality_table.setHorizontalHeaderLabels(["ID", "Q#", "Page", "Set", "Magazine", "Missing Fields", "Edit"])
+        self.data_quality_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.data_quality_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.data_quality_table.horizontalHeader().setStretchLastSection(True)
+        card_layout.addWidget(self.data_quality_table)
+
+        layout.addWidget(card, 1)
+        self.content_stack.addWidget(page)
+
+    def _load_data_quality_table(self):
+        if not self.db_service:
+            return
+        rows = self.db_service.get_questions_with_missing(self.data_quality_required)
+        table = self.data_quality_table
+        table.setRowCount(len(rows))
+        for r_idx, row in enumerate(rows):
+            qid = row.get("id")
+            qno = row.get("question_number", "")
+            page = row.get("page_range", "")
+            qset = row.get("question_set_name", "")
+            mag = row.get("magazine", "")
+            missing = ", ".join(row.get("missing", []))
+            for c_idx, val in enumerate([qid, qno, page, qset, mag, missing]):
+                item = QTableWidgetItem(str(val) if val is not None else "")
+                table.setItem(r_idx, c_idx, item)
+            edit_btn = QPushButton("Edit")
+            edit_btn.setToolTip("Edit question")
+            edit_btn.clicked.connect(lambda _, id_val=qid: self._edit_data_quality_question(id_val))
+            table.setCellWidget(r_idx, 6, edit_btn)
+        table.resizeColumnsToContents()
+
+    def _edit_data_quality_question(self, question_id: int):
+        if not self.db_service:
+            return
+        try:
+            q = self.db_service.get_question_by_id(int(question_id))
+        except Exception as exc:
+            QMessageBox.warning(self, "Load Failed", f"Could not load question:\n{exc}")
+            return
+        if not q:
+            QMessageBox.information(self, "Not Found", "Question not found.")
+            return
+        q_data = {
+            "qno": q.get("question_number", ""),
+            "page": q.get("page_range", ""),
+            "question_set_name": q.get("question_set_name", ""),
+            "magazine": q.get("magazine", ""),
+            "text": q.get("question_text", ""),
+            "answer_text": q.get("answer_text", ""),
+            "chapter": q.get("chapter", ""),
+            "high_level_chapter": q.get("high_level_chapter", ""),
+        }
+        lookups = self.db_service.get_unique_values(
+            ["question_set_name", "magazine", "chapter", "high_level_chapter"]
+        )
+        dlg = QuestionEditDialog(q_data, self, lookups=lookups)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        updates = dlg.get_updates()
+        try:
+            self.db_service.update_question_fields(int(question_id), updates)
+        except Exception as exc:
+            QMessageBox.warning(self, "Save Failed", f"Could not save changes:\n{exc}")
+            return
+        self._load_data_quality_table()
 
     def _import_exam_from_cqt(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open CBT Package", "", "CBT Package (*.cqt)")

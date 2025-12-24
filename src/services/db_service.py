@@ -63,6 +63,82 @@ class DatabaseService:
         conn.execute("PRAGMA foreign_keys = ON;")
         return conn
 
+    def get_question_by_id(self, question_id: int) -> Dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, question_number, page_range, question_set_name, magazine,
+                       question_text, answer_text, chapter, high_level_chapter
+                FROM questions
+                WHERE id = ?
+                """,
+                (question_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {k: row[k] for k in row.keys()}
+
+    def get_unique_values(self, columns: list[str]) -> Dict[str, list[str]]:
+        result: Dict[str, list[str]] = {}
+        with self._connect() as conn:
+            for col in columns:
+                try:
+                    rows = conn.execute(
+                        f"SELECT DISTINCT {col} AS val FROM questions WHERE {col} IS NOT NULL AND TRIM(CAST({col} AS TEXT)) <> ''"
+                    ).fetchall()
+                    vals = []
+                    for r in rows:
+                        v = r["val"]
+                        if v is None:
+                            continue
+                        text = str(v).strip()
+                        if text:
+                            vals.append(text)
+                    result[col] = sorted(set(vals), key=lambda s: s.lower())
+                except Exception:
+                    result[col] = []
+        return result
+
+    def get_questions_with_missing(self, required_columns: list[str]) -> list[Dict[str, Any]]:
+        if not required_columns:
+            return []
+        with self._connect() as conn:
+            existing_cols = [row["name"] for row in conn.execute("PRAGMA table_info(questions)")]
+            cols = [c for c in required_columns if c in existing_cols]
+            if not cols:
+                return []
+            conditions = [f"COALESCE(TRIM(CAST({col} AS TEXT)),'') = ''" for col in cols]
+            where_clause = " OR ".join(conditions)
+            select_cols = ", ".join(
+                [
+                    "id",
+                    "question_number",
+                    "page_range",
+                    "question_set_name",
+                    "magazine",
+                    "chapter",
+                    "high_level_chapter",
+                    "question_text",
+                ]
+            )
+            query = f"SELECT {select_cols} FROM questions WHERE {where_clause}"
+            rows = conn.execute(query).fetchall()
+        results: list[Dict[str, Any]] = []
+        for row in rows:
+            data = {k: row[k] for k in row.keys()}
+            missing = []
+            for col in cols:
+                val = row[col] if col in row.keys() else None
+                if val is None:
+                    missing.append(col)
+                else:
+                    text = str(val).strip()
+                    if text == "":
+                        missing.append(col)
+            data["missing"] = missing
+            results.append(data)
+        return results
+
     def fetch_questions_df(self, subject_name: str) -> pd.DataFrame:
         """
         Return a DataFrame shaped like the Excel import with standard headers.
