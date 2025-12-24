@@ -2482,7 +2482,12 @@ class QuestionCardWidget(QLabel):
     def _show_edit_dialog(self):
         """Open edit dialog and persist changes."""
         if not (self.db_service and self.question_id):
-            QMessageBox.information(self, "Edit unavailable", "Database service or question ID missing.")
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Edit unavailable")
+            msg.setText("Database service or question ID missing.")
+            msg.setIcon(QMessageBox.Information)
+            msg.setStyleSheet("QLabel{color: #0f172a;}")
+            msg.exec()
             return
         from ui.dialogs import QuestionEditDialog  # local import to avoid circular
 
