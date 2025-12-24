@@ -2518,6 +2518,15 @@ class TSVWatcherWindow(QMainWindow):
             self.question_label.setText(f"{display_label}  columns missing")
             return
 
+        id_col_idx = None
+        for idx, value in enumerate(header_row, start=1):
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if text == "questionid":
+                id_col_idx = idx
+                break
+
         questions: list[dict] = []
         magazine_series = df.iloc[:, magazine_col - 1]
         qset_series = df.iloc[:, question_set_col - 1]
@@ -2540,8 +2549,17 @@ class TSVWatcherWindow(QMainWindow):
                     "question_text": str(qtext_value).strip() if not pd.isna(qtext_value) else "",
                     "question_set_name": qs_name,
                     "magazine": display_label,
+                    "question_id": None,
                 }
             )
+            if id_col_idx:
+                try:
+                    questions[-1]["question_id"] = int(values[id_col_idx - 1])
+                except Exception:
+                    try:
+                        questions[-1]["question_id"] = values[id_col_idx - 1]
+                    except Exception:
+                        questions[-1]["question_id"] = None
         # Group using QuestionSetGroup.json
         group_mapping = {}
         group_order = []
