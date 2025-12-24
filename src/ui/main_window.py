@@ -2556,13 +2556,17 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
             if id_col_idx:
-                try:
-                    questions[-1]["question_id"] = int(values[id_col_idx - 1])
-                except Exception:
+                raw_id = values[id_col_idx - 1]
+                if pd.isna(raw_id) or str(raw_id).strip() == "":
+                    questions[-1]["question_id"] = None
+                else:
                     try:
-                        questions[-1]["question_id"] = values[id_col_idx - 1]
+                        questions[-1]["question_id"] = int(float(raw_id))
                     except Exception:
-                        questions[-1]["question_id"] = None
+                        try:
+                            questions[-1]["question_id"] = str(raw_id).strip()
+                        except Exception:
+                            questions[-1]["question_id"] = None
             print(f"[debug] mag questions add qno={questions[-1].get('qno')} page={questions[-1].get('page')} qid={questions[-1].get('question_id')}", flush=True)
         # Group using QuestionSetGroup.json
         group_mapping = {}
