@@ -2525,7 +2525,10 @@ class TSVWatcherWindow(QMainWindow):
             text = str(value).strip().lower()
             if text == "questionid":
                 id_col_idx = idx
+                print(f"[debug] mag questions: found questionid column at {id_col_idx}", flush=True)
                 break
+        if not id_col_idx:
+            print("[debug] mag questions: no questionid column found", flush=True)
 
         questions: list[dict] = []
         magazine_series = df.iloc[:, magazine_col - 1]
@@ -2560,6 +2563,7 @@ class TSVWatcherWindow(QMainWindow):
                         questions[-1]["question_id"] = values[id_col_idx - 1]
                     except Exception:
                         questions[-1]["question_id"] = None
+            print(f"[debug] mag questions add qno={questions[-1].get('qno')} page={questions[-1].get('page')} qid={questions[-1].get('question_id')}", flush=True)
         # Group using QuestionSetGroup.json
         group_mapping = {}
         group_order = []

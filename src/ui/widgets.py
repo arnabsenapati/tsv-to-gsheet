@@ -2482,6 +2482,10 @@ class QuestionCardWidget(QLabel):
     def _show_edit_dialog(self):
         """Open edit dialog and persist changes."""
         if not (self.db_service and self.question_id):
+            try:
+                print(f"[debug] edit_unavailable db={bool(self.db_service)} qid={self.question_id}", flush=True)
+            except Exception:
+                pass
             msg = QMessageBox(self)
             msg.setWindowTitle("Edit unavailable")
             msg.setText("Database service or question ID missing.")
