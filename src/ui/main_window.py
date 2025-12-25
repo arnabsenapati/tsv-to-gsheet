@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication
+from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication, QApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -1099,6 +1099,22 @@ class TSVWatcherWindow(QMainWindow):
             }
         """)
         list_questions_layout.addWidget(self.list_question_card_view)
+
+        # Overlay shown while loading a large list
+        self.list_loading_overlay = QLabel("Loading list…", self.list_question_card_view.viewport())
+        self.list_loading_overlay.setAlignment(Qt.AlignCenter)
+        self.list_loading_overlay.setStyleSheet(
+            """
+            QLabel {
+                background-color: rgba(15, 23, 42, 0.72);
+                color: #e2e8f0;
+                font-weight: 700;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            """
+        )
+        self.list_loading_overlay.hide()
         
         lists_split.addWidget(list_questions_card)
 
@@ -2629,13 +2645,19 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         id_col_idx = None
+        chapter_col_idx = None
+        high_chapter_col_idx = None
         for idx, value in enumerate(header_row, start=1):
             if value is None:
                 continue
             text = str(value).strip().lower()
             if text == "questionid":
                 id_col_idx = idx
-                break
+                continue
+            if "high" in text and "chapter" in text and high_chapter_col_idx is None:
+                high_chapter_col_idx = idx
+            elif "chapter" in text and chapter_col_idx is None:
+                chapter_col_idx = idx
 
         questions: list[dict] = []
         magazine_series = df.iloc[:, magazine_col - 1]
@@ -2644,6 +2666,8 @@ class TSVWatcherWindow(QMainWindow):
         page_series = df.iloc[:, page_col - 1]
         qtext_series = df.iloc[:, question_text_col - 1]
         id_series = df.iloc[:, id_col_idx - 1] if id_col_idx else None
+        chapter_series = df.iloc[:, chapter_col_idx - 1] if chapter_col_idx else None
+        high_series = df.iloc[:, high_chapter_col_idx - 1] if high_chapter_col_idx else None
 
         for idx, (mag_value, qset_value, qno_value, page_value, qtext_value) in enumerate(
             zip(magazine_series, qset_series, qno_series, page_series, qtext_series)
@@ -2658,8 +2682,19 @@ class TSVWatcherWindow(QMainWindow):
                     "qno": str(qno_value).strip() if not pd.isna(qno_value) else "",
                     "page": str(page_value).strip() if not pd.isna(page_value) else "",
                     "question_text": str(qtext_value).strip() if not pd.isna(qtext_value) else "",
+                    "text": str(qtext_value).strip() if not pd.isna(qtext_value) else "",
                     "question_set_name": qs_name,
                     "magazine": display_label,
+                    "chapter": (
+                        str(chapter_series.iloc[idx]).strip()
+                        if chapter_series is not None and not pd.isna(chapter_series.iloc[idx])
+                        else ""
+                    ),
+                    "high_level_chapter": (
+                        str(high_series.iloc[idx]).strip()
+                        if high_series is not None and not pd.isna(high_series.iloc[idx])
+                        else ""
+                    ),
                     "question_id": None,
                 }
             )
@@ -3590,6 +3625,21 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "magazine_search"):
             self.magazine_search.clear()
         self._apply_question_search()
+
+    def _show_list_loading(self, show: bool) -> None:
+        """Toggle loading overlay when switching custom lists."""
+        if not hasattr(self, "list_loading_overlay"):
+            return
+        if show:
+            parent = self.list_question_card_view.viewport()
+            self.list_loading_overlay.setParent(parent)
+            self.list_loading_overlay.setGeometry(0, 0, parent.width(), parent.height())
+            self.list_loading_overlay.show()
+            self.list_loading_overlay.raise_()
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+        else:
+            self.list_loading_overlay.hide()
+            QApplication.restoreOverrideCursor()
 
     def _show_tag_filter_dialog(self) -> None:
         """Show dialog to select multiple tags for filtering."""
@@ -5129,19 +5179,23 @@ class TSVWatcherWindow(QMainWindow):
             self.drag_drop_panel.setVisible(False)
             self._refresh_compare_options()
             return
-        
+
+        self._show_list_loading(True)
         list_name = current_item.data(Qt.UserRole)
-        self.current_list_name = list_name
-        self._refresh_compare_options()
-        self._populate_list_question_table(list_name)
-        self._update_comparison_results()
-        
-        # Display existing questions in drag-drop panel
-        if list_name in self.question_lists:
-            questions = self.question_lists[list_name]
-            self.drag_drop_panel.display_existing_questions(questions)
-            # Show the panel to display existing questions
-            self.drag_drop_panel.setVisible(True)
+        try:
+            self.current_list_name = list_name
+            self._refresh_compare_options()
+            self._populate_list_question_table(list_name)
+            self._update_comparison_results()
+
+            # Display existing questions in drag-drop panel
+            if list_name in self.question_lists:
+                questions = self.question_lists[list_name]
+                self.drag_drop_panel.display_existing_questions(questions)
+                # Show the panel to display existing questions
+                self.drag_drop_panel.setVisible(True)
+        finally:
+            self._show_list_loading(False)
     
     def _populate_list_question_table(self, list_name: str) -> None:
         """Populate the list question card view with questions from the selected list."""

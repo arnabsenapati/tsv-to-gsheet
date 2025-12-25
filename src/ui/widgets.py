@@ -2491,7 +2491,40 @@ class QuestionCardWidget(QLabel):
             return
         from ui.dialogs import QuestionEditDialog  # local import to avoid circular
 
-        dlg = QuestionEditDialog(self.question_data, self)
+        data = self.question_data.copy()
+        # Ensure text field is present even if caller used 'question_text'
+        if "text" not in data:
+            data["text"] = data.get("question_text", "")
+
+        if self.db_service and self.question_id:
+            try:
+                fresh = self.db_service.get_question_by_id(int(self.question_id))
+            except Exception:
+                fresh = None
+            if fresh:
+                data.update(
+                    {
+                        "qno": fresh.get("question_number", data.get("qno", "")),
+                        "page": fresh.get("page_range", data.get("page", "")),
+                        "question_set_name": fresh.get("question_set_name", data.get("question_set_name", "")),
+                        "magazine": fresh.get("magazine", data.get("magazine", "")),
+                        "text": fresh.get("question_text", data.get("text", "")),
+                        "answer_text": fresh.get("answer_text", data.get("answer_text", "")),
+                        "chapter": fresh.get("chapter", data.get("chapter", "")),
+                        "high_level_chapter": fresh.get("high_level_chapter", data.get("high_level_chapter", "")),
+                    }
+                )
+
+        lookups = {}
+        if self.db_service:
+            try:
+                lookups = self.db_service.get_unique_values(
+                    ["question_set_name", "magazine", "chapter", "high_level_chapter"]
+                )
+            except Exception:
+                lookups = {}
+
+        dlg = QuestionEditDialog(data, self, lookups=lookups)
         if dlg.exec() != QDialog.Accepted:
             return
 
