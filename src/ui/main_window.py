@@ -24,15 +24,17 @@ import math
 import sqlite3
 import shutil
 import tempfile
+import shlex
 from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QSize
+from PySide6.QtCore import Qt, QTimer, QSize, QStringListModel
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCompleter,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -125,8 +127,7 @@ class TSVWatcherWindow(QMainWindow):
         self.chapter_questions: dict[str, list[dict[str, str]]] = {}
         self.current_questions: list[dict[str, str]] = []
         self.all_questions: list[dict[str, str]] = []  # Unfiltered questions
-        self.question_set_search_term: str = ""
-        self.magazine_search_term: str = ""
+        self.advanced_query_term: str = ""
         self.tag_filter_term: str = ""
         self.selected_tag_filters: list[str] = []  # Multiple selected tags for filtering
         self.current_magazine_name: str = ""  # Track current magazine for grouping
@@ -511,14 +512,33 @@ class TSVWatcherWindow(QMainWindow):
         search_container_layout.setContentsMargins(8, 4, 8, 4)
         search_container_layout.setSpacing(8)
         
-        # Question Set search
-        self.question_set_search = QLineEdit()
-        self.question_set_search.setPlaceholderText("Search by question set name")
-        self.question_set_search.setToolTip("Search by question set name")
-        self.question_set_search.setMinimumHeight(28)
-        self.question_set_search.setMaximumHeight(28)
-        self.question_set_search.textChanged.connect(self.on_question_set_search_changed)
-        search_container_layout.addWidget(self.question_set_search, 2)  # Stretch factor 2
+        # Advanced query input
+        self.advanced_query_input = QLineEdit()
+        self.advanced_query_input.setPlaceholderText('Query: text ~ "roots" AND magazine ~ "Nov"')
+        self.advanced_query_input.setToolTip("Advanced query across text, magazine, question set. Use = or ~, AND/OR.")
+        self.advanced_query_input.setMinimumHeight(28)
+        self.advanced_query_input.setMaximumHeight(28)
+        self.advanced_query_input.returnPressed.connect(self._on_advanced_query_submit)
+        # Autocomplete for fields/operators
+        self.advanced_query_completer_model = QStringListModel()
+        self.advanced_query_completer = QCompleter(self.advanced_query_completer_model, self)
+        self.advanced_query_completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.advanced_query_completer.setFilterMode(Qt.MatchContains)
+        self.advanced_query_input.setCompleter(self.advanced_query_completer)
+        self.advanced_query_input.textEdited.connect(self._update_advanced_query_completions)
+        search_container_layout.addWidget(self.advanced_query_input, 3)  # Stretch factor 3
+
+        # Go button
+        self.advanced_query_go_btn = QPushButton("")
+        self.advanced_query_go_btn.setToolTip("Run query")
+        self.advanced_query_go_btn.setIcon(load_icon("navigation.png"))
+        self.advanced_query_go_btn.setIconSize(QSize(16, 16))
+        self.advanced_query_go_btn.setMinimumHeight(28)
+        self.advanced_query_go_btn.setMaximumHeight(28)
+        self.advanced_query_go_btn.setMinimumWidth(32)
+        self.advanced_query_go_btn.setMaximumWidth(32)
+        self.advanced_query_go_btn.clicked.connect(self._on_advanced_query_submit)
+        search_container_layout.addWidget(self.advanced_query_go_btn)
         
         # Tags filter
         self.tag_filter_display = QLineEdit()
@@ -561,15 +581,6 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_filter_btn.clicked.connect(self._show_tag_filter_dialog)
         search_container_layout.addWidget(self.tag_filter_btn)
         
-        # Magazine search
-        self.magazine_search = QLineEdit()
-        self.magazine_search.setPlaceholderText("Search by magazine name")
-        self.magazine_search.setToolTip("Search by magazine name")
-        self.magazine_search.setMinimumHeight(28)
-        self.magazine_search.setMaximumHeight(28)
-        self.magazine_search.textChanged.connect(self.on_magazine_search_changed)
-        search_container_layout.addWidget(self.magazine_search, 2)  # Stretch factor 2
-        
         # Clear button with icon
         clear_search_btn = QPushButton("")
         clear_search_btn.setToolTip("Clear all search filters")
@@ -595,6 +606,12 @@ class TSVWatcherWindow(QMainWindow):
         search_container_layout.addWidget(clear_search_btn)
         
         search_layout.addWidget(search_container, 1)  # Stretch to fill space
+
+        # Inline error for query parsing
+        self.advanced_query_error = QLabel("")
+        self.advanced_query_error.setStyleSheet("color: #dc2626; font-size: 12px;")
+        self.advanced_query_error.setVisible(False)
+        search_layout.addWidget(self.advanced_query_error, 0, Qt.AlignVCenter)
         
         # Action buttons container with different visual style
         action_container = QWidget()
@@ -705,10 +722,10 @@ class TSVWatcherWindow(QMainWindow):
         # Keep references to disable during loading
         self._question_tab_controls = [
             self.chapter_view,
-            self.question_set_search,
+            self.advanced_query_input,
+            self.advanced_query_go_btn,
             self.tag_filter_display,
             self.tag_filter_btn,
-            self.magazine_search,
             clear_search_btn,
             add_to_list_btn,
             create_random_list_btn,
@@ -2347,8 +2364,7 @@ class TSVWatcherWindow(QMainWindow):
         self.chapter_questions.clear()
         self.current_questions.clear()
         self.all_questions.clear()
-        self.question_set_search_term = ""
-        self.magazine_search_term = ""
+        self.advanced_query_term = ""
         self.current_magazine_display_name = ""
         
         # Clear UI elements
@@ -2357,10 +2373,11 @@ class TSVWatcherWindow(QMainWindow):
         self._populate_chapter_list({})
         
         # Clear search boxes
-        if hasattr(self, "question_set_search"):
-            self.question_set_search.clear()
-        if hasattr(self, "magazine_search"):
-            self.magazine_search.clear()
+        if hasattr(self, "advanced_query_input"):
+            self.advanced_query_input.clear()
+        if hasattr(self, "advanced_query_error"):
+            self.advanced_query_error.clear()
+            self.advanced_query_error.setVisible(False)
         if hasattr(self, "mag_tree_search"):
             self.mag_tree_search.clear()
 
@@ -3505,8 +3522,127 @@ class TSVWatcherWindow(QMainWindow):
             if widget:
                 widget.setEnabled(not is_loading)
 
+    def _on_advanced_query_submit(self) -> None:
+        """Submit the advanced query and refresh results (triggered by Enter/Go)."""
+        if hasattr(self, "advanced_query_input"):
+            self.advanced_query_term = self.advanced_query_input.text().strip()
+        self._apply_question_search()
+
+    def _parse_advanced_query(self, query: str):
+        """
+        Parse a simple JIRA-like query into an AST.
+        Supports fields: text, magazine, question_set (question_set_name).
+        Operators: = (equals, case-insensitive), ~ (contains).
+        Logical: AND, OR. AND has higher precedence than OR. Parentheses not supported.
+        """
+        if not query:
+            return None, None
+
+        try:
+            tokens = shlex.split(query.strip())
+        except ValueError as exc:
+            return None, f"Invalid query: {exc}"
+
+        terms = []
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            upper = tok.upper()
+            if upper in ("AND", "OR"):
+                terms.append(("OP", upper))
+                i += 1
+                continue
+            # Expect field op value
+            if i + 2 >= len(tokens):
+                return None, "Invalid query: expected 'field operator value'."
+            field = tok
+            op = tokens[i + 1]
+            value = tokens[i + 2]
+            if op not in ("=", "~"):
+                return None, f"Invalid operator '{op}'. Use = or ~."
+            terms.append(("TERM", field, op, value))
+            i += 3
+
+        # Build AST with simple precedence: AND before OR, left-associative
+        def reduce_ops(seq, op_name):
+            out = []
+            idx = 0
+            while idx < len(seq):
+                item = seq[idx]
+                if item == ("OP", op_name):
+                    if not out or idx + 1 >= len(seq):
+                        return None
+                    left = out.pop()
+                    right = seq[idx + 1]
+                    out.append(("BIN", op_name, left, right))
+                    idx += 2
+                else:
+                    out.append(item)
+                    idx += 1
+            return out
+
+        # First handle AND, then OR
+        seq = terms
+        seq = reduce_ops(seq, "AND")
+        if seq is None:
+            return None, "Invalid AND expression."
+        seq = reduce_ops(seq, "OR")
+        if seq is None or len(seq) != 1:
+            return None, "Invalid OR expression."
+        return seq[0], None
+
+    def _evaluate_advanced_query(self, ast_node, question: dict) -> bool:
+        """Evaluate the parsed query AST against a question record."""
+        if not ast_node:
+            return True
+        kind = ast_node[0]
+        if kind == "TERM":
+            _, field, op, value = ast_node
+            val = ""
+            field_norm = field.lower()
+            if field_norm in ("text", "question", "question_text"):
+                val = question.get("question_text") or question.get("text") or ""
+            elif field_norm in ("magazine", "magazine_name"):
+                val = question.get("magazine", "")
+            elif field_norm in ("question_set", "question_set_name", "set"):
+                val = question.get("question_set_name") or question.get("question_set") or ""
+            else:
+                val = ""
+            val = str(val).lower()
+            comp = value.lower()
+            if op == "=":
+                return val == comp
+            return comp in val
+        if kind == "BIN":
+            _, op, left, right = ast_node
+            if op == "AND":
+                return self._evaluate_advanced_query(left, question) and self._evaluate_advanced_query(right, question)
+            if op == "OR":
+                return self._evaluate_advanced_query(left, question) or self._evaluate_advanced_query(right, question)
+        return False
+
+    def _update_advanced_query_completions(self, text: str) -> None:
+        """Update autocomplete suggestions for the advanced query box."""
+        fields = ["text", "magazine", "question_set"]
+        operators = ["=", "~", "AND", "OR"]
+        # Basic heuristic: after a field, suggest operators; after an operator, suggest fields; otherwise both
+        tokens = text.strip().split()
+        suggestions: list[str] = []
+        if not tokens:
+            suggestions = fields
+        else:
+            last = tokens[-1]
+            last_upper = last.upper()
+            if last.lower() in fields:
+                suggestions = operators
+            elif last_upper in ("AND", "OR", "=", "~"):
+                suggestions = fields
+            else:
+                suggestions = fields + operators
+        self.advanced_query_completer_model.setStringList(suggestions)
+
     def _apply_question_search(self, preserve_scroll: bool = False) -> None:
-        """Apply normalized search terms and update the question card view."""
+        """Apply advanced query + tag filters and update the question card view."""
         # Save scroll position if requested
         scroll_value = None
         if preserve_scroll and hasattr(self, "question_card_view"):
@@ -3515,22 +3651,24 @@ class TSVWatcherWindow(QMainWindow):
                 scroll_value = scrollbar.value()
         
         filtered = self.all_questions
-        
-        # Apply Question Set search (normalized)
-        if self.question_set_search_term:
-            normalized_search = self._normalize_label(self.question_set_search_term)
-            filtered = [
-                q for q in filtered
-                if normalized_search in self._normalize_label(q.get("question_set_name", ""))
-            ]
-        
-        # Apply Magazine search (normalized)
-        if self.magazine_search_term:
-            normalized_search = self._normalize_label(self.magazine_search_term)
-            filtered = [
-                q for q in filtered
-                if normalized_search in self._normalize_label(q.get("magazine", ""))
-            ]
+
+        # Apply advanced query (runs only when submitted)
+        if self.advanced_query_term:
+            ast, err = self._parse_advanced_query(self.advanced_query_term)
+            if err:
+                if hasattr(self, "advanced_query_error"):
+                    self.advanced_query_error.setText(err)
+                    self.advanced_query_error.setVisible(True)
+                # Do not alter the list if the query is invalid
+            else:
+                if hasattr(self, "advanced_query_error"):
+                    self.advanced_query_error.clear()
+                    self.advanced_query_error.setVisible(False)
+                filtered = [q for q in filtered if self._evaluate_advanced_query(ast, q)]
+        else:
+            if hasattr(self, "advanced_query_error"):
+                self.advanced_query_error.clear()
+                self.advanced_query_error.setVisible(False)
         
         # Update card view with grouping
         self.current_questions = filtered
@@ -3604,27 +3742,17 @@ class TSVWatcherWindow(QMainWindow):
             if scrollbar:
                 scrollbar.setValue(scroll_value)
 
-    def on_question_set_search_changed(self, text: str) -> None:
-        """Handle Question Set search box text change."""
-        self.question_set_search_term = text.strip()
-        self._apply_question_search()
-
-    def on_magazine_search_changed(self, text: str) -> None:
-        """Handle Magazine search box text change."""
-        self.magazine_search_term = text.strip()
-        self._apply_question_search()
-
     def clear_question_search(self) -> None:
         """Clear all search terms."""
-        self.question_set_search_term = ""
-        self.magazine_search_term = ""
         self.selected_tag_filters = []
-        if hasattr(self, "question_set_search"):
-            self.question_set_search.clear()
+        self.advanced_query_term = ""
+        if hasattr(self, "advanced_query_input"):
+            self.advanced_query_input.clear()
+        if hasattr(self, "advanced_query_error"):
+            self.advanced_query_error.clear()
+            self.advanced_query_error.setVisible(False)
         if hasattr(self, "tag_filter_display"):
             self.tag_filter_display.clear()
-        if hasattr(self, "magazine_search"):
-            self.magazine_search.clear()
         self._apply_question_search()
 
     def _show_list_loading(self, show: bool) -> None:
@@ -3669,11 +3797,6 @@ class TSVWatcherWindow(QMainWindow):
             else:
                 self.tag_filter_display.clear()
             self._apply_question_search()
-
-    def on_magazine_search_changed(self, text: str) -> None:
-        """Handle Magazine search box text change."""
-        self.magazine_search_term = text.strip()
-        self._apply_question_search()
 
     def on_mag_tree_search_changed(self, text: str) -> None:
         """Filter magazine tree based on search text (supports 3-level hierarchy)."""
@@ -5214,12 +5337,10 @@ class TSVWatcherWindow(QMainWindow):
             filter_parts = []
             if filters.get("selected_chapter"):
                 filter_parts.append(f"Chapter: '{filters['selected_chapter']}'")
-            if filters.get("question_set_search"):
-                filter_parts.append(f"Question Set: '{filters['question_set_search']}'")
+            if filters.get("advanced_query"):
+                filter_parts.append(f"Query: {filters['advanced_query']}")
             if filters.get("selected_tags"):
                 filter_parts.append(f"Tags: {', '.join(filters['selected_tags'])}")
-            if filters.get("selected_magazine"):
-                filter_parts.append(f"Magazine: {filters['selected_magazine']}")
             
             if filter_parts:
                 self.list_filters_label.setText(f" Filters: {' | '.join(filter_parts)}")
@@ -5269,17 +5390,13 @@ class TSVWatcherWindow(QMainWindow):
         if self.current_selected_chapter:
             filters["selected_chapter"] = self.current_selected_chapter
         
-        # Question Set search filter
-        if self.question_set_search.text().strip():
-            filters["question_set_search"] = self.question_set_search.text().strip()
+        # Advanced query filter
+        if getattr(self, "advanced_query_term", ""):
+            filters["advanced_query"] = self.advanced_query_term
         
         # Tag filters
         if self.selected_tag_filters:
             filters["selected_tags"] = self.selected_tag_filters.copy()
-        
-        # Magazine filter (from selected magazine edition)
-        if self.magazine_search_term:
-            filters["selected_magazine"] = self.magazine_search_term
         
         return filters
     
@@ -5347,12 +5464,10 @@ class TSVWatcherWindow(QMainWindow):
             filter_parts = []
             if active_filters.get("selected_chapter"):
                 filter_parts.append(f" Chapter: '{active_filters['selected_chapter']}'")
-            if active_filters.get("question_set_search"):
-                filter_parts.append(f" Question Set: '{active_filters['question_set_search']}'")
+            if active_filters.get("advanced_query"):
+                filter_parts.append(f" Query: {active_filters['advanced_query']}")
             if active_filters.get("selected_tags"):
                 filter_parts.append(f" Tags: {', '.join(active_filters['selected_tags'])}")
-            if active_filters.get("selected_magazine"):
-                filter_parts.append(f" Magazine: {active_filters['selected_magazine']}")
             
             if filter_parts:
                 filter_label = QLabel("\n".join(filter_parts))
