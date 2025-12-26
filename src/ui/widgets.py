@@ -4573,21 +4573,20 @@ class NavigationSidebar(QWidget):
         
 
         # Navigation items: (icon, text, index, is_indented)
-
         nav_items = [
-            ("", "Dashboard", 0, False),
-            ("", "Magazine Editions", 1, True),
-            ("", "Question List", 2, True),
-            ("", "Chapter Grouping", 3, True),
-            ("", "Custom Lists", 4, True),
-            ("", "Question Set Groups", 5, True),
-            ("", "Data Import", 6, False),
-            ("", "JEE Main Papers", 7, False),
-            ("", "Exams", 8, False),
-            ("", "Data Quality", 9, False),
+            ("dashboard.png", "Dashboard", 0, False),
+            ("magazine_editions.png", "Magazine Editions", 1, True),
+            ("question_list.png", "Question List", 2, True),
+            ("chapter_grouping.png", "Chapter Grouping", 3, True),
+            ("custom_list.png", "Custom Lists", 4, True),
+            ("question_set_groups_icon_v2.png", "Question Set Groups", 5, True),
+            ("data_import_icon_v2.png", "Data Import", 6, False),
+            ("jee_main_papers.png", "JEE Main Papers", 7, False),
+            ("exams_icon_v2.png", "Exams", 8, False),
+            ("data_quality_icon_v2.png", "Data Quality", 9, False),
         ]
-
-        
+        self.nav_labels = [text for _, text, _, _ in nav_items]
+        self.nav_icons = [icon for icon, _, _, _ in nav_items]
 
         for icon, text, index, is_indented in nav_items:
 
@@ -4608,9 +4607,9 @@ class NavigationSidebar(QWidget):
         
 
         # Collapse/expand button at bottom
-
-        self.toggle_btn = QPushButton("G")
-
+        self.toggle_btn = QPushButton()
+        self.toggle_btn.setIcon(load_icon("navigation.png"))
+        self.toggle_btn.setIconSize(QSize(18, 18))
         self.toggle_btn.setToolTip("Collapse sidebar")
 
         self.toggle_btn.clicked.connect(self.toggle_collapse)
@@ -4676,12 +4675,11 @@ class NavigationSidebar(QWidget):
     
 
     def _create_nav_button(self, icon: str, text: str, index: int, is_indented: bool) -> QPushButton:
-
         """Create a navigation button."""
-
-        btn_text = text if not icon else f"{icon}  {text}"
-        btn = QPushButton(btn_text)
-
+        btn = QPushButton(text)
+        if icon:
+            btn.setIcon(load_icon(icon))
+            btn.setIconSize(QSize(18, 18))
         btn.setProperty("nav_index", index)
 
         btn.setProperty("is_indented", is_indented)
@@ -4846,37 +4844,14 @@ class NavigationSidebar(QWidget):
 
             self.setMaximumWidth(200)
 
-            self.toggle_btn.setText("G")
-
             self.toggle_btn.setToolTip("Collapse sidebar")
 
             
-
             # Show text on buttons
-
-            nav_items = [
-
-                ("=", "Dashboard"),
-
-                ("=", "Magazine Editions"),
-
-                ("=", "Question List"),
-
-                ("=", "Chapter Grouping"),
-
-                ("=", "Custom Lists"),
-
-                ("=", "Data Import"),
-
-                ("=", "JEE Main Papers"),
-
-            ]
-
-            for i, btn in enumerate(self.nav_buttons):
-
-                icon, text = nav_items[i]
-
-                btn.setText(f"{icon}  {text}")
+            labels = getattr(self, "nav_labels", [])
+            for btn, text in zip(self.nav_buttons, labels):
+                btn.setText(text)
+                btn.setToolTip(text)
 
         else:
 
@@ -4886,19 +4861,15 @@ class NavigationSidebar(QWidget):
 
             self.setMaximumWidth(50)
 
-            self.toggle_btn.setText("G")
-
             self.toggle_btn.setToolTip("Expand sidebar")
 
             
 
             # Show only icons
-
-            icons = ["*", "*", "*", "*", "*", "*", "*"]
-
-            for i, btn in enumerate(self.nav_buttons):
-
-                btn.setText(icons[i])
+            labels = getattr(self, "nav_labels", [])
+            for btn, text in zip(self.nav_buttons, labels):
+                btn.setText("")
+                btn.setToolTip(text)
 
         
 
