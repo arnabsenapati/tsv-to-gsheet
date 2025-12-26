@@ -25,6 +25,7 @@ import sqlite3
 import shutil
 import tempfile
 import shlex
+import secrets
 from io import BytesIO
 from pathlib import Path
 
@@ -5191,15 +5192,9 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.information(self, "Empty List", "The selected list has no questions to export.")
             return
 
-        # Ask for password
-        pwd_dialog = PasswordPromptDialog("Set CBT Password", self)
-        if pwd_dialog.exec() != QDialog.Accepted:
-            return
-        password = pwd_dialog.get_password()
-        eval_pwd_dialog = PasswordPromptDialog("Set Evaluation Password", self)
-        if eval_pwd_dialog.exec() != QDialog.Accepted:
-            return
-        eval_password = eval_pwd_dialog.get_password()
+        # Auto-generate passwords (6 digits)
+        password = f"{secrets.randbelow(900000) + 100000:06d}"
+        eval_password = f"{secrets.randbelow(900000) + 100000:06d}"
 
         # Ask where to save
         default_name = f"{self.current_list_name}.cqt"
@@ -5284,7 +5279,11 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.critical(self, "Export Failed", f"Could not export CBT package:\n{exc}")
             return
 
-        QMessageBox.information(self, "Export Complete", f"Saved CBT package to:\n{file_path}")
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Saved CBT package to:\n{file_path}\n\nExam password: {password}\nEvaluation password: {eval_password}",
+        )
     
     def on_saved_list_selected(self) -> None:
         """Handle selection of a saved question list."""
