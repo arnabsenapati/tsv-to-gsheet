@@ -1682,7 +1682,7 @@ class TSVWatcherWindow(QMainWindow):
         self._refresh_current_exam_view()
     def _build_exam_question_widget(self, row: Dict[str, Any], display_index: int, evaluated: bool) -> QWidget:
         q = row.get("question", {}) or {}
-        resp = row.get("response")
+        resp_raw = row.get("response")
         correct = bool(row.get("correct"))
         answered = bool(row.get("answered"))
         score = row.get("score", 0)
@@ -1738,17 +1738,42 @@ class TSVWatcherWindow(QMainWindow):
 
         # Response / result
         qtype = q.get("question_type", "mcq_single") or "mcq_single"
-        if qtype == "numerical":
-            resp_text = str(resp).strip() if resp is not None else "-"
+        sketch_b64 = None
+        if isinstance(resp_raw, dict):
+            sketch_b64 = resp_raw.get("sketch_png")
+            resp_val = resp_raw.get("answer")
         else:
-            if isinstance(resp, str):
-                resp_list = [resp] if resp else []
+            resp_val = resp_raw
+
+        if qtype == "numerical":
+            resp_text = str(resp_val).strip() if resp_val is not None else "-"
+        else:
+            if isinstance(resp_val, str):
+                resp_list = [resp_val] if resp_val else []
             else:
-                resp_list = resp or []
+                resp_list = resp_val or []
             resp_text = ", ".join(resp_list) if resp_list else "-"
         resp_lbl = QLabel(f"Response: {resp_text}")
         resp_lbl.setStyleSheet("color: #475569;")
         layout.addWidget(resp_lbl)
+
+        # Student sketch (if present)
+        if sketch_b64:
+            try:
+                data = base64.b64decode(sketch_b64)
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaledToWidth(420, Qt.SmoothTransformation)
+                    sketch_title = QLabel("Student Sketch")
+                    sketch_title.setStyleSheet("font-weight: 600; color: #334155;")
+                    layout.addWidget(sketch_title)
+                    sketch_lbl = QLabel()
+                    sketch_lbl.setPixmap(pixmap)
+                    sketch_lbl.setStyleSheet("border: 1px solid #e2e8f0;")
+                    layout.addWidget(sketch_lbl)
+            except Exception:
+                pass
 
         if evaluated:
             result_text = "Correct" if correct else ("Incorrect" if answered else "Unanswered")
