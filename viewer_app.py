@@ -218,7 +218,8 @@ class QuestionView(QWidget):
         self.image_container = QWidget()
         self.image_layout = QVBoxLayout(self.image_container)
         self.image_layout.setContentsMargins(0, 0, 0, 0)
-        self.image_layout.setSpacing(6)
+        self.image_layout.setSpacing(0)
+        self.image_layout.setAlignment(Qt.AlignTop)
         self.image_container.setMinimumWidth(340)
 
         self.image_scroll = QScrollArea()
@@ -373,13 +374,6 @@ class QuestionView(QWidget):
             available_height = max(200, self.image_scroll.viewport().height() - 16)
         h_bar_visible = self.image_scroll.horizontalScrollBar().isVisible() if self.image_scroll else False
         v_bar_visible = self.image_scroll.verticalScrollBar().isVisible() if self.image_scroll else False
-        print(
-            f"[viewer] render_images viewport=({self.image_scroll.viewport().width() if self.image_scroll else 'n/a'}x"
-            f"{self.image_scroll.viewport().height() if self.image_scroll else 'n/a'}) "
-            f"target=({available_width}x{available_height}) "
-            f"scrollbars h={h_bar_visible} v={v_bar_visible}"
-        )
-
         # Prevent repeated renders with the same size to avoid flicker
         if (available_width, available_height) == self._last_image_render_size:
             return
@@ -394,13 +388,10 @@ class QuestionView(QWidget):
                 Qt.KeepAspectRatio,
                 Qt.SmoothTransformation,
             )
-            print(
-                f"[viewer] scale image orig=({pix.width()}x{pix.height()}) -> scaled=({scaled.width()}x{scaled.height()})"
-            )
             lbl = QLabel()
             lbl.setPixmap(scaled)
             lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
             self.image_layout.addWidget(lbl)
 
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
