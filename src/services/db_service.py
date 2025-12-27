@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Tuple
@@ -24,12 +24,96 @@ class DatabaseService:
     def set_db_path(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
 
+    # ------------------------------------------------------------------
+    # Snapshotting with metadata (5-day retention)
+    # ------------------------------------------------------------------
+    def snapshot_database(self, reason: str, retention_days: int = 5) -> Path | None:
+        """
+        Create a timestamped copy of the database plus a metadata file describing the change.
+
+        Args:
+            reason: Short description of the change (20-30 words preferred).
+            retention_days: How many days of snapshots to keep (default 5).
+        """
+        db_path = Path(self.db_path)
+        if not db_path.is_file():
+            return None
+
+        backup_dir = db_path.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        suffix = db_path.suffix
+        base_name = f"{db_path.stem}-{timestamp}"
+        backup_path = backup_dir / f"{base_name}{suffix}"
+        meta_path = backup_dir / f"{base_name}.json"
+
+        shutil.copy2(db_path, backup_path)
+        meta = {
+            "timestamp": timestamp,
+            "reason": reason.strip()[:300],
+            "db": str(db_path.name),
+        }
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        # Prune older than retention_days
+        cutoff = datetime.utcnow() - timedelta(days=retention_days)
+        for meta_file in backup_dir.glob(f"{db_path.stem}-*.json"):
+            try:
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                ts = datetime.strptime(meta_data.get("timestamp", ""), "%Y%m%d-%H%M%S")
+            except Exception:
+                continue
+            if ts < cutoff:
+                db_file = backup_dir / f"{db_path.stem}-{meta_data.get('timestamp','')}{suffix}"
+                meta_file.unlink(missing_ok=True)
+                db_file.unlink(missing_ok=True)
+
+        return backup_path
+
+    def list_snapshots(self) -> List[Dict[str, Any]]:
+        """Return available snapshots with timestamp and reason."""
+        db_path = Path(self.db_path)
+        backup_dir = db_path.parent / "backups"
+        snapshots: List[Dict[str, Any]] = []
+        for meta_file in backup_dir.glob(f"{db_path.stem}-*.json"):
+            try:
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                ts = meta_data.get("timestamp") or ""
+                reason = meta_data.get("reason") or ""
+                db_file = backup_dir / f"{db_path.stem}-{ts}{db_path.suffix}"
+                if not db_file.is_file():
+                    continue
+                snapshots.append(
+                    {
+                        "timestamp": ts,
+                        "reason": reason,
+                        "db_file": str(db_file),
+                        "meta_file": str(meta_file),
+                        "dt": datetime.strptime(ts, "%Y%m%d-%H%M%S") if ts else None,
+                    }
+                )
+            except Exception:
+                continue
+        snapshots.sort(key=lambda s: s.get("dt") or datetime.min, reverse=True)
+        return snapshots
+
+    def restore_snapshot(self, snapshot_path: Path) -> None:
+        """Restore the database from the given snapshot path (creates a safety snapshot first)."""
+        snapshot_path = Path(snapshot_path)
+        if not snapshot_path.is_file():
+            raise FileNotFoundError(f"Snapshot not found: {snapshot_path}")
+        # Safety snapshot before restore
+        self.snapshot_database("Auto-backup before restore")
+        shutil.copy2(snapshot_path, self.db_path)
+
     def backup_database(self, max_backups: int = 10) -> Path | None:
         """
         Create a timestamped copy of the database in a sibling `backups` folder.
 
         Returns the backup path if created, otherwise None.
         """
+        # Legacy backup kept for compatibility; prefer snapshot_database for logged snapshots
         db_path = Path(self.db_path)
         if not db_path.is_file():
             return None
@@ -191,6 +275,7 @@ class DatabaseService:
     def save_config(self, key: str, payload: Dict[str, Any]) -> None:
         value_json = json.dumps(payload, indent=2)
         with self._connect() as conn:
+            self.snapshot_database(f"Config change: {key}")
             conn.execute(
                 """
                 INSERT INTO configs(key, value_json)
@@ -251,6 +336,7 @@ class DatabaseService:
         Returns (inserted_ids, duplicates) where duplicates is a list of tuples:
         (magazine, qno, page, existing_qno, existing_page).
         """
+        self.snapshot_database(f"Import questions for subject {subject_name}")
         subject_id = self._ensure_subject(subject_name)
         existing = self._collect_existing_triplets(subject_id)
         duplicates: List[tuple] = []
@@ -357,6 +443,7 @@ class DatabaseService:
         data = path.read_bytes()
 
         with self._connect() as conn:
+            self.snapshot_database(f"Add {kind} image for question {question_id}")
             cur = conn.execute(
                 """
                 INSERT INTO images (question_id, kind, mime_type, data)
@@ -369,6 +456,7 @@ class DatabaseService:
     def add_question_image_bytes(self, question_id: int, kind: str, data: bytes, mime_type: str = "application/octet-stream") -> int:
         """Store an in-memory image blob for a question."""
         with self._connect() as conn:
+            self.snapshot_database(f"Add {kind} image for question {question_id}")
             cur = conn.execute(
                 """
                 INSERT INTO images (question_id, kind, mime_type, data)
@@ -417,6 +505,7 @@ class DatabaseService:
         Returns the number of deleted rows.
         """
         with self._connect() as conn:
+            self.snapshot_database(f"Delete images ({kind or 'all'}) for question {question_id}")
             if kind:
                 cur = conn.execute(
                     "DELETE FROM images WHERE question_id = ? AND kind = ?",
@@ -450,6 +539,8 @@ class DatabaseService:
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
+
+        self.snapshot_database(f"Update question {question_id}")
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values())
