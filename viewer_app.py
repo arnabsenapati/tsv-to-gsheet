@@ -19,7 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import Qt, QBuffer, QPointF
+from PySide6.QtCore import Qt, QBuffer, QPointF, QEvent
 from PySide6.QtGui import QPixmap, QColor, QPainter, QPen, QImage
 from PySide6.QtCore import QBuffer
 from PySide6.QtWidgets import (
@@ -202,6 +202,8 @@ class QuestionView(QWidget):
         self.evaluated: bool = False
         self._updating = False
         self.on_answer_change = on_answer_change or (lambda: None)
+        self._current_image_pixmaps: list[QPixmap] = []
+        self._last_image_render_size: tuple[int | None, int | None] = (None, None)
 
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
@@ -217,10 +219,14 @@ class QuestionView(QWidget):
         self.image_layout = QVBoxLayout(self.image_container)
         self.image_layout.setContentsMargins(0, 0, 0, 0)
         self.image_layout.setSpacing(6)
+        self.image_container.setMinimumWidth(340)
 
         self.image_scroll = QScrollArea()
         self.image_scroll.setWidgetResizable(True)
         self.image_scroll.setWidget(self.image_container)
+        self.image_scroll.setMinimumWidth(360)
+        # Re-render images on resize to fit available area
+        self.image_scroll.viewport().installEventFilter(self)
 
         self.board = SketchBoard()
         # Patch hook so board can notify when strokes change
@@ -348,6 +354,55 @@ class QuestionView(QWidget):
                 answer = ""
         self.responses[str(self.qkey)] = {"answer": answer, "sketch_png": sketch_b64}
 
+    def _render_question_images(self):
+        """Render question images scaled to fit available viewport while keeping aspect ratio."""
+        min_scale_width = 320
+        max_scale_width = 1600
+
+        while self.image_layout.count():
+            item = self.image_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not self._current_image_pixmaps:
+            return
+        available_width = 360
+        available_height = 320
+        if self.image_scroll and self.image_scroll.viewport():
+            available_width = max(min_scale_width, self.image_scroll.viewport().width() - 16)
+            available_width = min(max_scale_width, available_width)
+            available_height = max(200, self.image_scroll.viewport().height() - 16)
+        h_bar_visible = self.image_scroll.horizontalScrollBar().isVisible() if self.image_scroll else False
+        v_bar_visible = self.image_scroll.verticalScrollBar().isVisible() if self.image_scroll else False
+        print(
+            f"[viewer] render_images viewport=({self.image_scroll.viewport().width() if self.image_scroll else 'n/a'}x"
+            f"{self.image_scroll.viewport().height() if self.image_scroll else 'n/a'}) "
+            f"target=({available_width}x{available_height}) "
+            f"scrollbars h={h_bar_visible} v={v_bar_visible}"
+        )
+
+        # Prevent repeated renders with the same size to avoid flicker
+        if (available_width, available_height) == self._last_image_render_size:
+            return
+        self._last_image_render_size = (available_width, available_height)
+
+        for pix in self._current_image_pixmaps:
+            if pix.isNull():
+                continue
+            scaled = pix.scaled(
+                available_width,
+                available_height,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            print(
+                f"[viewer] scale image orig=({pix.width()}x{pix.height()}) -> scaled=({scaled.width()}x{scaled.height()})"
+            )
+            lbl = QLabel()
+            lbl.setPixmap(scaled)
+            lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+            lbl.setAlignment(Qt.AlignCenter)
+            self.image_layout.addWidget(lbl)
+
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
         self.question = question
@@ -361,23 +416,14 @@ class QuestionView(QWidget):
         self._show_controls_for_type(self.current_type)
 
         # Images
-        available_width = 360
-        if self.image_scroll and self.image_scroll.viewport():
-            available_width = max(360, min(1400, self.image_scroll.viewport().width() - 16))
-        while self.image_layout.count():
-            item = self.image_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._current_image_pixmaps = []
         for img in question.get("question_images", []):
             data = base64.b64decode(img.get("data", ""))
             pixmap = QPixmap()
             pixmap.loadFromData(data)
             if not pixmap.isNull():
-                pixmap = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
-            lbl = QLabel()
-            lbl.setPixmap(pixmap)
-            lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-            self.image_layout.addWidget(lbl)
+                self._current_image_pixmaps.append(pixmap)
+        self._render_question_images()
         if show_answers:
             if question.get("answer_images"):
                 divider = QFrame()
@@ -443,6 +489,11 @@ class QuestionView(QWidget):
         self._updating = False
         # Load sketch (if any) into the board tab
         self.board.load_from_base64(sketch_b64)
+
+    def eventFilter(self, obj, event):
+        if obj == self.image_scroll.viewport() and event.type() == QEvent.Resize:
+            self._render_question_images()
+        return super().eventFilter(obj, event)
 
     def _on_option_toggled(self, label: str, state: int):
         if self._updating or self.evaluated:
