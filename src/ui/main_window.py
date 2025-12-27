@@ -311,6 +311,7 @@ class TSVWatcherWindow(QMainWindow):
         self._create_jee_page()                 # Index 7
         self._create_exams_page()               # Index 8
         self._create_data_quality_page()        # Index 9
+        self._create_snapshots_page()           # Index 10
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -378,6 +379,8 @@ class TSVWatcherWindow(QMainWindow):
             self._load_exam_list()
         if index == 9:
             self._load_data_quality_table()
+        if index == 10:
+            self._load_snapshot_table()
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -1415,11 +1418,6 @@ class TSVWatcherWindow(QMainWindow):
         import_btn.setToolTip("Import Exam (.cqt)")
         import_btn.setFixedSize(QSize(32, 28))
         import_btn.clicked.connect(self._import_exam_from_cqt)
-        snapshot_btn = QPushButton()
-        snapshot_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
-        snapshot_btn.setToolTip("DB Snapshots")
-        snapshot_btn.setFixedSize(QSize(32, 28))
-        snapshot_btn.clicked.connect(self._open_snapshot_dialog)
         refresh_btn = QPushButton()
         refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
         refresh_btn.setToolTip("Refresh")
@@ -1431,7 +1429,6 @@ class TSVWatcherWindow(QMainWindow):
         delete_btn.setFixedSize(QSize(32, 28))
         delete_btn.clicked.connect(self._delete_selected_exam)
         btn_row.addWidget(import_btn)
-        btn_row.addWidget(snapshot_btn)
         btn_row.addWidget(refresh_btn)
         btn_row.addWidget(delete_btn)
         btn_row.addStretch()
@@ -1514,6 +1511,97 @@ class TSVWatcherWindow(QMainWindow):
 
         layout.addWidget(card, 1)
         self.content_stack.addWidget(page)
+
+    # ------------------------------------------------------------------
+    # Snapshots page
+    # ------------------------------------------------------------------
+    def _create_snapshots_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(8)
+
+        header_row = QHBoxLayout()
+        header_row.addWidget(self._create_label("Database Snapshots (last 5 days)"))
+        refresh_btn = QPushButton()
+        refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh_btn.setToolTip("Refresh snapshots")
+        refresh_btn.setFixedSize(QSize(32, 28))
+        refresh_btn.clicked.connect(self._load_snapshot_table)
+        restore_btn = QPushButton()
+        restore_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogOkButton))
+        restore_btn.setToolTip("Restore selected snapshot")
+        restore_btn.setFixedSize(QSize(32, 28))
+        restore_btn.clicked.connect(self._restore_selected_snapshot)
+        header_row.addStretch()
+        header_row.addWidget(refresh_btn)
+        header_row.addWidget(restore_btn)
+        card_layout.addLayout(header_row)
+
+        self.snapshot_table = QTableWidget(0, 3)
+        self.snapshot_table.setHorizontalHeaderLabels(["Timestamp", "Reason", "Path"])
+        self.snapshot_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.snapshot_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.snapshot_table.horizontalHeader().setStretchLastSection(True)
+        card_layout.addWidget(self.snapshot_table)
+
+        layout.addWidget(card, 1)
+        self.content_stack.addWidget(page)
+
+    def _load_snapshot_table(self):
+        if not hasattr(self, "snapshot_table") or not self.db_service:
+            return
+        snaps = self.db_service.list_snapshots()
+        table = self.snapshot_table
+        table.setRowCount(len(snaps))
+        for r_idx, snap in enumerate(snaps):
+            ts = snap.get("timestamp", "")
+            reason = snap.get("reason", "")
+            path = snap.get("db_file", "")
+            for c_idx, val in enumerate([ts, reason, path]):
+                item = QTableWidgetItem(str(val) if val is not None else "")
+                table.setItem(r_idx, c_idx, item)
+        table.resizeColumnsToContents()
+
+    def _restore_selected_snapshot(self):
+        if not hasattr(self, "snapshot_table"):
+            return
+        row = self.snapshot_table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "No Selection", "Select a snapshot to restore.")
+            return
+        ts_item = self.snapshot_table.item(row, 0)
+        reason_item = self.snapshot_table.item(row, 1)
+        path_item = self.snapshot_table.item(row, 2)
+        ts = ts_item.text() if ts_item else ""
+        reason = reason_item.text() if reason_item else ""
+        path = path_item.text() if path_item else ""
+        if not path:
+            QMessageBox.warning(self, "Restore Failed", "Snapshot path is missing.")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Restore Snapshot",
+            f"Restore snapshot from {ts}?\nReason: {reason}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        try:
+            self.db_service.restore_snapshot(Path(path))
+        except Exception as exc:
+            QMessageBox.critical(self, "Restore Failed", f"Could not restore snapshot:\n{exc}")
+            return
+        # Reload UI data
+        if hasattr(self, "subject_combo") and self.subject_combo.currentText():
+            self.load_subject_from_db()
+        self._load_exam_list()
+        QMessageBox.information(self, "Snapshot Restored", f"Restored snapshot from {ts}.")
 
     def _load_data_quality_table(self):
         if not self.db_service:

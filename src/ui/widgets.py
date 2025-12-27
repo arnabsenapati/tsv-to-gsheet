@@ -4584,6 +4584,7 @@ class NavigationSidebar(QWidget):
             ("jee_main_papers.png", "JEE Main Papers", 7, False),
             ("exams_icon_v2.png", "Exams", 8, False),
             ("data_quality_icon_v2.png", "Data Quality", 9, False),
+            ("data-snapshot.png", "Snapshots", 10, False),
         ]
         self.nav_labels = [text for _, text, _, _ in nav_items]
         self.nav_icons = [icon for icon, _, _, _ in nav_items]
