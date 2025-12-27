@@ -604,6 +604,7 @@ class DatabaseService:
 
     def save_question_list(self, list_name: str, questions: List[Dict[str, Any]], metadata: Dict[str, Any]) -> None:
         meta_json = json.dumps(metadata or {}, indent=2)
+        self.snapshot_database(f"Save question list {list_name}")
         with self._connect() as conn:
             cur = conn.execute(
                 """
@@ -648,6 +649,7 @@ class DatabaseService:
 
     def set_list_theory(self, list_name: str, theory_text: str) -> None:
         with self._connect() as conn:
+            self.snapshot_database(f"Update theory for list {list_name}")
             row = conn.execute("SELECT metadata_json FROM question_lists WHERE name = ?", (list_name,)).fetchone()
             meta = {}
             if row and row["metadata_json"]:
@@ -671,11 +673,13 @@ class DatabaseService:
             row = conn.execute("SELECT id FROM question_lists WHERE name = ?", (list_name,)).fetchone()
             if not row:
                 return
+            self.snapshot_database(f"Delete question list {list_name}")
             conn.execute("DELETE FROM question_lists WHERE id = ?", (row["id"],))
 
     def update_questions_chapter(self, question_ids: List[int], target_group: str) -> None:
         if not question_ids:
             return
+        self.snapshot_database(f"Update chapters for {len(question_ids)} questions")
         with self._connect() as conn:
             conn.executemany(
                 "UPDATE questions SET high_level_chapter = ?, chapter = ? WHERE id = ?",
@@ -732,6 +736,7 @@ class DatabaseService:
 
     def import_exam_from_cqt(self, path: str, package_password: str) -> Dict[str, Any]:
         """Import a .cqt package, compute stats, and persist as an exam record."""
+        self.snapshot_database("Import exam from CQT")
         self._ensure_exam_tables()
         payload = load_cqt(path, package_password)
         questions = payload.get("questions", [])
@@ -921,6 +926,7 @@ class DatabaseService:
     def delete_exam(self, exam_id: int) -> None:
         """Delete an exam and its questions."""
         self._ensure_exam_tables()
+        self.snapshot_database(f"Delete exam {exam_id}")
         with self._connect() as conn:
             conn.execute("DELETE FROM exams WHERE id = ?", (exam_id,))
 
@@ -936,6 +942,7 @@ class DatabaseService:
         status = (status or "").lower()
         if status not in ("correct", "incorrect", "unanswered"):
             raise ValueError("Invalid evaluation status.")
+        self.snapshot_database(f"Exam {exam_id} eval override q{q_index} -> {status}")
         correct = 1 if status == "correct" else 0
         answered = 0 if status == "unanswered" else 1
         score = 4 if status == "correct" else (-1 if status == "incorrect" else 0)

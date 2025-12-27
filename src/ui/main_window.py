@@ -113,6 +113,57 @@ from utils.helpers import (
 )
 
 
+class SnapshotDialog(QDialog):
+    """Dialog to list and restore DB snapshots."""
+
+    def __init__(self, snapshots: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Database Snapshots")
+        self.setMinimumSize(520, 400)
+        self.snapshots = snapshots or []
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        self.list_widget = QListWidget()
+        for snap in self.snapshots:
+            ts = snap.get("timestamp", "")
+            reason = snap.get("reason", "")
+            item = QListWidgetItem(f"{ts}  |  {reason}")
+            item.setData(Qt.UserRole, snap)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget, 1)
+
+        self.detail_label = QLabel("")
+        self.detail_label.setWordWrap(True)
+        self.detail_label.setStyleSheet("color: #475569;")
+        layout.addWidget(self.detail_label)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText("Restore")
+        btns.button(QDialogButtonBox.Cancel).setText("Close")
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self.list_widget.currentItemChanged.connect(self._on_selection_changed)
+        if self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def _on_selection_changed(self, current, _previous):
+        snap = current.data(Qt.UserRole) if current else None
+        if not snap:
+            self.detail_label.clear()
+            return
+        ts = snap.get("timestamp", "")
+        reason = snap.get("reason", "")
+        self.detail_label.setText(f"Timestamp: {ts}\nReason: {reason}")
+
+    def selected_snapshot(self) -> dict | None:
+        item = self.list_widget.currentItem()
+        return item.data(Qt.UserRole) if item else None
+
+
 class TSVWatcherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -1364,6 +1415,11 @@ class TSVWatcherWindow(QMainWindow):
         import_btn.setToolTip("Import Exam (.cqt)")
         import_btn.setFixedSize(QSize(32, 28))
         import_btn.clicked.connect(self._import_exam_from_cqt)
+        snapshot_btn = QPushButton()
+        snapshot_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
+        snapshot_btn.setToolTip("DB Snapshots")
+        snapshot_btn.setFixedSize(QSize(32, 28))
+        snapshot_btn.clicked.connect(self._open_snapshot_dialog)
         refresh_btn = QPushButton()
         refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
         refresh_btn.setToolTip("Refresh")
@@ -1375,6 +1431,7 @@ class TSVWatcherWindow(QMainWindow):
         delete_btn.setFixedSize(QSize(32, 28))
         delete_btn.clicked.connect(self._delete_selected_exam)
         btn_row.addWidget(import_btn)
+        btn_row.addWidget(snapshot_btn)
         btn_row.addWidget(refresh_btn)
         btn_row.addWidget(delete_btn)
         btn_row.addStretch()
@@ -1534,6 +1591,45 @@ class TSVWatcherWindow(QMainWindow):
             "Import Complete",
             f"Imported exam with {summary.get('total',0)} questions.\nCorrect: {summary.get('correct',0)} | Wrong: {summary.get('wrong',0)} | Score: {summary.get('score',0)}",
         )
+
+    def _open_snapshot_dialog(self):
+        if not self.db_service:
+            QMessageBox.warning(self, "Unavailable", "Database service is not available.")
+            return
+        snaps = self.db_service.list_snapshots()
+        if not snaps:
+            QMessageBox.information(self, "No Snapshots", "No snapshots found in the last 5 days.")
+            return
+        dlg = SnapshotDialog(snaps, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        snap = dlg.selected_snapshot()
+        if not snap:
+            return
+        ts = snap.get("timestamp", "")
+        reason = snap.get("reason", "")
+        db_file = snap.get("db_file")
+        if not db_file:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Restore Snapshot",
+            f"Restore snapshot from {ts}?\nReason: {reason}",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        try:
+            self.db_service.restore_snapshot(Path(db_file))
+        except Exception as exc:
+            QMessageBox.critical(self, "Restore Failed", f"Could not restore snapshot:\n{exc}")
+            return
+        # Reload UI data
+        if hasattr(self, "subject_combo") and self.subject_combo.currentText():
+            self.load_subject_from_db()
+        self._load_exam_list()
+        QMessageBox.information(self, "Snapshot Restored", f"Restored snapshot from {ts}.")
 
     def _load_exam_list(self):
         if not hasattr(self, "exam_list_widget"):
