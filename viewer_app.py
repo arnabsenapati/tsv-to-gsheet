@@ -203,6 +203,8 @@ class QuestionView(QWidget):
         self._updating = False
         self.on_answer_change = on_answer_change or (lambda: None)
         self._current_image_pixmaps: list[QPixmap] = []
+        self._answer_image_pixmaps: list[QPixmap] = []
+        self._show_answers: bool = False
         self._last_image_render_size: tuple[int | None, int | None] = (None, None)
 
         self.meta_label = QLabel()
@@ -226,6 +228,8 @@ class QuestionView(QWidget):
         self.image_scroll.setWidgetResizable(True)
         self.image_scroll.setWidget(self.image_container)
         self.image_scroll.setMinimumWidth(360)
+        self.image_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.image_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         # Re-render images on resize to fit available area
         self.image_scroll.viewport().installEventFilter(self)
 
@@ -355,8 +359,8 @@ class QuestionView(QWidget):
                 answer = ""
         self.responses[str(self.qkey)] = {"answer": answer, "sketch_png": sketch_b64}
 
-    def _render_question_images(self):
-        """Render question images scaled to fit available viewport while keeping aspect ratio."""
+    def _render_question_images(self, include_answers: bool = False, force: bool = False):
+        """Render question (and optionally answer) images scaled to fit available viewport while keeping aspect ratio."""
         min_scale_width = 320
         max_scale_width = 1600
 
@@ -364,35 +368,53 @@ class QuestionView(QWidget):
             item = self.image_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        if not self._current_image_pixmaps:
+        if not self._current_image_pixmaps and not (include_answers and self._answer_image_pixmaps):
             return
         available_width = 360
         available_height = 320
         if self.image_scroll and self.image_scroll.viewport():
-            available_width = max(min_scale_width, self.image_scroll.viewport().width() - 16)
+            # Use the scrollbar width if visible, otherwise a fallback
+            vbar_width = self.image_scroll.verticalScrollBar().sizeHint().width() if self.image_scroll.verticalScrollBar() else 16
+            reserved_scrollbar_px = max(16, vbar_width)
+            viewport_w = self.image_scroll.viewport().width()
+            available_width = max(min_scale_width, viewport_w - reserved_scrollbar_px)
             available_width = min(max_scale_width, available_width)
-            available_height = max(200, self.image_scroll.viewport().height() - 16)
+            available_height = max(200, self.image_scroll.viewport().height() - 4)
         h_bar_visible = self.image_scroll.horizontalScrollBar().isVisible() if self.image_scroll else False
         v_bar_visible = self.image_scroll.verticalScrollBar().isVisible() if self.image_scroll else False
         # Prevent repeated renders with the same size to avoid flicker
-        if (available_width, available_height) == self._last_image_render_size:
+        cache_key = (available_width, available_height, include_answers)
+        if not force and cache_key == self._last_image_render_size:
             return
-        self._last_image_render_size = (available_width, available_height)
+        self._last_image_render_size = cache_key
 
-        for pix in self._current_image_pixmaps:
-            if pix.isNull():
-                continue
-            scaled = pix.scaled(
-                available_width,
-                available_height,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
-            lbl = QLabel()
-            lbl.setPixmap(scaled)
-            lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-            lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            self.image_layout.addWidget(lbl)
+        def _add_images(pixmaps: list[QPixmap]):
+            for pix in pixmaps:
+                if pix.isNull():
+                    continue
+                scaled = pix.scaled(
+                    available_width,
+                    available_height,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+                lbl = QLabel()
+                lbl.setPixmap(scaled)
+                lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+                lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+                self.image_layout.addWidget(lbl)
+
+        _add_images(self._current_image_pixmaps)
+
+        if include_answers and self._answer_image_pixmaps:
+            divider = QFrame()
+            divider.setFrameShape(QFrame.HLine)
+            divider.setStyleSheet("color: #cbd5e1; margin-top: 6px; margin-bottom: 6px;")
+            self.image_layout.addWidget(divider)
+            answer_title = QLabel("Answer Images")
+            answer_title.setStyleSheet("color: #334155; font-weight: 600; padding: 2px 0;")
+            self.image_layout.addWidget(answer_title)
+            _add_images(self._answer_image_pixmaps)
 
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
@@ -408,33 +430,23 @@ class QuestionView(QWidget):
 
         # Images
         self._current_image_pixmaps = []
+        self._answer_image_pixmaps = []
         for img in question.get("question_images", []):
             data = base64.b64decode(img.get("data", ""))
             pixmap = QPixmap()
             pixmap.loadFromData(data)
             if not pixmap.isNull():
                 self._current_image_pixmaps.append(pixmap)
-        self._render_question_images()
-        if show_answers:
-            if question.get("answer_images"):
-                divider = QFrame()
-                divider.setFrameShape(QFrame.HLine)
-                divider.setStyleSheet("color: #cbd5e1; margin-top: 6px; margin-bottom: 6px;")
-                self.image_layout.addWidget(divider)
-                answer_title = QLabel("Answer Images")
-                answer_title.setStyleSheet("color: #334155; font-weight: 600; padding: 2px 0;")
-                self.image_layout.addWidget(answer_title)
-            for img in question.get("answer_images", []):
-                data = base64.b64decode(img.get("data", ""))
-                pixmap = QPixmap()
-                pixmap.loadFromData(data)
-                if not pixmap.isNull():
-                    pixmap = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
-                lbl = QLabel()
-                lbl.setPixmap(pixmap)
-                lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-                self.image_layout.addWidget(lbl)
-        self.image_layout.addStretch()
+        for img in question.get("answer_images", []):
+            data = base64.b64decode(img.get("data", ""))
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            if not pixmap.isNull():
+                self._answer_image_pixmaps.append(pixmap)
+        # Force a fresh render for new question
+        self._last_image_render_size = (None, None, False)
+        self._show_answers = show_answers
+        self._render_question_images(include_answers=self._show_answers, force=True)
 
         # Restore response
         # Always clear UI selections before applying saved response
@@ -483,7 +495,7 @@ class QuestionView(QWidget):
 
     def eventFilter(self, obj, event):
         if obj == self.image_scroll.viewport() and event.type() == QEvent.Resize:
-            self._render_question_images()
+            self._render_question_images(include_answers=self._show_answers)
         return super().eventFilter(obj, event)
 
     def _on_option_toggled(self, label: str, state: int):
