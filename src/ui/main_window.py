@@ -1847,8 +1847,6 @@ class TSVWatcherWindow(QMainWindow):
             top = counts.head(12)
             labels = top[col].astype(str).tolist()
             sizes = top["count"].tolist()
-            # Debug print values used for pie
-            print(f"[analysis] pie values for {col}: {list(zip(labels, sizes))}", flush=True)
             wedges, _texts, _autotexts = ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
             ax_pie.set_title(f"{col} distribution", fontsize=10)
             def _truncate(text: str, max_len: int = 18) -> str:
