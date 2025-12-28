@@ -72,6 +72,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 from config.constants import (
     LAST_SELECTION_FILE,
@@ -200,6 +202,10 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         self.list_copy_mode: str = "Copy: Text"  # Default copy mode for custom list cards
+        # Question analysis state
+        self.analysis_presets: list[dict] = []
+        self.analysis_filters: dict[str, str] = {}
+        self.analysis_value_field: str = "High Level Chapter"
         self.mag_heatmap_data: dict[tuple[int, int], dict] = {}  # (year, month) -> info
         self.mag_page_ranges: dict[str, tuple[str, str]] = {}  # normalized edition -> (min, max)
         self.question_set_groups_dirty: bool = False  # Track if groupings changed
@@ -312,6 +318,7 @@ class TSVWatcherWindow(QMainWindow):
         self._create_exams_page()               # Index 8
         self._create_data_quality_page()        # Index 9
         self._create_snapshots_page()           # Index 10
+        self._create_question_analysis_page()   # Index 11
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -381,6 +388,8 @@ class TSVWatcherWindow(QMainWindow):
             self._load_data_quality_table()
         if index == 10:
             self._load_snapshot_table()
+        if index == 11:
+            self._refresh_question_analysis()
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -1552,6 +1561,299 @@ class TSVWatcherWindow(QMainWindow):
         layout.addWidget(card, 1)
         self.content_stack.addWidget(page)
 
+    # ------------------------------------------------------------------
+    # Question Analysis page
+    # ------------------------------------------------------------------
+    def _create_question_analysis_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        # Preset + filters row
+        filter_card = self._create_card()
+        filter_layout = QVBoxLayout(filter_card)
+        filter_layout.setSpacing(8)
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(self._create_label("Question Analysis"))
+        preset_row.addSpacing(12)
+        preset_row.addWidget(QLabel("Preset:"))
+        self.analysis_preset_combo = QComboBox()
+        preset_row.addWidget(self.analysis_preset_combo)
+        apply_preset_btn = QPushButton("Apply")
+        apply_preset_btn.clicked.connect(self._apply_selected_analysis_preset)
+        preset_row.addWidget(apply_preset_btn)
+        save_preset_btn = QPushButton("Save Current as Preset")
+        save_preset_btn.clicked.connect(self._save_current_analysis_preset)
+        preset_row.addWidget(save_preset_btn)
+        preset_row.addStretch()
+        filter_layout.addLayout(preset_row)
+
+        filters_row = QHBoxLayout()
+        self.analysis_qset_combo = QComboBox()
+        self.analysis_qset_combo.setEditable(True)
+        self.analysis_qset_combo.setInsertPolicy(QComboBox.NoInsert)
+        filters_row.addWidget(QLabel("Question Set"))
+        filters_row.addWidget(self.analysis_qset_combo)
+
+        self.analysis_chapter_combo = QComboBox()
+        self.analysis_chapter_combo.setEditable(True)
+        filters_row.addWidget(QLabel("Chapter"))
+        filters_row.addWidget(self.analysis_chapter_combo)
+
+        self.analysis_mag_combo = QComboBox()
+        self.analysis_mag_combo.setEditable(True)
+        filters_row.addWidget(QLabel("Magazine/Edition"))
+        filters_row.addWidget(self.analysis_mag_combo)
+        filter_layout.addLayout(filters_row)
+
+        filters_row2 = QHBoxLayout()
+        self.analysis_qset_group_combo = QComboBox()
+        self.analysis_qset_group_combo.setEditable(True)
+        filters_row2.addWidget(QLabel("Question Set Group"))
+        filters_row2.addWidget(self.analysis_qset_group_combo)
+
+        self.analysis_chapter_group_combo = QComboBox()
+        self.analysis_chapter_group_combo.setEditable(True)
+        filters_row2.addWidget(QLabel("Chapter Group"))
+        filters_row2.addWidget(self.analysis_chapter_group_combo)
+
+        self.analysis_tag_combo = QComboBox()
+        self.analysis_tag_combo.setEditable(True)
+        filters_row2.addWidget(QLabel("Tag"))
+        filters_row2.addWidget(self.analysis_tag_combo)
+
+        filters_row2.addWidget(QLabel("Value"))
+        self.analysis_value_combo = QComboBox()
+        filters_row2.addWidget(self.analysis_value_combo)
+
+        apply_btn = QPushButton("Apply Filters")
+        apply_btn.clicked.connect(self._refresh_question_analysis)
+        filters_row2.addWidget(apply_btn)
+        filter_layout.addLayout(filters_row2)
+
+        layout.addWidget(filter_card)
+
+        # Charts
+        chart_card = self._create_card()
+        chart_layout = QVBoxLayout(chart_card)
+        chart_layout.addWidget(self._create_label("Counts by selected value"))
+        self.analysis_fig = Figure(figsize=(8, 4))
+        self.analysis_canvas = FigureCanvas(self.analysis_fig)
+        chart_layout.addWidget(self.analysis_canvas, 1)
+        layout.addWidget(chart_card, 1)
+
+        self.content_stack.addWidget(page)
+        self._load_analysis_presets()
+        self._populate_analysis_value_options()
+        self._refresh_question_analysis()
+
+    def _populate_analysis_value_options(self):
+        self.analysis_value_combo.clear()
+        options = [
+            "High Level Chapter",
+            "Question Set Group",
+            "Question Set",
+            "Chapter Group",
+            "Magazine Edition",
+            "Tag",
+        ]
+        self.analysis_value_combo.addItems(options)
+        if self.analysis_value_field in options:
+            self.analysis_value_combo.setCurrentText(self.analysis_value_field)
+        else:
+            self.analysis_value_combo.setCurrentIndex(0)
+
+    def _load_analysis_presets(self):
+        self.analysis_presets = []
+        if self.db_service:
+            data = self.db_service.load_config("QuestionAnalysisPresets")
+            self.analysis_presets = data.get("presets", [])
+        self.analysis_preset_combo.clear()
+        self.analysis_preset_combo.addItem("Select preset")
+        for preset in self.analysis_presets:
+            self.analysis_preset_combo.addItem(preset.get("name", ""))
+
+    def _save_current_analysis_preset(self):
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        if not ok or not name.strip():
+            return
+        filters = self._collect_analysis_filters()
+        value_field = self.analysis_value_combo.currentText() or "High Level Chapter"
+        preset = {"name": name.strip(), "filters": filters, "value_field": value_field}
+        # Replace if exists
+        self.analysis_presets = [p for p in self.analysis_presets if p.get("name") != name.strip()]
+        self.analysis_presets.append(preset)
+        if self.db_service:
+            self.db_service.save_config("QuestionAnalysisPresets", {"presets": self.analysis_presets})
+        self._load_analysis_presets()
+        self.analysis_preset_combo.setCurrentText(name.strip())
+
+    def _apply_selected_analysis_preset(self):
+        idx = self.analysis_preset_combo.currentIndex()
+        if idx <= 0 or idx - 1 >= len(self.analysis_presets):
+            return
+        preset = self.analysis_presets[idx - 1]
+        filters = preset.get("filters", {})
+        value_field = preset.get("value_field", "High Level Chapter")
+        # Apply filters to combos
+        self._set_combo_to_value(self.analysis_qset_combo, filters.get("question_set", "All"))
+        self._set_combo_to_value(self.analysis_chapter_combo, filters.get("chapter", "All"))
+        self._set_combo_to_value(self.analysis_mag_combo, filters.get("magazine", "All"))
+        self._set_combo_to_value(self.analysis_qset_group_combo, filters.get("question_set_group", "All"))
+        self._set_combo_to_value(self.analysis_chapter_group_combo, filters.get("chapter_group", "All"))
+        self._set_combo_to_value(self.analysis_tag_combo, filters.get("tag", "All"))
+        self.analysis_value_combo.setCurrentText(value_field)
+        self._refresh_question_analysis()
+
+    def _set_combo_to_value(self, combo: QComboBox, value: str):
+        if combo is None:
+            return
+        if value is None or value == "All":
+            combo.setCurrentIndex(0 if combo.count() else -1)
+            return
+        idx = combo.findText(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            combo.addItem(value)
+            combo.setCurrentIndex(combo.count() - 1)
+
+    def _collect_analysis_filters(self) -> dict:
+        def val(combo: QComboBox):
+            text = combo.currentText().strip() if combo else ""
+            return text if text and text.lower() != "all" else "All"
+
+        return {
+            "question_set": val(self.analysis_qset_combo),
+            "chapter": val(self.analysis_chapter_combo),
+            "magazine": val(self.analysis_mag_combo),
+            "question_set_group": val(self.analysis_qset_group_combo),
+            "chapter_group": val(self.analysis_chapter_group_combo),
+            "tag": val(self.analysis_tag_combo),
+        }
+
+    def _refresh_analysis_filter_options(self, df: pd.DataFrame):
+        def load_combo(combo: QComboBox, values: list[str]):
+            combo.blockSignals(True)
+            current = combo.currentText()
+            combo.clear()
+            combo.addItem("All")
+            for v in values:
+                combo.addItem(v)
+            if current and combo.findText(current) >= 0:
+                combo.setCurrentText(current)
+            combo.blockSignals(False)
+
+        def unique_series(df_obj: pd.DataFrame, col: str) -> list[str]:
+            if col not in df_obj:
+                return []
+            ser = df_obj[col].fillna("")
+            return [v for v in ser.astype(str).tolist() if v]
+
+        load_combo(self.analysis_qset_combo, sorted(set(unique_series(df, "Question Set")), key=lambda x: x.lower()))
+        load_combo(self.analysis_chapter_combo, sorted(set(unique_series(df, "High Level Chapter")), key=lambda x: x.lower()))
+        load_combo(self.analysis_mag_combo, sorted(set(unique_series(df, "Magazine Edition")), key=lambda x: x.lower()))
+        load_combo(self.analysis_qset_group_combo, sorted(set(unique_series(df, "Question Set Group")), key=lambda x: x.lower()))
+        load_combo(self.analysis_chapter_group_combo, sorted(set(unique_series(df, "Chapter Group")), key=lambda x: x.lower()))
+        if "Tags" in df.columns:
+            all_tags = sorted({tag for tags in df["Tags"] for tag in (tags or [])}, key=lambda x: x.lower())
+        else:
+            all_tags = []
+        load_combo(self.analysis_tag_combo, all_tags)
+
+    def _analysis_dataframe(self) -> pd.DataFrame:
+        if self.Database_df is None or self.Database_df.empty:
+            return pd.DataFrame()
+        df = self.Database_df.copy()
+        df["Question Set"] = df["Name of Question Set"] if "Name of Question Set" in df else df.get("question_set_name", "")
+        df["High Level Chapter"] = (
+            df["High level chapter"]
+            if "High level chapter" in df
+            else df.get("high_level_chapter", df.get("chapter", ""))
+        )
+        df["Magazine Edition"] = df["Magazine Edition"] if "Magazine Edition" in df else df.get("magazine", "")
+        df["Chapter Group"] = df["High Level Chapter"].apply(self._match_chapter_group)
+        # Question set group
+        group_lookup = {}
+        if hasattr(self, "question_set_group_service") and self.question_set_group_service:
+            for g_name, g_data in self.question_set_group_service.get_all_groups().items():
+                for qs in g_data.get("question_sets", []):
+                    group_lookup[qs] = g_name
+        df["Question Set Group"] = df["Question Set"].apply(lambda qs: group_lookup.get(qs, "Others"))
+        # Tags from group
+        def tags_for_group(group_name: str) -> list[str]:
+            return self.question_set_group_tags.get(group_name, [])
+        df["Tags"] = df["Question Set Group"].apply(tags_for_group)
+        return df
+
+    def _refresh_question_analysis(self):
+        df = self._analysis_dataframe()
+        if df.empty:
+            self._clear_analysis_chart()
+            return
+        self._refresh_analysis_filter_options(df)
+        filters = self._collect_analysis_filters()
+        # Apply filters
+        if filters.get("question_set") and filters["question_set"] != "All":
+            df = df[df["Question Set"] == filters["question_set"]]
+        if filters.get("chapter") and filters["chapter"] != "All":
+            df = df[df["High Level Chapter"] == filters["chapter"]]
+        if filters.get("magazine") and filters["magazine"] != "All":
+            df = df[df["Magazine Edition"].str.contains(filters["magazine"], case=False, na=False)]
+        if filters.get("question_set_group") and filters["question_set_group"] != "All":
+            df = df[df["Question Set Group"] == filters["question_set_group"]]
+        if filters.get("chapter_group") and filters["chapter_group"] != "All":
+            df = df[df["Chapter Group"] == filters["chapter_group"]]
+        if filters.get("tag") and filters["tag"] != "All":
+            df = df[df["Tags"].apply(lambda tags: filters["tag"] in (tags or []))]
+
+        value_field = self.analysis_value_combo.currentText() or "High Level Chapter"
+        self.analysis_value_field = value_field
+        value_map = {
+            "High Level Chapter": "High Level Chapter",
+            "Question Set Group": "Question Set Group",
+            "Question Set": "Question Set",
+            "Chapter Group": "Chapter Group",
+            "Magazine Edition": "Magazine Edition",
+            "Tag": "Tags",
+        }
+        col = value_map.get(value_field, "High Level Chapter")
+        plot_df = df.copy()
+        if col == "Tags":
+            plot_df = plot_df.explode("Tags")
+            plot_df = plot_df[plot_df["Tags"].notna() & (plot_df["Tags"] != "")]
+            col = "Tags"
+        counts = plot_df[col].value_counts().reset_index()
+        counts.columns = [col, "count"]
+
+        self._render_analysis_charts(counts, col)
+
+    def _clear_analysis_chart(self):
+        if hasattr(self, "analysis_fig"):
+            self.analysis_fig.clear()
+            self.analysis_canvas.draw()
+
+    def _render_analysis_charts(self, counts: pd.DataFrame, col: str):
+        self.analysis_fig.clear()
+        ax_pie = self.analysis_fig.add_subplot(1, 2, 1)
+        ax_bar = self.analysis_fig.add_subplot(1, 2, 2)
+        if counts.empty:
+            ax_pie.text(0.5, 0.5, "No data", ha="center", va="center")
+            ax_bar.text(0.5, 0.5, "No data", ha="center", va="center")
+        else:
+            top = counts.head(12)
+            labels = top[col].astype(str).tolist()
+            sizes = top["count"].tolist()
+            ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
+            ax_pie.set_title(f"{col} distribution", fontsize=10)
+            ax_bar.bar(labels, sizes, color="#2563eb")
+            ax_bar.set_title(f"Count by {col}", fontsize=10)
+            ax_bar.tick_params(axis="x", rotation=45, labelsize=8)
+            ax_bar.set_ylabel("Questions")
+        self.analysis_fig.tight_layout()
+        self.analysis_canvas.draw()
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
@@ -2219,6 +2521,7 @@ class TSVWatcherWindow(QMainWindow):
             self.log(warning)
 
         self.set_status(f"Loaded {source_label}", "success")
+        self._refresh_question_analysis()
 
     def _create_card(self) -> QWidget:
         card = QWidget()
