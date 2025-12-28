@@ -1850,9 +1850,14 @@ class TSVWatcherWindow(QMainWindow):
             print(f"[analysis] pie values for {col}: {list(zip(labels, sizes))}", flush=True)
             ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
             ax_pie.set_title(f"{col} distribution", fontsize=10)
-            ax_bar.bar(labels, sizes, color="#2563eb")
+            def _truncate(text: str, max_len: int = 18) -> str:
+                return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+            x = list(range(len(labels)))
+            trunc_labels = [_truncate(lbl) for lbl in labels]
+            ax_bar.bar(x, sizes, color="#2563eb")
+            ax_bar.set_xticks(x, trunc_labels, rotation=30, ha="right", fontsize=8)
             ax_bar.set_title(f"Count by {col}", fontsize=10)
-            ax_bar.tick_params(axis="x", rotation=45, labelsize=8)
             ax_bar.set_ylabel("Questions")
         self.analysis_fig.tight_layout()
         self.analysis_canvas.draw()
