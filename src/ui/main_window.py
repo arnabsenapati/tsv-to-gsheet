@@ -1839,6 +1839,7 @@ class TSVWatcherWindow(QMainWindow):
         self.analysis_fig.clear()
         ax_pie = self.analysis_fig.add_subplot(1, 2, 1)
         ax_bar = self.analysis_fig.add_subplot(1, 2, 2)
+        self._clear_analysis_hover_handlers()
         if counts.empty:
             ax_pie.text(0.5, 0.5, "No data", ha="center", va="center")
             ax_bar.text(0.5, 0.5, "No data", ha="center", va="center")
@@ -1848,19 +1849,106 @@ class TSVWatcherWindow(QMainWindow):
             sizes = top["count"].tolist()
             # Debug print values used for pie
             print(f"[analysis] pie values for {col}: {list(zip(labels, sizes))}", flush=True)
-            ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
+            wedges, _texts, _autotexts = ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
             ax_pie.set_title(f"{col} distribution", fontsize=10)
             def _truncate(text: str, max_len: int = 18) -> str:
                 return text if len(text) <= max_len else text[: max_len - 1] + "…"
 
             x = list(range(len(labels)))
             trunc_labels = [_truncate(lbl) for lbl in labels]
-            ax_bar.bar(x, sizes, color="#2563eb")
+            bars = ax_bar.bar(x, sizes, color="#2563eb")
             ax_bar.set_xticks(x, trunc_labels, rotation=30, ha="right", fontsize=8)
             ax_bar.set_title(f"Count by {col}", fontsize=10)
             ax_bar.set_ylabel("Questions")
+            self._attach_analysis_hover(wedges, labels, sizes, bars, trunc_labels, sizes, col)
         self.analysis_fig.tight_layout()
         self.analysis_canvas.draw()
+
+    def _clear_analysis_hover_handlers(self):
+        if not hasattr(self, "analysis_hover_cids"):
+            self.analysis_hover_cids = []
+        for cid in getattr(self, "analysis_hover_cids", []):
+            try:
+                self.analysis_canvas.mpl_disconnect(cid)
+            except Exception:
+                pass
+        self.analysis_hover_cids = []
+
+    def _attach_analysis_hover(
+        self,
+        wedges,
+        pie_labels,
+        pie_sizes,
+        bars,
+        bar_labels,
+        bar_sizes,
+        col_name: str,
+    ):
+        """
+        Add hover highlighting + tooltips for pie wedges and bars.
+        Highlights hovered item, dims others, and shows label/count/percent.
+        """
+        ann = self.analysis_fig.text(0, 0, "", fontsize=9, bbox=dict(boxstyle="round", fc="white", ec="#cbd5e1", alpha=0.9))
+        ann.set_visible(False)
+        total = sum(pie_sizes) if pie_sizes else 1
+
+        def reset_alpha():
+            for w in wedges:
+                w.set_alpha(1.0)
+                w.set_linewidth(0.5)
+                w.set_edgecolor("white")
+            for b in bars:
+                b.set_alpha(1.0)
+                b.set_linewidth(0)
+
+        def on_move(event):
+            if not event.inaxes:
+                ann.set_visible(False)
+                reset_alpha()
+                self.analysis_canvas.draw_idle()
+                return
+            hit = False
+            if event.inaxes == wedges[0].axes:
+                # Pie hover
+                reset_alpha()
+                for w, lbl, size in zip(wedges, pie_labels, pie_sizes):
+                    contains, _ = w.contains(event)
+                    if contains:
+                        hit = True
+                        w.set_alpha(1.0)
+                        w.set_linewidth(2)
+                        w.set_edgecolor("#0ea5e9")
+                        for other in wedges:
+                            if other is not w:
+                                other.set_alpha(0.4)
+                        pct = (size / total) * 100 if total else 0
+                        ann.set_text(f"{lbl}\nCount: {size}\n{pct:.1f}%")
+                        ann.set_position((event.xdata, event.ydata))
+                        ann.set_visible(True)
+                        break
+            if not hit and event.inaxes == bars[0].axes:
+                reset_alpha()
+                for b, lbl, size in zip(bars, bar_labels, bar_sizes):
+                    contains, _ = b.contains(event)
+                    if contains:
+                        hit = True
+                        b.set_alpha(1.0)
+                        b.set_linewidth(1)
+                        b.set_edgecolor("#0ea5e9")
+                        for other in bars:
+                            if other is not b:
+                                other.set_alpha(0.4)
+                        ann.set_text(f"{lbl}\nCount: {size}")
+                        ann.set_position((event.xdata, event.ydata))
+                        ann.set_visible(True)
+                        break
+            if not hit:
+                ann.set_visible(False)
+                reset_alpha()
+            self.analysis_canvas.draw_idle()
+
+        cid = self.analysis_canvas.mpl_connect("motion_notify_event", on_move)
+        self.analysis_hover_cids.append(cid)
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
