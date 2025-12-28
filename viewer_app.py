@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 from services.cbt_package import load_cqt, save_cqt_payload, verify_eval_password
+from ui.icon_utils import load_icon
 
 
 class SketchBoard(QWidget):
@@ -202,6 +203,22 @@ class SketchBoard(QWidget):
         buffer.close()
         return base64.b64encode(png_bytes).decode("ascii")
 
+    def is_base64_blank(self, data: str | None) -> bool:
+        """Check if provided base64 PNG is effectively a blank board."""
+        if not data:
+            return True
+        try:
+            raw = base64.b64decode(data)
+            image = QImage()
+            image.loadFromData(raw)
+            if image.isNull():
+                return True
+            blank = QImage(image.size(), QImage.Format_ARGB32)
+            blank.fill(Qt.black)
+            return image == blank
+        except Exception:
+            return True
+
     def load_from_base64(self, data: str | None):
         if not data:
             self.clear_board()
@@ -241,6 +258,7 @@ class QuestionView(QWidget):
         self._active_pen_color: str = ""
         self._default_pen_width = 3
         self._eraser_width = 36  # 3x bigger eraser
+        self.has_sketch: bool = False
 
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
@@ -310,8 +328,13 @@ class QuestionView(QWidget):
         self.board.set_scroll_area(board_scroll)
         self.clear_board_btn = QPushButton("Clear Sketch")
         self.clear_board_btn.clicked.connect(self._clear_sketch)
+        self.sketch_status_btn = QPushButton()
+        self.sketch_status_btn.setIcon(load_icon("sketch-empty.png"))
+        self.sketch_status_btn.setIconSize(QSize(20, 20))
+        self.sketch_status_btn.setEnabled(False)
         board_controls = QHBoxLayout()
         board_controls.addWidget(self.clear_board_btn)
+        board_controls.addWidget(self.sketch_status_btn)
         board_controls.addWidget(self.eraser_btn)
         for idx, color in enumerate(self.board.colors):
             btn = QRadioButton()
@@ -475,6 +498,13 @@ class QuestionView(QWidget):
             self.board.set_pen_color(self._active_pen_color)
             self.board.set_pen_width(self._default_pen_width)
 
+    def _update_sketch_label(self):
+        if hasattr(self, "sketch_status_btn"):
+            if self.has_sketch:
+                self.sketch_status_btn.setIcon(load_icon("sketch-filled.png"))
+            else:
+                self.sketch_status_btn.setIcon(load_icon("sketch-empty.png"))
+
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
         self.question = question
@@ -519,6 +549,10 @@ class QuestionView(QWidget):
 
         selected_raw = responses.get(str(qid), [])
         selected, sketch_b64 = self._extract_answer_and_sketch(selected_raw)
+        if sketch_b64 and self.board.is_base64_blank(sketch_b64):
+            sketch_b64 = None
+        self.has_sketch = bool(sketch_b64)
+        self._update_sketch_label()
         if self.current_type == "numerical":
             val = selected if isinstance(selected, str) else ""
             if not isinstance(selected, str):
@@ -605,6 +639,8 @@ class QuestionView(QWidget):
         if self.qkey is None:
             return
         sketch_b64 = self.board.to_png_base64()
+        self.has_sketch = bool(sketch_b64)
+        self._update_sketch_label()
         if sketch_b64:
             self._set_sketch_value(sketch_b64)
         else:
@@ -615,6 +651,8 @@ class QuestionView(QWidget):
         self.board.clear_board()
         if self.qkey is None:
             return
+        self.has_sketch = False
+        self._update_sketch_label()
         self._set_sketch_value(None)
         self.on_answer_change()
 
@@ -623,6 +661,8 @@ class QuestionView(QWidget):
             return
         sketch_b64 = self.board.to_png_base64()
         # If empty/None, clear stored sketch; otherwise save
+        self.has_sketch = bool(sketch_b64)
+        self._update_sketch_label()
         if sketch_b64:
             self._set_sketch_value(sketch_b64)
         else:
