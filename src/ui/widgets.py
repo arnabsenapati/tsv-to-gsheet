@@ -2335,7 +2335,7 @@ class QuestionCardWidget(QLabel):
             if _CAMERA_ICON_B64:
                 camera_html = (
                     f'<img src="data:image/png;base64,{_CAMERA_ICON_B64}" '
-                    'style="margin-left: 6px; width: 12px; height: 12px; vertical-align: middle;" />'
+                    'style="margin-left: 6px; width: 12px; height: 12px; max-width: 12px; max-height: 12px; vertical-align: text-bottom; display: inline-block; object-fit: contain;" />'
                 )
             else:
                 camera_html = '<span style="margin-left: 6px; font-size: 12px; color: #0ea5e9;">&#128247;</span>'
