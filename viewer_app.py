@@ -123,7 +123,7 @@ class SketchBoard(QWidget):
             self.setCursor(Qt.ArrowCursor)
             return
         if event.button() == Qt.LeftButton and self._current:
-            self._strokes.append({"color": QColor(self.current_color), "points": list(self._current)})
+            self._strokes.append({"color": QColor(self.current_color), "points": list(self._current), "width": self.pen_width})
             self._current = []
             self._preview_pos = None
             self.update()
@@ -138,7 +138,8 @@ class SketchBoard(QWidget):
         for stroke in self._strokes:
             pts = stroke.get("points") or []
             col = stroke.get("color", self.pen_color)
-            painter.setPen(QPen(col, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            width = stroke.get("width", self.pen_width)
+            painter.setPen(QPen(col, width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             if len(pts) > 1:
                 for i in range(1, len(pts)):
                     painter.drawLine(pts[i - 1], pts[i])
@@ -163,7 +164,11 @@ class SketchBoard(QWidget):
         self.update()
         self._emit_changed()
 
-    def to_png_base64(self) -> str:
+    def to_png_base64(self) -> str | None:
+        # Quick empty check: no strokes and no active stroke
+        if not self._strokes and len(self._current) <= 1:
+            return None
+
         image = QImage(self.size(), QImage.Format_ARGB32)
         image.fill(Qt.black)
         painter = QPainter(image)
@@ -173,7 +178,8 @@ class SketchBoard(QWidget):
         for stroke in self._strokes:
             pts = stroke.get("points") or []
             col = stroke.get("color", self.pen_color)
-            painter.setPen(QPen(col, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            width = stroke.get("width", self.pen_width)
+            painter.setPen(QPen(col, width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             if len(pts) > 1:
                 for i in range(1, len(pts)):
                     painter.drawLine(pts[i - 1], pts[i])
@@ -182,6 +188,13 @@ class SketchBoard(QWidget):
             for i in range(1, len(self._current)):
                 painter.drawLine(self._current[i - 1], self._current[i])
         painter.end()
+
+        # Safeguard: if rendering matches a blank background, treat as empty
+        blank = QImage(self.size(), QImage.Format_ARGB32)
+        blank.fill(Qt.black)
+        if image == blank:
+            return None
+
         buffer = QBuffer()
         buffer.open(QBuffer.ReadWrite)
         image.save(buffer, "PNG")
@@ -410,8 +423,6 @@ class QuestionView(QWidget):
             available_width = max(min_scale_width, viewport_w - reserved_scrollbar_px)
             available_width = min(max_scale_width, available_width)
             available_height = max(200, self.image_scroll.viewport().height() - 4)
-        h_bar_visible = self.image_scroll.horizontalScrollBar().isVisible() if self.image_scroll else False
-        v_bar_visible = self.image_scroll.verticalScrollBar().isVisible() if self.image_scroll else False
         # Prevent repeated renders with the same size to avoid flicker
         cache_key = (available_width, available_height, include_answers)
         if not force and cache_key == self._last_image_render_size:
@@ -430,9 +441,21 @@ class QuestionView(QWidget):
                 )
                 lbl = QLabel()
                 lbl.setPixmap(scaled)
-            lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-            lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-            self.image_layout.addWidget(lbl)
+                lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+                lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+                self.image_layout.addWidget(lbl)
+
+        _add_images(self._current_image_pixmaps)
+
+        if include_answers and self._answer_image_pixmaps:
+            divider = QFrame()
+            divider.setFrameShape(QFrame.HLine)
+            divider.setStyleSheet("color: #cbd5e1; margin-top: 6px; margin-bottom: 6px;")
+            self.image_layout.addWidget(divider)
+            answer_title = QLabel("Answer Images")
+            answer_title.setStyleSheet("font-weight: 600; color: #334155; padding: 2px 0;")
+            self.image_layout.addWidget(answer_title)
+            _add_images(self._answer_image_pixmaps)
 
     def _set_pen_color(self, color: str):
         """Set active pen color and exit eraser mode."""
@@ -451,18 +474,6 @@ class QuestionView(QWidget):
         else:
             self.board.set_pen_color(self._active_pen_color)
             self.board.set_pen_width(self._default_pen_width)
-
-        _add_images(self._current_image_pixmaps)
-
-        if include_answers and self._answer_image_pixmaps:
-            divider = QFrame()
-            divider.setFrameShape(QFrame.HLine)
-            divider.setStyleSheet("color: #cbd5e1; margin-top: 6px; margin-bottom: 6px;")
-            self.image_layout.addWidget(divider)
-            answer_title = QLabel("Answer Images")
-            answer_title.setStyleSheet("color: #334155; font-weight: 600; padding: 2px 0;")
-            self.image_layout.addWidget(answer_title)
-            _add_images(self._answer_image_pixmaps)
 
     def set_question(self, question: Dict[str, Any], responses: Dict[str, list[str] | str], display_index: int, qkey: str, show_answers: bool = False):
         self._updating = True
@@ -594,7 +605,10 @@ class QuestionView(QWidget):
         if self.qkey is None:
             return
         sketch_b64 = self.board.to_png_base64()
-        self._set_sketch_value(sketch_b64)
+        if sketch_b64:
+            self._set_sketch_value(sketch_b64)
+        else:
+            self._set_sketch_value(None)
         self.on_answer_change()
 
     def _clear_sketch(self):
@@ -608,7 +622,11 @@ class QuestionView(QWidget):
         if self.qkey is None:
             return
         sketch_b64 = self.board.to_png_base64()
-        self._set_sketch_value(sketch_b64)
+        # If empty/None, clear stored sketch; otherwise save
+        if sketch_b64:
+            self._set_sketch_value(sketch_b64)
+        else:
+            self._set_sketch_value(None)
         self.on_answer_change()
 
     def _show_controls_for_type(self, qtype: str):
