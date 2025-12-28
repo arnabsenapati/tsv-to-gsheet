@@ -40,6 +40,7 @@ This module contains all custom widget classes used throughout the application:
 
 import json
 import os
+import base64
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
@@ -71,6 +72,13 @@ from PySide6.QtWidgets import (
 from ui.icon_utils import load_icon
 from utils.helpers import normalize_magazine_edition
 
+# Load camera icon as base64 for inline HTML in question cards
+_CAMERA_ICON_B64 = ""
+try:
+    _icon_path = Path(__file__).resolve().parent.parent.parent / "icons" / "camera.png"
+    _CAMERA_ICON_B64 = base64.b64encode(_icon_path.read_bytes()).decode("ascii")
+except Exception:
+    _CAMERA_ICON_B64 = ""
 
 
 
@@ -2318,18 +2326,19 @@ class QuestionCardWidget(QLabel):
         
 
         # Add checkmark if selected
-
         selection_icon = ""
-
         if self.is_selected:
-
-            selection_icon = '<span style="color: #10b981; font-size: 18px; font-weight: bold; margin-right: 8px;">✓</span>'
-
+            selection_icon = '<span style="color: #10b981; font-size: 18px; font-weight: bold; margin-right: 8px;">&#10003;</span>'
 
         camera_html = ""
         if self.has_images:
-            camera_html = '<span style="margin-left: 6px; font-size: 12px; color: #0ea5e9;">📷</span>'
-        
+            if _CAMERA_ICON_B64:
+                camera_html = (
+                    f'<img src="data:image/png;base64,{_CAMERA_ICON_B64}" '
+                    'style="margin-left: 6px; width: 14px; height: 14px; vertical-align: middle;" />'
+                )
+            else:
+                camera_html = '<span style="margin-left: 6px; font-size: 12px; color: #0ea5e9;">&#128247;</span>'
 
         # Build card HTML
 
