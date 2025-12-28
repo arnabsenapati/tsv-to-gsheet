@@ -79,11 +79,15 @@ try:
     _CAMERA_ICON_B64 = base64.b64encode(_icon_path.read_bytes()).decode("ascii")
 except Exception:
     _CAMERA_ICON_B64 = ""
-try:
-    _icon_big_path = Path(__file__).resolve().parent.parent.parent / "icons" / "camera-big.png"
-    _CAMERA_BIG_PIX = QPixmap(str(_icon_big_path))
-except Exception:
-    _CAMERA_BIG_PIX = QPixmap()
+_CAMERA_BIG_PATH = Path(__file__).resolve().parent.parent.parent / "icons" / "camera-big.png"
+
+def _get_camera_big_pix() -> QPixmap:
+    """Load camera-big.png lazily (after QApplication exists)."""
+    if _CAMERA_BIG_PATH.exists():
+        pix = QPixmap(str(_CAMERA_BIG_PATH))
+        if not pix.isNull():
+            return pix
+    return QPixmap()
 
 
 
@@ -1888,7 +1892,11 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setIcon(icon)
         self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
         if hasattr(self, "ribbon_label"):
-            self.ribbon_label.setVisible(has_images and not _CAMERA_BIG_PIX.isNull())
+            pix = _get_camera_big_pix()
+            if not pix.isNull():
+                pix = pix.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.ribbon_label.setPixmap(pix)
+            self.ribbon_label.setVisible(has_images and not pix.isNull())
         if has_images != previous:
             if hasattr(self, "card"):
                 try:
@@ -2245,7 +2253,7 @@ class QuestionCardWidget(QLabel):
 
         # Camera ribbon (top-left) when images exist
         self.ribbon_label = QLabel(self)
-        ribbon_pix = _CAMERA_BIG_PIX
+        ribbon_pix = _get_camera_big_pix()
         if not ribbon_pix.isNull():
             ribbon_pix = ribbon_pix.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.ribbon_label.setPixmap(ribbon_pix)
