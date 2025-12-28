@@ -3113,6 +3113,9 @@ class TSVWatcherWindow(QMainWindow):
         return ' '.join(significant_tokens)
 
     def _auto_assign_chapters(self, chapters: list[str]) -> None:
+        # Keep "Others" scoped to the current subject's chapters only
+        self._prune_others_for_current_subject(chapters)
+
         changed = False
         existing = {
             self._normalize_label(ch)
@@ -3128,6 +3131,22 @@ class TSVWatcherWindow(QMainWindow):
             existing.add(normalized)
             changed = True
         if changed:
+            self._save_chapter_grouping()
+            self._refresh_grouping_ui()
+
+    def _prune_others_for_current_subject(self, chapters: list[str]) -> None:
+        """
+        Ensure the 'Others' group only contains chapters that appear in the current subject.
+        """
+        if "Others" not in self.chapter_groups:
+            return
+        valid_norm = {self._normalize_label(ch) for ch in chapters if self._normalize_label(ch)}
+        filtered = [
+            ch for ch in self.chapter_groups.get("Others", [])
+            if self._normalize_label(ch) in valid_norm
+        ]
+        if len(filtered) != len(self.chapter_groups.get("Others", [])):
+            self.chapter_groups["Others"] = filtered
             self._save_chapter_grouping()
             self._refresh_grouping_ui()
 
