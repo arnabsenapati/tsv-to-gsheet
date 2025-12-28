@@ -79,6 +79,11 @@ try:
     _CAMERA_ICON_B64 = base64.b64encode(_icon_path.read_bytes()).decode("ascii")
 except Exception:
     _CAMERA_ICON_B64 = ""
+try:
+    _icon_big_path = Path(__file__).resolve().parent.parent.parent / "icons" / "camera-big.png"
+    _CAMERA_BIG_PIX = QPixmap(str(_icon_big_path))
+except Exception:
+    _CAMERA_BIG_PIX = QPixmap()
 
 
 
@@ -1882,6 +1887,8 @@ class QuestionCardWithRemoveButton(QWidget):
         self.has_images = has_images
         self.image_btn.setIcon(icon)
         self.image_btn.setStyleSheet(self._image_button_style(active=has_images))
+        if hasattr(self, "ribbon_label"):
+            self.ribbon_label.setVisible(has_images and not _CAMERA_BIG_PIX.isNull())
         if has_images != previous:
             if hasattr(self, "card"):
                 try:
@@ -2236,6 +2243,16 @@ class QuestionCardWidget(QLabel):
         self.edit_btn.setCursor(Qt.PointingHandCursor)
         self.image_btn.raise_()
 
+        # Camera ribbon (top-left) when images exist
+        self.ribbon_label = QLabel(self)
+        ribbon_pix = _CAMERA_BIG_PIX
+        if not ribbon_pix.isNull():
+            ribbon_pix = ribbon_pix.scaled(20, 20, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.ribbon_label.setPixmap(ribbon_pix)
+        self.ribbon_label.setVisible(self.has_images)
+        self.ribbon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.ribbon_label.raise_()
+
         self._update_image_button_state()
 
     
@@ -2330,15 +2347,7 @@ class QuestionCardWidget(QLabel):
         if self.is_selected:
             selection_icon = '<span style="color: #10b981; font-size: 18px; font-weight: bold; margin-right: 8px;">&#10003;</span>'
 
-        camera_html = ""
-        if self.has_images:
-            if _CAMERA_ICON_B64:
-                camera_html = (
-                    f'<img src="data:image/png;base64,{_CAMERA_ICON_B64}" '
-                    'style="margin-left: 6px; width: 12px; height: 12px; max-width: 12px; max-height: 12px; vertical-align: text-bottom; display: inline-block; object-fit: contain;" />'
-                )
-            else:
-                camera_html = '<span style="margin-left: 6px; font-size: 12px; color: #0ea5e9;">&#128247;</span>'
+        camera_html = ""  # Ribbon icon handles image indicator; no inline icon
 
         # Build card HTML
 
@@ -2440,6 +2449,7 @@ class QuestionCardWidget(QLabel):
     def _position_top_buttons(self):
         self.image_btn.move(self.width() - 32, 4)
         self.edit_btn.move(self.width() - 64, 4)
+        self.ribbon_label.move(6, 6)
 
     def _find_db_service(self):
         """Walk parents to find db_service if available."""
