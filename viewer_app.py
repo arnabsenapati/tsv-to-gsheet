@@ -19,7 +19,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import Qt, QBuffer, QPointF, QEvent
+from PySide6.QtCore import Qt, QBuffer, QPointF, QEvent, QSize
 from PySide6.QtGui import QPixmap, QColor, QPainter, QPen, QImage
 from PySide6.QtCore import QBuffer
 from PySide6.QtWidgets import (
