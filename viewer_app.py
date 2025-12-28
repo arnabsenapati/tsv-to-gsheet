@@ -55,6 +55,8 @@ class SketchBoard(QWidget):
         self.pen_color = QColor("#e5e7eb")
         self.pen_width = 3
         self.current_color = QColor(self.pen_color)
+        self._show_cursor_preview = False
+        self._preview_pos: QPointF | None = None
         self.color_group = QButtonGroup(self)
         self.colors = [
             "#e5e7eb",  # light gray
@@ -95,6 +97,7 @@ class SketchBoard(QWidget):
             return
         if event.button() == Qt.LeftButton:
             self._current = [event.position()]
+            self._preview_pos = event.position()
             self.update()
 
     def mouseMoveEvent(self, event):
@@ -108,6 +111,10 @@ class SketchBoard(QWidget):
             return
         if self._current:
             self._current.append(event.position())
+            self._preview_pos = event.position()
+            self.update()
+        else:
+            self._preview_pos = event.position()
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -118,6 +125,7 @@ class SketchBoard(QWidget):
         if event.button() == Qt.LeftButton and self._current:
             self._strokes.append({"color": QColor(self.current_color), "points": list(self._current)})
             self._current = []
+            self._preview_pos = None
             self.update()
             self._emit_changed()
 
@@ -138,6 +146,14 @@ class SketchBoard(QWidget):
             painter.setPen(QPen(self.current_color, self.pen_width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             for i in range(1, len(self._current)):
                 painter.drawLine(self._current[i - 1], self._current[i])
+        # Draw cursor preview (eraser/pen boundary)
+        if self._preview_pos is not None:
+            preview_pen = QPen(QColor("#94a3b8"))
+            preview_pen.setStyle(Qt.DashLine)
+            preview_pen.setWidth(1)
+            painter.setPen(preview_pen)
+            radius = self.pen_width / 2
+            painter.drawEllipse(self._preview_pos, radius, radius)
         painter.end()
 
     def clear_board(self):
@@ -211,7 +227,7 @@ class QuestionView(QWidget):
         self._last_image_render_size: tuple[int | None, int | None] = (None, None)
         self._active_pen_color: str = ""
         self._default_pen_width = 3
-        self._eraser_width = 12
+        self._eraser_width = 36  # 3x bigger eraser
 
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
