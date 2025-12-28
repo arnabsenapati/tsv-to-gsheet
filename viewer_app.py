@@ -81,6 +81,9 @@ class SketchBoard(QWidget):
         self.pen_color = QColor(color)
         self.current_color = QColor(color)
 
+    def set_pen_width(self, width: int):
+        self.pen_width = max(1, int(width))
+
     def mousePressEvent(self, event):
         if event.button() == Qt.RightButton:
             if self._scroll_area:
@@ -206,6 +209,9 @@ class QuestionView(QWidget):
         self._answer_image_pixmaps: list[QPixmap] = []
         self._show_answers: bool = False
         self._last_image_render_size: tuple[int | None, int | None] = (None, None)
+        self._active_pen_color = self.board.colors[0]
+        self._default_pen_width = 3
+        self._eraser_width = 12
 
         self.meta_label = QLabel()
         self.meta_label.setStyleSheet("font-weight: 600; color: #cbd5e1; padding: 4px 0;")
@@ -236,6 +242,10 @@ class QuestionView(QWidget):
         self.board = SketchBoard()
         # Patch hook so board can notify when strokes change
         self.board._emit_changed = self._on_board_changed
+        self.eraser_btn = QPushButton("Eraser")
+        self.eraser_btn.setCheckable(True)
+        self.eraser_btn.setStyleSheet("padding: 4px 8px;")
+        self.eraser_btn.toggled.connect(self._toggle_eraser)
         color_row = QHBoxLayout()
         color_row.setSpacing(4)
         color_row.addStretch()
@@ -257,7 +267,8 @@ class QuestionView(QWidget):
             )
             if idx == 0:
                 btn.setChecked(True)
-            btn.toggled.connect(lambda checked, c=color: checked and self.board.set_pen_color(c))
+                self._active_pen_color = color
+            btn.toggled.connect(lambda checked, c=color: checked and self._set_pen_color(c))
             self.board.color_group.addButton(btn)
             color_row.addWidget(btn)
         color_row.addStretch()
@@ -271,6 +282,7 @@ class QuestionView(QWidget):
         self.clear_board_btn.clicked.connect(self._clear_sketch)
         board_controls = QHBoxLayout()
         board_controls.addWidget(self.clear_board_btn)
+        board_controls.addWidget(self.eraser_btn)
         for idx, color in enumerate(self.board.colors):
             btn = QRadioButton()
             btn.setStyleSheet(
@@ -289,7 +301,8 @@ class QuestionView(QWidget):
             )
             if idx == 0:
                 btn.setChecked(True)
-            btn.toggled.connect(lambda checked, c=color: checked and self.board.set_pen_color(c))
+                self._active_pen_color = color
+            btn.toggled.connect(lambda checked, c=color: checked and self._set_pen_color(c))
             self.board.color_group.addButton(btn)
             board_controls.addWidget(btn)
         board_controls.addStretch()
@@ -400,9 +413,27 @@ class QuestionView(QWidget):
                 )
                 lbl = QLabel()
                 lbl.setPixmap(scaled)
-                lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
-                lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-                self.image_layout.addWidget(lbl)
+            lbl.setStyleSheet("border: none; margin: 0; padding: 0;")
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            self.image_layout.addWidget(lbl)
+
+    def _set_pen_color(self, color: str):
+        """Set active pen color and exit eraser mode."""
+        self._active_pen_color = color
+        self.board.set_pen_color(color)
+        self.board.set_pen_width(self._default_pen_width)
+        if self.eraser_btn.isChecked():
+            self.eraser_btn.blockSignals(True)
+            self.eraser_btn.setChecked(False)
+            self.eraser_btn.blockSignals(False)
+
+    def _toggle_eraser(self, checked: bool):
+        if checked:
+            self.board.set_pen_color("#000000")
+            self.board.set_pen_width(self._eraser_width)
+        else:
+            self.board.set_pen_color(self._active_pen_color)
+            self.board.set_pen_width(self._default_pen_width)
 
         _add_images(self._current_image_pixmaps)
 
