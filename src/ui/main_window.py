@@ -1846,6 +1846,8 @@ class TSVWatcherWindow(QMainWindow):
             top = counts.head(12)
             labels = top[col].astype(str).tolist()
             sizes = top["count"].tolist()
+            # Debug print values used for pie
+            print(f"[analysis] pie values for {col}: {list(zip(labels, sizes))}", flush=True)
             ax_pie.pie(sizes, labels=labels, autopct="%1.0f%%", textprops={"fontsize": 8})
             ax_pie.set_title(f"{col} distribution", fontsize=10)
             ax_bar.bar(labels, sizes, color="#2563eb")
