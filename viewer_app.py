@@ -209,7 +209,7 @@ class QuestionView(QWidget):
         self._answer_image_pixmaps: list[QPixmap] = []
         self._show_answers: bool = False
         self._last_image_render_size: tuple[int | None, int | None] = (None, None)
-        self._active_pen_color = self.board.colors[0]
+        self._active_pen_color: str = ""
         self._default_pen_width = 3
         self._eraser_width = 12
 
@@ -242,6 +242,7 @@ class QuestionView(QWidget):
         self.board = SketchBoard()
         # Patch hook so board can notify when strokes change
         self.board._emit_changed = self._on_board_changed
+        self._active_pen_color = self.board.colors[0]
         self.eraser_btn = QPushButton("Eraser")
         self.eraser_btn.setCheckable(True)
         self.eraser_btn.setStyleSheet("padding: 4px 8px;")
