@@ -727,30 +727,6 @@ class ViewerWindow(QMainWindow):
         self.list_widget.currentRowChanged.connect(self._on_question_selected)
 
         self._load_questions()
-        self._log_sketch_presence()
-        self._log_sketch_non_null()
-
-    def _log_sketch_presence(self):
-        """Debug: print question numbers that already have a saved sketch."""
-        sketch_qnos: list[int] = []
-        for idx, q in enumerate(self.questions):
-            key = str(self._qkey(q, idx))
-            resp = self.responses.get(key, {})
-            sketch_b64 = resp.get("sketch_png") if isinstance(resp, dict) else None
-            if sketch_b64 and not self.question_view.board.is_base64_blank(sketch_b64):
-                sketch_qnos.append(idx + 1)
-        print(f"[viewer] sketches present for questions: {sketch_qnos}", flush=True)
-
-    def _log_sketch_non_null(self):
-        """Debug: print question numbers where sketch_png is non-null (raw, even if blank)."""
-        non_null: list[int] = []
-        for idx, q in enumerate(self.questions):
-            key = str(self._qkey(q, idx))
-            resp = self.responses.get(key, {})
-            sketch_b64 = resp.get("sketch_png") if isinstance(resp, dict) else None
-            if sketch_b64 is not None:
-                non_null.append(idx + 1)
-        print(f"[viewer] sketch_png present (raw, may be blank) for questions: {non_null}", flush=True)
 
     def _qkey(self, question: Dict[str, Any], idx: int) -> str:
         """Return a stable key for responses; fall back to list index if missing."""
