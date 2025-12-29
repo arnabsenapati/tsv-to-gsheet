@@ -5090,7 +5090,6 @@ class TSVWatcherWindow(QMainWindow):
                 if e.get("created_month_tag")
             }
         )
-        print(f"[lists] completer mags={mags} months={months}", flush=True)
         if hasattr(self, "list_mag_filter_input"):
             comp = QCompleter(mags)
             comp.setCaseSensitivity(Qt.CaseInsensitive)
