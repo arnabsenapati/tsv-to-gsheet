@@ -4970,9 +4970,7 @@ class TSVWatcherWindow(QMainWindow):
             self.saved_lists_widget.setItemWidget(item, row_widget)
             item.setSizeHint(row_widget.sizeHint())
         
-        # Trigger selection of first item if any lists loaded
-        if self.saved_lists_widget.count() > 0:
-            self.saved_lists_widget.setCurrentRow(0)
+        # Do not auto-select a list; wait for user to pick one
         
         # Update drag-drop panel dropdown with loaded lists
         self.drag_drop_panel.update_list_selector(self.question_lists)
