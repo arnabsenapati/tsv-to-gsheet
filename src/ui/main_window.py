@@ -4985,6 +4985,11 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
 
+        print(
+            f"[lists] loaded {len(self.saved_list_entries_all)} lists; mags="
+            f"{sorted({e.get('magazine','') for e in self.saved_list_entries_all})}",
+            flush=True,
+        )
         self._update_list_filter_completers()
         self._render_saved_list_entries(self._filtered_saved_list_entries())
 
@@ -5011,6 +5016,10 @@ class TSVWatcherWindow(QMainWindow):
                 if not created_at.startswith(created):
                     continue
             result.append(entry)
+        print(
+            f"[lists] filter mag='{mag}' created='{created}' -> {len(result)} of {len(self.saved_list_entries_all)}",
+            flush=True,
+        )
         return result
 
     def _render_saved_list_entries(self, entries: list[dict]) -> None:
@@ -5057,6 +5066,7 @@ class TSVWatcherWindow(QMainWindow):
         months = sorted(
             {e.get("created_at", "")[:7] for e in getattr(self, "saved_list_entries_all", []) if e.get("created_at")}
         )
+        print(f"[lists] completer mags={mags} months={months}", flush=True)
         if hasattr(self, "list_mag_filter_input"):
             comp = QCompleter(mags)
             comp.setCaseSensitivity(Qt.CaseInsensitive)
