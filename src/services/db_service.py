@@ -542,8 +542,9 @@ class DatabaseService:
                         meta = json.loads(list_row["metadata_json"])
                     except json.JSONDecodeError:
                         meta = {}
-                if list_row.get("created_at"):
-                    meta["_created_at"] = list_row["created_at"]
+                created_at = list_row["created_at"] if "created_at" in list_row.keys() else None
+                if created_at:
+                    meta["_created_at"] = created_at
                 metadata[list_name] = meta
 
                 item_rows = conn.execute(
