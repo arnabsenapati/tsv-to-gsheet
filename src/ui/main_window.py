@@ -4966,13 +4966,27 @@ class TSVWatcherWindow(QMainWindow):
             except Exception as exc:
                 self.log(f"Error loading lists from database: {exc}")
                 print(f"[lists] load error: {exc}", flush=True)
-        
+
         for list_name, questions in sorted(lists_data.items(), key=lambda kv: kv[0].lower()):
             meta = metadata.get(list_name, {})
             self.question_lists[list_name] = questions
             self.question_lists_metadata[list_name] = meta
             created_at = meta.get("_created_at") or ""
             magazine = meta.get("magazine", "")
+            # Collect magazines from question data
+            q_mags = []
+            for q in questions:
+                raw_mag = q.get("magazine", "") or ""
+                base = raw_mag.split("|")[0].strip()
+                if base:
+                    q_mags.append(base)
+            mags_unique = sorted(set(q_mags if q_mags else ([magazine] if magazine else [])))
+            created_month_tag = ""
+            if created_at:
+                try:
+                    created_month_tag = datetime.fromisoformat(created_at).strftime("%Y-%b")
+                except Exception:
+                    created_month_tag = created_at[:7]
 
             display_text = f"{list_name} ({len(questions)})"
             if magazine:
@@ -4984,6 +4998,8 @@ class TSVWatcherWindow(QMainWindow):
                     "display": display_text,
                     "magazine": magazine,
                     "created_at": created_at,
+                    "created_month_tag": created_month_tag,
+                    "magazine_names": mags_unique,
                 }
             )
 
@@ -5008,14 +5024,16 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "list_mag_filter_input"):
             mag = self.list_mag_filter_input.text().strip().lower()
         if hasattr(self, "list_created_filter_input"):
-            created = self.list_created_filter_input.text().strip()
+            created = self.list_created_filter_input.text().strip().lower()
         result = []
         for entry in self.saved_list_entries_all:
-            if mag and mag not in (entry.get("magazine", "").lower()):
-                continue
+            if mag:
+                mags = entry.get("magazine_names", [])
+                if not any(mag in m.lower() for m in mags):
+                    continue
             if created:
-                created_at = entry.get("created_at", "")
-                if not created_at.startswith(created):
+                month_tag = (entry.get("created_month_tag", "") or "").lower()
+                if not month_tag.startswith(created):
                     continue
             result.append(entry)
         print(
@@ -5063,20 +5081,26 @@ class TSVWatcherWindow(QMainWindow):
     def _update_list_filter_completers(self):
         """Update autocomplete options for magazine and created month/year."""
         mags = sorted(
-            {e.get("magazine", "") for e in getattr(self, "saved_list_entries_all", []) if e.get("magazine")}
+            {m for e in getattr(self, "saved_list_entries_all", []) for m in e.get("magazine_names", []) if m}
         )
         months = sorted(
-            {e.get("created_at", "")[:7] for e in getattr(self, "saved_list_entries_all", []) if e.get("created_at")}
+            {
+                e.get("created_month_tag", "")
+                for e in getattr(self, "saved_list_entries_all", [])
+                if e.get("created_month_tag")
+            }
         )
         print(f"[lists] completer mags={mags} months={months}", flush=True)
         if hasattr(self, "list_mag_filter_input"):
             comp = QCompleter(mags)
             comp.setCaseSensitivity(Qt.CaseInsensitive)
             self.list_mag_filter_input.setCompleter(comp)
+            comp.activated.connect(lambda val: self._apply_saved_list_filters())
         if hasattr(self, "list_created_filter_input"):
             comp2 = QCompleter(months)
             comp2.setCaseSensitivity(Qt.CaseInsensitive)
             self.list_created_filter_input.setCompleter(comp2)
+            comp2.activated.connect(lambda val: self._apply_saved_list_filters())
 
     def _apply_saved_list_filters(self):
         """Apply current filters to saved lists view."""
