@@ -195,6 +195,9 @@ class TSVWatcherWindow(QMainWindow):
         self.high_level_column_index: int | None = None
         self.question_lists: dict[str, list[dict]] = {}  # name -> list of questions
         self.question_lists_metadata: dict[str, dict] = {}  # name -> metadata (filters, magazine, etc)
+        self.saved_list_entries_all: list[dict] = []  # full list entries for filtering
+        self.saved_list_filter_mag: str = ""
+        self.saved_list_filter_created: str = ""
         self.current_list_name: str | None = None
         self.current_selected_chapter: str | None = None  # Track selected chapter for filtering
         self.current_list_questions: list[dict] = []  # Questions in currently selected list
@@ -880,6 +883,34 @@ class TSVWatcherWindow(QMainWindow):
         saved_lists_card = self._create_card()
         saved_lists_layout = QVBoxLayout(saved_lists_card)
         saved_lists_layout.addWidget(self._create_label("Saved Lists"))
+
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
+        self.list_mag_filter_input = QLineEdit()
+        self.list_mag_filter_input.setPlaceholderText("Filter by magazine")
+        self.list_mag_filter_input.textEdited.connect(self._apply_saved_list_filters)
+        filter_row.addWidget(self.list_mag_filter_input)
+
+        self.list_created_filter_input = QLineEdit()
+        self.list_created_filter_input.setPlaceholderText("Filter by created YYYY-MM")
+        self.list_created_filter_input.textEdited.connect(self._apply_saved_list_filters)
+        filter_row.addWidget(self.list_created_filter_input)
+
+        apply_filter_btn = QPushButton()
+        apply_filter_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
+        apply_filter_btn.setToolTip("Apply filters")
+        apply_filter_btn.setFixedSize(QSize(32, 28))
+        apply_filter_btn.clicked.connect(self._apply_saved_list_filters)
+        filter_row.addWidget(apply_filter_btn)
+
+        clear_filter_btn = QPushButton()
+        clear_filter_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        clear_filter_btn.setToolTip("Clear filters")
+        clear_filter_btn.setFixedSize(QSize(32, 28))
+        clear_filter_btn.clicked.connect(self._clear_saved_list_filters)
+        filter_row.addWidget(clear_filter_btn)
+
+        saved_lists_layout.addLayout(filter_row)
 
         list_controls_layout = QHBoxLayout()
         new_list_btn = QPushButton()
@@ -4924,6 +4955,7 @@ class TSVWatcherWindow(QMainWindow):
         self.saved_lists_widget.clear()
         self.question_lists.clear()
         self.question_lists_metadata.clear()
+        self.saved_list_entries_all = []
         
         lists_data = {}
         metadata = {}
@@ -4937,11 +4969,58 @@ class TSVWatcherWindow(QMainWindow):
             meta = metadata.get(list_name, {})
             self.question_lists[list_name] = questions
             self.question_lists_metadata[list_name] = meta
+            created_at = meta.get("_created_at") or ""
+            magazine = meta.get("magazine", "")
 
             display_text = f"{list_name} ({len(questions)})"
-            magazine = meta.get("magazine", "")
             if magazine:
                 display_text += f" - {magazine}"
+
+            self.saved_list_entries_all.append(
+                {
+                    "name": list_name,
+                    "display": display_text,
+                    "magazine": magazine,
+                    "created_at": created_at,
+                }
+            )
+
+        self._update_list_filter_completers()
+        self._render_saved_list_entries(self._filtered_saved_list_entries())
+
+        # Do not auto-select a list; wait for user to pick one
+        
+        # Update drag-drop panel dropdown with loaded lists
+        self.drag_drop_panel.update_list_selector(self.question_lists)
+        self._refresh_compare_options()
+
+    def _filtered_saved_list_entries(self) -> list[dict]:
+        """Return saved list entries matching current filters."""
+        mag = ""
+        created = ""
+        if hasattr(self, "list_mag_filter_input"):
+            mag = self.list_mag_filter_input.text().strip().lower()
+        if hasattr(self, "list_created_filter_input"):
+            created = self.list_created_filter_input.text().strip()
+        result = []
+        for entry in self.saved_list_entries_all:
+            if mag and mag not in (entry.get("magazine", "").lower()):
+                continue
+            if created:
+                created_at = entry.get("created_at", "")
+                if not created_at.startswith(created):
+                    continue
+            result.append(entry)
+        return result
+
+    def _render_saved_list_entries(self, entries: list[dict]) -> None:
+        """Render the saved lists into the list widget."""
+        if not hasattr(self, "saved_lists_widget"):
+            return
+        self.saved_lists_widget.clear()
+        for entry in entries:
+            list_name = entry.get("name", "")
+            display_text = entry.get("display", list_name)
 
             item = QListWidgetItem()
             item.setData(Qt.UserRole, list_name)
@@ -4969,12 +5048,43 @@ class TSVWatcherWindow(QMainWindow):
             self.saved_lists_widget.addItem(item)
             self.saved_lists_widget.setItemWidget(item, row_widget)
             item.setSizeHint(row_widget.sizeHint())
-        
-        # Do not auto-select a list; wait for user to pick one
-        
-        # Update drag-drop panel dropdown with loaded lists
-        self.drag_drop_panel.update_list_selector(self.question_lists)
-        self._refresh_compare_options()
+
+    def _update_list_filter_completers(self):
+        """Update autocomplete options for magazine and created month/year."""
+        mags = sorted(
+            {e.get("magazine", "") for e in getattr(self, "saved_list_entries_all", []) if e.get("magazine")}
+        )
+        months = sorted(
+            {e.get("created_at", "")[:7] for e in getattr(self, "saved_list_entries_all", []) if e.get("created_at")}
+        )
+        if hasattr(self, "list_mag_filter_input"):
+            comp = QCompleter(mags)
+            comp.setCaseSensitivity(Qt.CaseInsensitive)
+            self.list_mag_filter_input.setCompleter(comp)
+        if hasattr(self, "list_created_filter_input"):
+            comp2 = QCompleter(months)
+            comp2.setCaseSensitivity(Qt.CaseInsensitive)
+            self.list_created_filter_input.setCompleter(comp2)
+
+    def _apply_saved_list_filters(self):
+        """Apply current filters to saved lists view."""
+        self.saved_list_filter_mag = (
+            self.list_mag_filter_input.text().strip() if hasattr(self, "list_mag_filter_input") else ""
+        )
+        self.saved_list_filter_created = (
+            self.list_created_filter_input.text().strip() if hasattr(self, "list_created_filter_input") else ""
+        )
+        self._render_saved_list_entries(self._filtered_saved_list_entries())
+
+    def _clear_saved_list_filters(self):
+        """Clear saved list filters and refresh list."""
+        if hasattr(self, "list_mag_filter_input"):
+            self.list_mag_filter_input.clear()
+        if hasattr(self, "list_created_filter_input"):
+            self.list_created_filter_input.clear()
+        self.saved_list_filter_mag = ""
+        self.saved_list_filter_created = ""
+        self._render_saved_list_entries(self.saved_list_entries_all)
 
     def _reload_question_list(self, list_name: str) -> None:
         """Reload a single custom list from the database and refresh the UI row."""

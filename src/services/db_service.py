@@ -532,7 +532,7 @@ class DatabaseService:
         metadata: Dict[str, Dict[str, Any]] = {}
 
         with self._connect() as conn:
-            list_rows = conn.execute("SELECT id, name, metadata_json FROM question_lists").fetchall()
+            list_rows = conn.execute("SELECT id, name, metadata_json, created_at FROM question_lists").fetchall()
             for list_row in list_rows:
                 list_id = list_row["id"]
                 list_name = list_row["name"]
@@ -542,6 +542,8 @@ class DatabaseService:
                         meta = json.loads(list_row["metadata_json"])
                     except json.JSONDecodeError:
                         meta = {}
+                if list_row.get("created_at"):
+                    meta["_created_at"] = list_row["created_at"]
                 metadata[list_name] = meta
 
                 item_rows = conn.execute(
