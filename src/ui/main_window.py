@@ -285,6 +285,11 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "_load_group_tags"):
             self._load_group_tags()
 
+        if not hasattr(self, "_apply_palette"):
+            # Fallback no-op to avoid startup crash if methods are missing for any reason
+            self._apply_palette = lambda: None
+        if not hasattr(self, "_create_card"):
+            self._create_card = lambda: QWidget()
         self._build_ui()
         self._load_last_selection()
         self._setup_timer()
