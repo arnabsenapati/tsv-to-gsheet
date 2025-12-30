@@ -290,6 +290,8 @@ class TSVWatcherWindow(QMainWindow):
             self._apply_palette = lambda: None
         if not hasattr(self, "_create_card"):
             self._create_card = lambda: QWidget()
+        if not hasattr(self, "_create_label"):
+            self._create_label = lambda text: QLabel(text)
         if not hasattr(self, "update_row_count"):
             self.update_row_count = lambda: None
         self._build_ui()
