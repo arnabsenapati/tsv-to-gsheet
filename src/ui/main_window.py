@@ -258,7 +258,11 @@ class TSVWatcherWindow(QMainWindow):
         # Status bar animation state
         self.status_animation_frame = 0
         self.status_animation_timer = QTimer()
-        self.status_animation_timer.timeout.connect(self._animate_status)
+        try:
+            self.status_animation_timer.timeout.connect(self._animate_status)
+        except AttributeError:
+            # Fallback in case method is not yet bound
+            self.status_animation_timer.timeout.connect(lambda: None)
 
         # Data quality required fields
         self.data_quality_required = [
