@@ -2201,6 +2201,7 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_cancel = False
         self.sim_embed_stop_btn.setEnabled(True)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
+        print(f"[emb] start compute: {len(missing_ids)} missing, existing={len(existing)}", flush=True)
         QApplication.processEvents()
 
         batch_size = 16
@@ -2220,15 +2221,18 @@ class TSVWatcherWindow(QMainWindow):
                 self.db_service.upsert_embedding(rec["id"], model_name, blob, len(vec))
                 done += 1
             self.sim_embed_status.setText(f"Computed {done}/{total} embeddings...")
+            print(f"[emb] batch done {done}/{total} (batch size {len(batch_ids)})", flush=True)
             QApplication.processEvents()
 
         self.sim_embed_stop_btn.setEnabled(False)
         if getattr(self, "sim_embed_cancel", False):
             self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
             self.sim_status.setText("Embedding computation stopped.")
+            print(f"[emb] stopped at {done}/{total}", flush=True)
         else:
             self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
             self.sim_status.setText("Embeddings updated. Run similarity search again.")
+            print(f"[emb] completed {done}/{total}", flush=True)
 
     def _stop_embedding_compute(self):
         """Signal to stop embedding computation after current batch."""
