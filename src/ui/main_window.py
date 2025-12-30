@@ -2169,30 +2169,18 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_status.setText(f"Found {len(similar_ids)} similar candidates (placeholder; add embeddings/ANN for real scoring).")
 
     def _compute_missing_embeddings(self):
-        """Compute embeddings for questions missing vectors (placeholder implementation)."""
+        """Compute embeddings for questions missing vectors (runs in background thread)."""
+        if hasattr(self, "sim_embed_thread") and self.sim_embed_thread and self.sim_embed_thread.isRunning():
+            QMessageBox.information(self, "In Progress", "Embedding computation is already running.")
+            return
         if not self.db_service:
             QMessageBox.warning(self, "Database", "Database service unavailable.")
             return
-        try:
-            from sentence_transformers import SentenceTransformer  # type: ignore
-            import numpy as np  # type: ignore
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "Model Missing",
-                f"sentence-transformers not available in this environment.\nInstall it to compute embeddings.\n{exc}",
-            )
-            return
 
-        model_name = "sentence-transformers/all-MiniLM-L6-v2"
-        model = SentenceTransformer(model_name)
         existing = set(self.db_service.list_embedding_ids())
-
-        # Use Database_df question IDs; fallback to DB query if needed
+        ids = []
         if self.Database_df is not None and not self.Database_df.empty and "QuestionID" in self.Database_df.columns:
             ids = [int(x) for x in self.Database_df["QuestionID"] if str(x).strip().isdigit()]
-        else:
-            ids = []
         missing_ids = [qid for qid in ids if qid not in existing]
         if not missing_ids:
             self.sim_embed_status.setText("All current questions already have embeddings.")
@@ -2203,16 +2191,89 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_btn.setText("Computing...")
         self.sim_embed_btn.setEnabled(False)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
-        print(f"[emb] start compute: missing={len(missing_ids)}, existing={len(existing)}", flush=True)
         QApplication.processEvents()
 
-        batch_size = 16
-        total = len(missing_ids)
+        worker = EmbeddingWorker(self.db_service, missing_ids)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        worker.started.connect(lambda total: self.sim_embed_btn.setText(f"0/{total}"))
+        worker.progress.connect(lambda done, total: self.sim_embed_btn.setText(f"{done}/{total}"))
+        worker.finished.connect(lambda done, total, stopped: self._on_embed_finished(done, total, stopped))
+        worker.error.connect(lambda msg: self._on_embed_error(msg))
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        self.sim_embed_thread = thread
+        self.sim_embed_worker = worker
+        thread.start()
+
+    def _stop_embedding_compute(self):
+        """Signal to stop embedding computation after current batch."""
+        self.sim_embed_cancel = True
+        if hasattr(self, "sim_embed_worker") and self.sim_embed_worker:
+            try:
+                self.sim_embed_worker.stop()
+            except Exception:
+                pass
+
+    def _on_embed_finished(self, done: int, total: int, stopped: bool):
+        self.sim_embed_stop_btn.setEnabled(False)
+        self.sim_embed_btn.setEnabled(True)
+        self.sim_embed_btn.setText("Compute Missing Embeddings")
+        if stopped:
+            self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
+            self.sim_status.setText("Embedding computation stopped.")
+        else:
+            self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
+            self.sim_status.setText("Embeddings updated. Run similarity search again.")
+
+    def _on_embed_error(self, msg: str):
+        self.sim_embed_stop_btn.setEnabled(False)
+        self.sim_embed_btn.setEnabled(True)
+        self.sim_embed_btn.setText("Compute Missing Embeddings")
+        QMessageBox.warning(self, "Embedding Error", msg)
+
+
+class EmbeddingWorker(QObject):
+    progress = Signal(int, int)
+    started = Signal(int)
+    finished = Signal(int, int, bool)
+    error = Signal(str)
+
+    def __init__(self, db_service, ids: list[int], model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+        super().__init__()
+        self.db_service = db_service
+        self.ids = ids
+        self.model_name = model_name
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore
+            import numpy as np  # type: ignore
+        except Exception as exc:
+            self.error.emit(f"sentence-transformers not available: {exc}")
+            return
+
+        if not self.ids:
+            self.finished.emit(0, 0, False)
+            return
+
+        model = SentenceTransformer(self.model_name)
+        total = len(self.ids)
         done = 0
+        self.started.emit(total)
+
+        batch_size = 16
         for i in range(0, total, batch_size):
-            if getattr(self, "sim_embed_cancel", False):
+            if self._stop:
                 break
-            batch_ids = missing_ids[i : i + batch_size]
+            batch_ids = self.ids[i : i + batch_size]
             records = self.db_service.fetch_questions_text(batch_ids)
             texts = [r["question_text"] for r in records]
             if not texts:
@@ -2220,28 +2281,11 @@ class TSVWatcherWindow(QMainWindow):
             vectors = model.encode(texts, normalize_embeddings=True)
             for rec, vec in zip(records, vectors):
                 blob = np.asarray(vec, dtype="float32").tobytes()
-                self.db_service.upsert_embedding(rec["id"], model_name, blob, len(vec))
+                self.db_service.upsert_embedding(rec["id"], self.model_name, blob, len(vec))
                 done += 1
-            self.sim_embed_status.setText(f"Computed {done}/{total} embeddings...")
-            self.sim_embed_btn.setText(f"{done}/{total}")
-            print(f"[emb] batch done {done}/{total} (batch size {len(batch_ids)})", flush=True)
-            QApplication.processEvents()
+            self.progress.emit(done, total)
 
-        self.sim_embed_stop_btn.setEnabled(False)
-        self.sim_embed_btn.setEnabled(True)
-        self.sim_embed_btn.setText("Compute Missing Embeddings")
-        if getattr(self, "sim_embed_cancel", False):
-            self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
-            self.sim_status.setText("Embedding computation stopped.")
-            print(f"[emb] stopped at {done}/{total}", flush=True)
-        else:
-            self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
-            self.sim_status.setText("Embeddings updated. Run similarity search again.")
-            print(f"[emb] completed {done}/{total}", flush=True)
-
-    def _stop_embedding_compute(self):
-        """Signal to stop embedding computation after current batch."""
-        self.sim_embed_cancel = True
+        self.finished.emit(done, total, self._stop)
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
