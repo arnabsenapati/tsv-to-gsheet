@@ -4962,10 +4962,8 @@ class TSVWatcherWindow(QMainWindow):
         if self.db_service:
             try:
                 lists_data, metadata = self.db_service.load_question_lists()
-                print(f"[lists] db returned {len(lists_data)} lists", flush=True)
             except Exception as exc:
                 self.log(f"Error loading lists from database: {exc}")
-                print(f"[lists] load error: {exc}", flush=True)
 
         for list_name, questions in sorted(lists_data.items(), key=lambda kv: kv[0].lower()):
             meta = metadata.get(list_name, {})
@@ -5003,11 +5001,6 @@ class TSVWatcherWindow(QMainWindow):
                 }
             )
 
-        print(
-            f"[lists] loaded {len(self.saved_list_entries_all)} lists; mags="
-            f"{sorted({e.get('magazine','') for e in self.saved_list_entries_all})}",
-            flush=True,
-        )
         self._update_list_filter_completers()
         self._render_saved_list_entries(self._filtered_saved_list_entries())
 
@@ -5036,10 +5029,6 @@ class TSVWatcherWindow(QMainWindow):
                 if not month_tag.startswith(created):
                     continue
             result.append(entry)
-        print(
-            f"[lists] filter mag='{mag}' created='{created}' -> {len(result)} of {len(self.saved_list_entries_all)}",
-            flush=True,
-        )
         return result
 
     def _render_saved_list_entries(self, entries: list[dict]) -> None:
