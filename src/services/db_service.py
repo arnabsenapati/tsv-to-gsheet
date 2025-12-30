@@ -20,9 +20,33 @@ from services.cbt_package import load_cqt
 class DatabaseService:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
+        self.ensure_question_embeddings_table()
 
     def set_db_path(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
+        self.ensure_question_embeddings_table()
+
+    def ensure_question_embeddings_table(self) -> None:
+        """Create embeddings table if missing."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS question_embeddings (
+                    question_id INTEGER PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    dim INTEGER NOT NULL,
+                    vector BLOB NOT NULL,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def list_embedding_ids(self) -> List[int]:
+        """Return question_ids that have stored embeddings."""
+        self.ensure_question_embeddings_table()
+        with self._connect() as conn:
+            rows = conn.execute("SELECT question_id FROM question_embeddings").fetchall()
+        return [int(r["question_id"]) for r in rows]
 
     # ------------------------------------------------------------------
     # Snapshotting with metadata (5-day retention)

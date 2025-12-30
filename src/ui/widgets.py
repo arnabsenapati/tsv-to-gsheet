@@ -4589,6 +4589,7 @@ class NavigationSidebar(QWidget):
             ("data_quality_icon_v2.png", "Data Quality", 9, False),
             ("data-snapshot.png", "Snapshots", 10, False),
             ("Question-Analysis.png", "Question Analysis", 11, False),
+            ("random.png", "Similar Questions", 12, False),
         ]
         self.nav_labels = [text for _, text, _, _ in nav_items]
         self.nav_icons = [icon for icon, _, _, _ in nav_items]

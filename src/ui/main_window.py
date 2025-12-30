@@ -323,6 +323,7 @@ class TSVWatcherWindow(QMainWindow):
         self._create_data_quality_page()        # Index 9
         self._create_snapshots_page()           # Index 10
         self._create_question_analysis_page()   # Index 11
+        self._create_similarity_page()          # Index 12
 
         # Status bar and log toggle row
         status_log_layout = QHBoxLayout()
@@ -394,6 +395,8 @@ class TSVWatcherWindow(QMainWindow):
             self._load_snapshot_table()
         if index == 11:
             self._refresh_question_analysis()
+        if index == 12:
+            self._refresh_similarity_filters()
 
     def _create_dashboard_page(self):
         """Create Dashboard page (index 0)."""
@@ -1594,6 +1597,73 @@ class TSVWatcherWindow(QMainWindow):
         self.content_stack.addWidget(page)
 
     # ------------------------------------------------------------------
+    # Similar Questions page
+    # ------------------------------------------------------------------
+    def _create_similarity_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+
+        card = self._create_card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        header.addWidget(self._create_label("Similar Questions"))
+        card_layout.addLayout(header)
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(8)
+
+        self.sim_qid_input = QLineEdit()
+        self.sim_qid_input.setPlaceholderText("Question ID")
+        form.addWidget(QLabel("Question ID"), 0, 0)
+        form.addWidget(self.sim_qid_input, 0, 1)
+
+        self.sim_subject_combo = QComboBox()
+        self.sim_subject_combo.setEditable(False)
+        form.addWidget(QLabel("Subject"), 0, 2)
+        form.addWidget(self.sim_subject_combo, 0, 3)
+
+        self.sim_chapter_combo = QComboBox()
+        self.sim_chapter_combo.setEditable(False)
+        form.addWidget(QLabel("High Level Chapter"), 1, 0)
+        form.addWidget(self.sim_chapter_combo, 1, 1)
+
+        self.sim_mag_combo = QComboBox()
+        self.sim_mag_combo.setEditable(False)
+        form.addWidget(QLabel("Magazine"), 1, 2)
+        form.addWidget(self.sim_mag_combo, 1, 3)
+
+        self.sim_topn_combo = QComboBox()
+        self.sim_topn_combo.addItems(["5", "10", "20", "50"])
+        form.addWidget(QLabel("Top N"), 2, 0)
+        form.addWidget(self.sim_topn_combo, 2, 1)
+
+        run_btn = QPushButton("Find Similar")
+        run_btn.setStyleSheet("background-color: #2563eb; color: white; padding: 6px 12px; border-radius: 4px;")
+        run_btn.clicked.connect(self._run_similarity_search)
+        form.addWidget(run_btn, 2, 3, alignment=Qt.AlignRight)
+
+        card_layout.addLayout(form)
+
+        self.sim_status = QLabel("")
+        self.sim_status.setStyleSheet("color: #475569;")
+        card_layout.addWidget(self.sim_status)
+
+        self.sim_results = QTableWidget(0, 6)
+        self.sim_results.setHorizontalHeaderLabels(["ID", "Q#", "Chapter", "Magazine", "Score", "Preview"])
+        self.sim_results.horizontalHeader().setStretchLastSection(True)
+        self.sim_results.setSelectionBehavior(QTableWidget.SelectRows)
+        self.sim_results.setEditTriggers(QTableWidget.NoEditTriggers)
+        card_layout.addWidget(self.sim_results, 1)
+
+        layout.addWidget(card, 1)
+        self.content_stack.addWidget(page)
+
+    # ------------------------------------------------------------------
     # Question Analysis page
     # ------------------------------------------------------------------
     def _create_question_analysis_page(self):
@@ -1994,6 +2064,95 @@ class TSVWatcherWindow(QMainWindow):
 
         cid = self.analysis_canvas.mpl_connect("motion_notify_event", on_move)
         self.analysis_hover_cids.append(cid)
+
+    # ------------------------------------------------------------------
+    # Similar questions helpers
+    # ------------------------------------------------------------------
+    def _refresh_similarity_filters(self):
+        if not hasattr(self, "sim_chapter_combo") or self.Database_df is None or self.Database_df.empty:
+            return
+        df = self.Database_df
+        subjects = sorted({(self.current_subject or "").strip()} - {""})
+        chapters = sorted(
+            set(df.get("High level chapter", df.get("high_level_chapter", df.get("chapter", "")))) - {""},
+            key=lambda x: str(x).lower(),
+        )
+        mags = []
+        if "Magazine Edition" in df.columns:
+            mags = sorted({str(m).split("|")[0].strip() for m in df["Magazine Edition"] if str(m).strip()})
+        self.sim_subject_combo.blockSignals(True)
+        self.sim_subject_combo.clear()
+        self.sim_subject_combo.addItem("All")
+        for s in subjects:
+            self.sim_subject_combo.addItem(s)
+        self.sim_subject_combo.blockSignals(False)
+
+        self.sim_chapter_combo.blockSignals(True)
+        self.sim_chapter_combo.clear()
+        self.sim_chapter_combo.addItem("All")
+        for ch in chapters:
+            self.sim_chapter_combo.addItem(ch)
+        self.sim_chapter_combo.blockSignals(False)
+
+        self.sim_mag_combo.blockSignals(True)
+        self.sim_mag_combo.clear()
+        self.sim_mag_combo.addItem("All")
+        for m in mags:
+            self.sim_mag_combo.addItem(m)
+        self.sim_mag_combo.blockSignals(False)
+
+    def _run_similarity_search(self):
+        if self.Database_df is None or self.Database_df.empty:
+            QMessageBox.information(self, "No Data", "Load questions from the database first.")
+            return
+        if not self.db_service:
+            QMessageBox.warning(self, "Database", "Database service unavailable.")
+            return
+        self.db_service.ensure_question_embeddings_table()
+
+        qid_text = self.sim_qid_input.text().strip()
+        if not qid_text.isdigit():
+            QMessageBox.warning(self, "Input required", "Enter a numeric Question ID.")
+            return
+        target_id = int(qid_text)
+
+        df = self.Database_df.copy()
+        chapter = self.sim_chapter_combo.currentText() if hasattr(self, "sim_chapter_combo") else "All"
+        if chapter and chapter != "All":
+            df = df[df.get("High level chapter", df.get("high_level_chapter", df.get("chapter", ""))) == chapter]
+        mag = self.sim_mag_combo.currentText() if hasattr(self, "sim_mag_combo") else "All"
+        if mag and mag != "All":
+            if "Magazine Edition" in df.columns:
+                df = df[df["Magazine Edition"].astype(str).str.contains(mag, case=False, na=False)]
+
+        qid_series = df.get("QuestionID")
+        if qid_series is None:
+            QMessageBox.warning(self, "Missing ID column", "QuestionID column not found in dataset.")
+            return
+        if target_id not in set(qid_series):
+            QMessageBox.information(self, "Not found", "Question ID not in current dataset/filters.")
+            return
+
+        candidate_ids = set(qid_series)
+        emb_ids = set(self.db_service.list_embedding_ids())
+        candidate_ids = candidate_ids & emb_ids
+        if target_id not in emb_ids or not candidate_ids:
+            self.sim_status.setText("No embeddings available for this question/filters. Add embeddings to run similarity search.")
+            self.sim_results.setRowCount(0)
+            return
+
+        top_n = int(self.sim_topn_combo.currentText()) if hasattr(self, "sim_topn_combo") else 10
+        similar_ids = [cid for cid in candidate_ids if cid != target_id][:top_n]
+        self.sim_results.setRowCount(len(similar_ids))
+        for row, cid in enumerate(similar_ids):
+            row_data = df[df["QuestionID"] == cid].iloc[0]
+            qno = row_data.get("Qno", row_data.get("question_number", ""))
+            chapter_val = row_data.get("High level chapter", row_data.get("high_level_chapter", row_data.get("chapter", "")))
+            mag_val = row_data.get("Magazine Edition", row_data.get("magazine", ""))
+            for col, val in enumerate([cid, qno, chapter_val, mag_val, "N/A", str(row_data.get("Full Question Text", ""))[:120]]):
+                item = QTableWidgetItem(str(val))
+                self.sim_results.setItem(row, col, item)
+        self.sim_status.setText(f"Found {len(similar_ids)} similar candidates (placeholder; add embeddings/ANN for real scoring).")
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
@@ -2662,6 +2821,7 @@ class TSVWatcherWindow(QMainWindow):
 
         self.set_status(f"Loaded {source_label}", "success")
         self._refresh_question_analysis()
+        self._refresh_similarity_filters()
 
     def _create_card(self) -> QWidget:
         card = QWidget()
@@ -4982,7 +5142,7 @@ class TSVWatcherWindow(QMainWindow):
             created_month_tag = ""
             if created_at:
                 try:
-                    created_month_tag = datetime.fromisoformat(created_at).strftime("%Y-%b")
+                    created_month_tag = dt.datetime.fromisoformat(created_at).strftime("%Y-%b")
                 except Exception:
                     created_month_tag = created_at[:7]
 
