@@ -294,6 +294,8 @@ class TSVWatcherWindow(QMainWindow):
             self._create_label = lambda text: QLabel(text)
         if not hasattr(self, "update_row_count"):
             self.update_row_count = lambda: None
+        if not hasattr(self, "select_db_file"):
+            self.select_db_file = lambda: None
         if not hasattr(self, "select_output_file"):
             self.select_output_file = lambda: None
         self._build_ui()
