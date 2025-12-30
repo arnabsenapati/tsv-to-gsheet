@@ -30,7 +30,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QSize, QStringListModel
+from PySide6.QtCore import Qt, QTimer, QSize, QStringListModel, QThread, QObject, Signal
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
