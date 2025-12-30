@@ -1660,6 +1660,15 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_results.setEditTriggers(QTableWidget.NoEditTriggers)
         card_layout.addWidget(self.sim_results, 1)
 
+        embed_row = QHBoxLayout()
+        self.sim_embed_status = QLabel("")
+        embed_btn = QPushButton("Compute Missing Embeddings")
+        embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
+        embed_btn.clicked.connect(self._compute_missing_embeddings)
+        embed_row.addWidget(self.sim_embed_status, 1)
+        embed_row.addWidget(embed_btn, 0, Qt.AlignRight)
+        card_layout.addLayout(embed_row)
+
         layout.addWidget(card, 1)
         self.content_stack.addWidget(page)
 
@@ -2151,8 +2160,61 @@ class TSVWatcherWindow(QMainWindow):
             mag_val = row_data.get("Magazine Edition", row_data.get("magazine", ""))
             for col, val in enumerate([cid, qno, chapter_val, mag_val, "N/A", str(row_data.get("Full Question Text", ""))[:120]]):
                 item = QTableWidgetItem(str(val))
-                self.sim_results.setItem(row, col, item)
+            self.sim_results.setItem(row, col, item)
         self.sim_status.setText(f"Found {len(similar_ids)} similar candidates (placeholder; add embeddings/ANN for real scoring).")
+
+    def _compute_missing_embeddings(self):
+        """Compute embeddings for questions missing vectors (placeholder implementation)."""
+        if not self.db_service:
+            QMessageBox.warning(self, "Database", "Database service unavailable.")
+            return
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore
+            import numpy as np  # type: ignore
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "Model Missing",
+                f"sentence-transformers not available in this environment.\nInstall it to compute embeddings.\n{exc}",
+            )
+            return
+
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        model = SentenceTransformer(model_name)
+        existing = set(self.db_service.list_embedding_ids())
+
+        # Use Database_df question IDs; fallback to DB query if needed
+        if self.Database_df is not None and not self.Database_df.empty and "QuestionID" in self.Database_df.columns:
+            ids = [int(x) for x in self.Database_df["QuestionID"] if str(x).strip().isdigit()]
+        else:
+            ids = []
+        missing_ids = [qid for qid in ids if qid not in existing]
+        if not missing_ids:
+            self.sim_embed_status.setText("All current questions already have embeddings.")
+            return
+
+        self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
+        QApplication.processEvents()
+
+        batch_size = 16
+        total = len(missing_ids)
+        done = 0
+        for i in range(0, total, batch_size):
+            batch_ids = missing_ids[i : i + batch_size]
+            records = self.db_service.fetch_questions_text(batch_ids)
+            texts = [r["question_text"] for r in records]
+            if not texts:
+                continue
+            vectors = model.encode(texts, normalize_embeddings=True)
+            for rec, vec in zip(records, vectors):
+                blob = np.asarray(vec, dtype="float32").tobytes()
+                self.db_service.upsert_embedding(rec["id"], model_name, blob, len(vec))
+                done += 1
+            self.sim_embed_status.setText(f"Computed {done}/{total} embeddings...")
+            QApplication.processEvents()
+
+        self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
+        self.sim_status.setText("Embeddings updated. Run similarity search again.")
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return

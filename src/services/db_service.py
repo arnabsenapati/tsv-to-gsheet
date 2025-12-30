@@ -48,6 +48,35 @@ class DatabaseService:
             rows = conn.execute("SELECT question_id FROM question_embeddings").fetchall()
         return [int(r["question_id"]) for r in rows]
 
+    def upsert_embedding(self, question_id: int, model: str, vector: bytes, dim: int) -> None:
+        """Insert or replace a question embedding."""
+        self.ensure_question_embeddings_table()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO question_embeddings(question_id, model, dim, vector)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(question_id) DO UPDATE SET
+                    model=excluded.model,
+                    dim=excluded.dim,
+                    vector=excluded.vector,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (int(question_id), model, int(dim), vector),
+            )
+
+    def fetch_questions_text(self, ids: List[int]) -> List[Dict[str, Any]]:
+        """Return basic question text info for given IDs."""
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT id, question_text FROM questions WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+        return [{"id": int(r["id"]), "question_text": r["question_text"] or ""} for r in rows]
+
     # ------------------------------------------------------------------
     # Snapshotting with metadata (5-day retention)
     # ------------------------------------------------------------------
