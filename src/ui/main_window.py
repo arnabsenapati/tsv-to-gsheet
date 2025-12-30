@@ -280,7 +280,8 @@ class TSVWatcherWindow(QMainWindow):
         ]
 
         # Backup DB before any reads on startup
-        self._backup_current_database()
+        if hasattr(self, "_backup_current_database"):
+            self._backup_current_database()
         self._load_group_tags()
 
         self._build_ui()
