@@ -1665,7 +1665,12 @@ class TSVWatcherWindow(QMainWindow):
         embed_btn = QPushButton("Compute Missing Embeddings")
         embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
         embed_btn.clicked.connect(self._compute_missing_embeddings)
+        self.sim_embed_stop_btn = QPushButton("Stop")
+        self.sim_embed_stop_btn.setStyleSheet("background-color: #ef4444; color: white; padding: 6px 12px; border-radius: 4px;")
+        self.sim_embed_stop_btn.clicked.connect(self._stop_embedding_compute)
+        self.sim_embed_stop_btn.setEnabled(False)
         embed_row.addWidget(self.sim_embed_status, 1)
+        embed_row.addWidget(self.sim_embed_stop_btn, 0, Qt.AlignRight)
         embed_row.addWidget(embed_btn, 0, Qt.AlignRight)
         card_layout.addLayout(embed_row)
 
@@ -2193,6 +2198,8 @@ class TSVWatcherWindow(QMainWindow):
             self.sim_embed_status.setText("All current questions already have embeddings.")
             return
 
+        self.sim_embed_cancel = False
+        self.sim_embed_stop_btn.setEnabled(True)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
         QApplication.processEvents()
 
@@ -2200,6 +2207,8 @@ class TSVWatcherWindow(QMainWindow):
         total = len(missing_ids)
         done = 0
         for i in range(0, total, batch_size):
+            if getattr(self, "sim_embed_cancel", False):
+                break
             batch_ids = missing_ids[i : i + batch_size]
             records = self.db_service.fetch_questions_text(batch_ids)
             texts = [r["question_text"] for r in records]
@@ -2213,8 +2222,17 @@ class TSVWatcherWindow(QMainWindow):
             self.sim_embed_status.setText(f"Computed {done}/{total} embeddings...")
             QApplication.processEvents()
 
-        self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
-        self.sim_status.setText("Embeddings updated. Run similarity search again.")
+        self.sim_embed_stop_btn.setEnabled(False)
+        if getattr(self, "sim_embed_cancel", False):
+            self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
+            self.sim_status.setText("Embedding computation stopped.")
+        else:
+            self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
+            self.sim_status.setText("Embeddings updated. Run similarity search again.")
+
+    def _stop_embedding_compute(self):
+        """Signal to stop embedding computation after current batch."""
+        self.sim_embed_cancel = True
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
