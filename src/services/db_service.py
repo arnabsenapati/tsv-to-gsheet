@@ -12,6 +12,8 @@ from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
+
 import pandas as pd
 from utils.helpers import normalize_magazine_edition, normalize_page, normalize_qno
 from services.cbt_package import load_cqt
@@ -64,6 +66,39 @@ class DatabaseService:
                 """,
                 (int(question_id), model, int(dim), vector),
             )
+
+    def fetch_embeddings(self, ids: List[int], model: str | None = None) -> List[Dict[str, Any]]:
+        """Fetch embeddings for given IDs (optionally filtered by model)."""
+        if not ids:
+            return []
+        self.ensure_question_embeddings_table()
+        placeholders = ",".join("?" for _ in ids)
+        params: List[Any] = list(ids)
+        model_clause = ""
+        if model:
+            model_clause = " AND model = ?"
+            params.append(model)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT question_id, model, dim, vector
+                FROM question_embeddings
+                WHERE question_id IN ({placeholders}){model_clause}
+                """,
+                params,
+            ).fetchall()
+        results: List[Dict[str, Any]] = []
+        for r in rows:
+            vec = np.frombuffer(r["vector"], dtype="float32")
+            results.append(
+                {
+                    "question_id": int(r["question_id"]),
+                    "model": r["model"],
+                    "dim": int(r["dim"]),
+                    "vector": vec,
+                }
+            )
+        return results
 
     def fetch_questions_text(self, ids: List[int]) -> List[Dict[str, Any]]:
         """Return basic question text info for given IDs."""

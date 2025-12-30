@@ -167,6 +167,58 @@ class SnapshotDialog(QDialog):
         return item.data(Qt.UserRole) if item else None
 
 
+class EmbeddingWorker(QObject):
+    progress = Signal(int, int)
+    started = Signal(int)
+    finished = Signal(int, int, bool)
+    error = Signal(str)
+
+    def __init__(self, db_service, ids: list[int], model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+        super().__init__()
+        self.db_service = db_service
+        self.ids = ids
+        self.model_name = model_name
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore
+            import numpy as np  # type: ignore
+        except Exception as exc:
+            self.error.emit(f"sentence-transformers not available: {exc}")
+            return
+
+        if not self.ids:
+            self.finished.emit(0, 0, False)
+            return
+
+        model = SentenceTransformer(self.model_name)
+        total = len(self.ids)
+        done = 0
+        self.started.emit(total)
+
+        batch_size = 16
+        for i in range(0, total, batch_size):
+            if self._stop:
+                break
+            batch_ids = self.ids[i : i + batch_size]
+            records = self.db_service.fetch_questions_text(batch_ids)
+            texts = [r["question_text"] for r in records]
+            if not texts:
+                continue
+            vectors = model.encode(texts, normalize_embeddings=True)
+            for rec, vec in zip(records, vectors):
+                blob = np.asarray(vec, dtype="float32").tobytes()
+                self.db_service.upsert_embedding(rec["id"], self.model_name, blob, len(vec))
+                done += 1
+            self.progress.emit(done, total)
+
+        self.finished.emit(done, total, self._stop)
+
+
 class TSVWatcherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -221,7 +273,10 @@ class TSVWatcherWindow(QMainWindow):
         self.current_db_path: Path = DEFAULT_DB_PATH
         self.current_subject: str | None = None
         self.use_database: bool = False
-        
+        # Embedding progress tracking
+        self.sim_embed_base_done: int = 0
+        self.sim_embed_total: int = 0
+
         # Custom list search variables
         self.list_question_set_search_term: str = ""
         self.comparison_target: str | None = None  # List name selected for comparison
@@ -1679,7 +1734,24 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_results.setEditTriggers(QTableWidget.NoEditTriggers)
         card_layout.addWidget(self.sim_results, 1)
 
+        # Target question preview
+        self.sim_target_box = QFrame()
+        self.sim_target_box.setFrameShape(QFrame.StyledPanel)
+        self.sim_target_box.setStyleSheet("background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:8px;")
+        target_layout = QVBoxLayout(self.sim_target_box)
+        self.sim_target_title = QLabel("Target Question")
+        self.sim_target_title.setStyleSheet("font-weight:600; color:#0f172a;")
+        self.sim_target_text = QLabel("")
+        self.sim_target_text.setWordWrap(True)
+        self.sim_target_text.setStyleSheet("color:#1f2937;")
+        target_layout.addWidget(self.sim_target_title)
+        target_layout.addWidget(self.sim_target_text)
+        self.sim_target_box.setVisible(False)
+        card_layout.addWidget(self.sim_target_box)
+
         embed_row = QHBoxLayout()
+        self.sim_embed_counts = QLabel("Embeddings: 0/0")
+        self.sim_embed_counts.setStyleSheet("color: #0f172a;")
         self.sim_embed_status = QLabel("")
         self.sim_embed_btn = QPushButton("Compute Missing Embeddings")
         self.sim_embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
@@ -1688,6 +1760,7 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_stop_btn.setStyleSheet("background-color: #ef4444; color: white; padding: 6px 12px; border-radius: 4px;")
         self.sim_embed_stop_btn.clicked.connect(self._stop_embedding_compute)
         self.sim_embed_stop_btn.setEnabled(False)
+        embed_row.addWidget(self.sim_embed_counts, 0)
         embed_row.addWidget(self.sim_embed_status, 1)
         embed_row.addWidget(self.sim_embed_stop_btn, 0, Qt.AlignRight)
         embed_row.addWidget(self.sim_embed_btn, 0, Qt.AlignRight)
@@ -1695,6 +1768,7 @@ class TSVWatcherWindow(QMainWindow):
 
         layout.addWidget(card, 1)
         self.content_stack.addWidget(page)
+        self._refresh_embed_counts_display()
 
     # ------------------------------------------------------------------
     # Question Analysis page
@@ -2172,20 +2246,60 @@ class TSVWatcherWindow(QMainWindow):
         if target_id not in emb_ids or not candidate_ids:
             self.sim_status.setText("No embeddings available for this question/filters. Add embeddings to run similarity search.")
             self.sim_results.setRowCount(0)
+            self.sim_target_box.setVisible(False)
             return
 
+        # Fetch embeddings
+        candidate_list = [cid for cid in candidate_ids if cid != target_id]
+        embed_rows = self.db_service.fetch_embeddings([target_id] + candidate_list)
+        print(f"[sim] target={target_id} candidates={len(candidate_list)} embeddings_fetched={len(embed_rows)}")
+        vecs = {row["question_id"]: row["vector"] for row in embed_rows}
+        if target_id not in vecs:
+            self.sim_status.setText("Target question embedding not found.")
+            self.sim_results.setRowCount(0)
+            self.sim_target_box.setVisible(False)
+            return
+
+        import numpy as np  # local import to avoid heavy import at module load
+
+        target_vec = vecs[target_id]
+        # ensure normalized (stored normalized, but guard anyway)
+        tv_norm = target_vec / (np.linalg.norm(target_vec) + 1e-9)
+        scores = []
+        for cid in candidate_list:
+            vec = vecs.get(cid)
+            if vec is None:
+                continue
+            cv = vec / (np.linalg.norm(vec) + 1e-9)
+            score = float(np.dot(tv_norm, cv))
+            scores.append((cid, score))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
         top_n = int(self.sim_topn_combo.currentText()) if hasattr(self, "sim_topn_combo") else 10
-        similar_ids = [cid for cid in candidate_ids if cid != target_id][:top_n]
-        self.sim_results.setRowCount(len(similar_ids))
-        for row, cid in enumerate(similar_ids):
+        top_hits = scores[:top_n]
+        print(f"[sim] scored={len(scores)} top_n={top_n}")
+        for cid, sc in top_hits:
+            print(f"[sim] hit id={cid} score={sc:.4f}")
+
+        self.sim_results.setRowCount(len(top_hits))
+        for row, (cid, score) in enumerate(top_hits):
             row_data = df[df["QuestionID"] == cid].iloc[0]
             qno = row_data.get("Qno", row_data.get("question_number", ""))
             chapter_val = row_data.get("High level chapter", row_data.get("high_level_chapter", row_data.get("chapter", "")))
             mag_val = row_data.get("Magazine Edition", row_data.get("magazine", ""))
-            for col, val in enumerate([cid, qno, chapter_val, mag_val, "N/A", str(row_data.get("Full Question Text", ""))[:120]]):
-                item = QTableWidgetItem(str(val))
-            self.sim_results.setItem(row, col, item)
-        self.sim_status.setText(f"Found {len(similar_ids)} similar candidates (placeholder; add embeddings/ANN for real scoring).")
+            preview = str(row_data.get("Full Question Text", row_data.get("question_text", "")))[:160]
+            cells = [cid, qno, chapter_val, mag_val, f"{score:.3f}", preview]
+            for col, val in enumerate(cells):
+                self.sim_results.setItem(row, col, QTableWidgetItem(str(val)))
+
+        # Show target text
+        target_row = df[df["QuestionID"] == target_id].iloc[0]
+        target_text = str(target_row.get("Full Question Text", target_row.get("question_text", "")))
+        self.sim_target_title.setText(f"Target Question (ID {target_id})")
+        self.sim_target_text.setText(target_text if target_text else "(no text)")
+        self.sim_target_box.setVisible(True)
+
+        self.sim_status.setText(f"Found {len(top_hits)} similar questions (cosine over embeddings).")
 
     def _compute_missing_embeddings(self):
         """Compute embeddings for questions missing vectors (runs in background thread)."""
@@ -2197,11 +2311,22 @@ class TSVWatcherWindow(QMainWindow):
             return
 
         existing = set(self.db_service.list_embedding_ids())
-        ids = []
+        ids: list[int] = []
         if self.Database_df is not None and not self.Database_df.empty and "QuestionID" in self.Database_df.columns:
             ids = [int(x) for x in self.Database_df["QuestionID"] if str(x).strip().isdigit()]
-        missing_ids = [qid for qid in ids if qid not in existing]
+        total_ids = list(dict.fromkeys(ids))
+        missing_ids = [qid for qid in total_ids if qid not in existing]
+        self.sim_embed_base_done = len([qid for qid in total_ids if qid in existing])
+        self.sim_embed_total = len(total_ids)
+        self.sim_embed_run_base = self.sim_embed_base_done
+        self.sim_embed_run_missing = len(missing_ids)
+
+        if self.sim_embed_total == 0:
+            self.sim_embed_status.setText("No questions available for embeddings.")
+            self._set_embed_counts_display(0, 0)
+            return
         if not missing_ids:
+            self._set_embed_counts_display(self.sim_embed_total, self.sim_embed_total)
             self.sim_embed_status.setText("All current questions already have embeddings.")
             return
 
@@ -2210,13 +2335,14 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_btn.setText("Computing...")
         self.sim_embed_btn.setEnabled(False)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
+        self._set_embed_counts_display(self.sim_embed_base_done, self.sim_embed_total)
         QApplication.processEvents()
 
         worker = EmbeddingWorker(self.db_service, missing_ids)
         thread = QThread(self)
         worker.moveToThread(thread)
-        worker.started.connect(lambda total: self.sim_embed_btn.setText(f"0/{total}"))
-        worker.progress.connect(lambda done, total: self.sim_embed_btn.setText(f"{done}/{total}"))
+        worker.started.connect(lambda total: self._on_embed_started(total))
+        worker.progress.connect(lambda done, total: self._on_embed_progress(done, total))
         worker.finished.connect(lambda done, total, stopped: self._on_embed_finished(done, total, stopped))
         worker.error.connect(lambda msg: self._on_embed_error(msg))
         thread.started.connect(worker.run)
@@ -2237,74 +2363,71 @@ class TSVWatcherWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _on_embed_started(self, total_missing: int):
+        # total_missing is only the missing portion; combine with already-present
+        self._set_embed_counts_display(self.sim_embed_base_done, self.sim_embed_total)
+        self.sim_embed_btn.setText(f"{self.sim_embed_base_done}/{self.sim_embed_total}")
+
+    def _on_embed_progress(self, done: int, total_missing: int):
+        # done counts only new embeddings in this run
+        completed = self.sim_embed_run_base + done
+        if self.sim_embed_total:
+            completed = min(completed, self.sim_embed_total)
+        self._set_embed_counts_display(completed, self.sim_embed_total)
+        self.sim_embed_btn.setText(f"{completed}/{self.sim_embed_total}")
+
     def _on_embed_finished(self, done: int, total: int, stopped: bool):
         self.sim_embed_stop_btn.setEnabled(False)
         self.sim_embed_btn.setEnabled(True)
         self.sim_embed_btn.setText("Compute Missing Embeddings")
+        completed = self.sim_embed_run_base + done
+        if self.sim_embed_total:
+            completed = min(completed, self.sim_embed_total)
+        self._set_embed_counts_display(completed, self.sim_embed_total)
         if stopped:
-            self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
+            msg = f"Stopped after {done}/{total} embeddings."
+            self.sim_embed_status.setText(msg)
             self.sim_status.setText("Embedding computation stopped.")
         else:
-            self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
+            msg = f"Computed embeddings for {done} question(s)."
+            self.sim_embed_status.setText(msg)
             self.sim_status.setText("Embeddings updated. Run similarity search again.")
+        # refresh counts from DB in case they changed outside
+        self._refresh_embed_counts_display()
 
     def _on_embed_error(self, msg: str):
         self.sim_embed_stop_btn.setEnabled(False)
         self.sim_embed_btn.setEnabled(True)
         self.sim_embed_btn.setText("Compute Missing Embeddings")
         QMessageBox.warning(self, "Embedding Error", msg)
+        self._refresh_embed_counts_display()
 
+    def _set_embed_counts_display(self, done: int, total: int) -> None:
+        if hasattr(self, "sim_embed_counts"):
+            self.sim_embed_counts.setText(f"Embeddings: {done}/{total}")
 
-class EmbeddingWorker(QObject):
-    progress = Signal(int, int)
-    started = Signal(int)
-    finished = Signal(int, int, bool)
-    error = Signal(str)
-
-    def __init__(self, db_service, ids: list[int], model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
-        super().__init__()
-        self.db_service = db_service
-        self.ids = ids
-        self.model_name = model_name
-        self._stop = False
-
-    def stop(self):
-        self._stop = True
-
-    def run(self):
+    def _compute_embed_counts_current(self) -> tuple[int, int]:
+        """Return (has_embedding, total) for the currently loaded dataset (or DB as fallback)."""
         try:
-            from sentence_transformers import SentenceTransformer  # type: ignore
-            import numpy as np  # type: ignore
-        except Exception as exc:
-            self.error.emit(f"sentence-transformers not available: {exc}")
-            return
+            existing = set(self.db_service.list_embedding_ids())
+        except Exception:
+            existing = set()
+        ids: set[int] = set()
+        if self.Database_df is not None and not self.Database_df.empty and "QuestionID" in self.Database_df.columns:
+            ids = {
+                int(x)
+                for x in self.Database_df["QuestionID"]
+                if str(x).strip().isdigit()
+            }
+        done = len(existing & ids) if ids else len(existing)
+        total = len(ids) if ids else max(len(existing), 0)
+        return done, total
 
-        if not self.ids:
-            self.finished.emit(0, 0, False)
-            return
-
-        model = SentenceTransformer(self.model_name)
-        total = len(self.ids)
-        done = 0
-        self.started.emit(total)
-
-        batch_size = 16
-        for i in range(0, total, batch_size):
-            if self._stop:
-                break
-            batch_ids = self.ids[i : i + batch_size]
-            records = self.db_service.fetch_questions_text(batch_ids)
-            texts = [r["question_text"] for r in records]
-            if not texts:
-                continue
-            vectors = model.encode(texts, normalize_embeddings=True)
-            for rec, vec in zip(records, vectors):
-                blob = np.asarray(vec, dtype="float32").tobytes()
-                self.db_service.upsert_embedding(rec["id"], self.model_name, blob, len(vec))
-                done += 1
-            self.progress.emit(done, total)
-
-        self.finished.emit(done, total, self._stop)
+    def _refresh_embed_counts_display(self) -> None:
+        done, total = self._compute_embed_counts_current()
+        self.sim_embed_base_done = done
+        self.sim_embed_total = total
+        self._set_embed_counts_display(done, total)
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
@@ -2970,6 +3093,10 @@ class EmbeddingWorker(QObject):
 
         for warning in warnings:
             self.log(warning)
+
+        # Refresh embedding counts for the newly loaded dataset
+        if hasattr(self, "_refresh_embed_counts_display"):
+            self._refresh_embed_counts_display()
 
         self.set_status(f"Loaded {source_label}", "success")
         self._refresh_question_analysis()
