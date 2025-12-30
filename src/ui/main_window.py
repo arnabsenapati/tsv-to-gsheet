@@ -1662,16 +1662,16 @@ class TSVWatcherWindow(QMainWindow):
 
         embed_row = QHBoxLayout()
         self.sim_embed_status = QLabel("")
-        embed_btn = QPushButton("Compute Missing Embeddings")
-        embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
-        embed_btn.clicked.connect(self._compute_missing_embeddings)
+        self.sim_embed_btn = QPushButton("Compute Missing Embeddings")
+        self.sim_embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
+        self.sim_embed_btn.clicked.connect(self._compute_missing_embeddings)
         self.sim_embed_stop_btn = QPushButton("Stop")
         self.sim_embed_stop_btn.setStyleSheet("background-color: #ef4444; color: white; padding: 6px 12px; border-radius: 4px;")
         self.sim_embed_stop_btn.clicked.connect(self._stop_embedding_compute)
         self.sim_embed_stop_btn.setEnabled(False)
         embed_row.addWidget(self.sim_embed_status, 1)
         embed_row.addWidget(self.sim_embed_stop_btn, 0, Qt.AlignRight)
-        embed_row.addWidget(embed_btn, 0, Qt.AlignRight)
+        embed_row.addWidget(self.sim_embed_btn, 0, Qt.AlignRight)
         card_layout.addLayout(embed_row)
 
         layout.addWidget(card, 1)
@@ -2200,8 +2200,9 @@ class TSVWatcherWindow(QMainWindow):
 
         self.sim_embed_cancel = False
         self.sim_embed_stop_btn.setEnabled(True)
+        self.sim_embed_btn.setText("Computing...")
+        self.sim_embed_btn.setEnabled(False)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
-        print(f"[emb] start compute: {len(missing_ids)} missing, existing={len(existing)}", flush=True)
         QApplication.processEvents()
 
         batch_size = 16
@@ -2221,18 +2222,18 @@ class TSVWatcherWindow(QMainWindow):
                 self.db_service.upsert_embedding(rec["id"], model_name, blob, len(vec))
                 done += 1
             self.sim_embed_status.setText(f"Computed {done}/{total} embeddings...")
-            print(f"[emb] batch done {done}/{total} (batch size {len(batch_ids)})", flush=True)
+            self.sim_embed_btn.setText(f"{done}/{total}")
             QApplication.processEvents()
 
         self.sim_embed_stop_btn.setEnabled(False)
+        self.sim_embed_btn.setEnabled(True)
+        self.sim_embed_btn.setText("Compute Missing Embeddings")
         if getattr(self, "sim_embed_cancel", False):
             self.sim_embed_status.setText(f"Stopped after {done}/{total} embeddings.")
             self.sim_status.setText("Embedding computation stopped.")
-            print(f"[emb] stopped at {done}/{total}", flush=True)
         else:
             self.sim_embed_status.setText(f"Computed embeddings for {done} question(s).")
             self.sim_status.setText("Embeddings updated. Run similarity search again.")
-            print(f"[emb] completed {done}/{total}", flush=True)
 
     def _stop_embedding_compute(self):
         """Signal to stop embedding computation after current batch."""
