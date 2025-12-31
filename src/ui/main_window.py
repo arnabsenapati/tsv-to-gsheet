@@ -1727,11 +1727,22 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_status.setStyleSheet("color: #475569;")
         card_layout.addWidget(self.sim_status)
 
-        self.sim_results = QTableWidget(0, 6)
-        self.sim_results.setHorizontalHeaderLabels(["ID", "Q#", "Chapter", "Magazine", "Score", "Preview"])
+        self.sim_results = QTableWidget(0, 9)
+        self.sim_results.setHorizontalHeaderLabels([
+            "Add",
+            "ID",
+            "Q#",
+            "Chapter",
+            "Magazine",
+            "Question Set",
+            "Page",
+            "Score",
+            "Question Text",
+        ])
         self.sim_results.horizontalHeader().setStretchLastSection(True)
         self.sim_results.setSelectionBehavior(QTableWidget.SelectRows)
         self.sim_results.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.sim_results.setWordWrap(True)
         card_layout.addWidget(self.sim_results, 1)
 
         # Target question preview
@@ -2252,7 +2263,6 @@ class TSVWatcherWindow(QMainWindow):
         # Fetch embeddings
         candidate_list = [cid for cid in candidate_ids if cid != target_id]
         embed_rows = self.db_service.fetch_embeddings([target_id] + candidate_list)
-        print(f"[sim] target={target_id} candidates={len(candidate_list)} embeddings_fetched={len(embed_rows)}")
         vecs = {row["question_id"]: row["vector"] for row in embed_rows}
         if target_id not in vecs:
             self.sim_status.setText("Target question embedding not found.")
@@ -2277,9 +2287,6 @@ class TSVWatcherWindow(QMainWindow):
         scores.sort(key=lambda x: x[1], reverse=True)
         top_n = int(self.sim_topn_combo.currentText()) if hasattr(self, "sim_topn_combo") else 10
         top_hits = scores[:top_n]
-        print(f"[sim] scored={len(scores)} top_n={top_n}")
-        for cid, sc in top_hits:
-            print(f"[sim] hit id={cid} score={sc:.4f}")
 
         self.sim_results.setRowCount(len(top_hits))
         for row, (cid, score) in enumerate(top_hits):
@@ -2287,10 +2294,35 @@ class TSVWatcherWindow(QMainWindow):
             qno = row_data.get("Qno", row_data.get("question_number", ""))
             chapter_val = row_data.get("High level chapter", row_data.get("high_level_chapter", row_data.get("chapter", "")))
             mag_val = row_data.get("Magazine Edition", row_data.get("magazine", ""))
-            preview = str(row_data.get("Full Question Text", row_data.get("question_text", "")))[:160]
-            cells = [cid, qno, chapter_val, mag_val, f"{score:.3f}", preview]
-            for col, val in enumerate(cells):
-                self.sim_results.setItem(row, col, QTableWidgetItem(str(val)))
+            qset_val = row_data.get("Name of Question Set", row_data.get("question_set_name", row_data.get("question_set", "")))
+            full_text = str(row_data.get("Full Question Text", row_data.get("question_text", "")))
+            page_val = row_data.get("PageNo", row_data.get("page_range", ""))
+
+            # Add button
+            add_btn = QPushButton()
+            add_btn.setIcon(load_icon("add-question-list.png"))
+            add_btn.setToolTip("Add to custom list")
+            add_btn.setFixedSize(28, 24)
+            add_btn.setStyleSheet("QPushButton { border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px; background: #e0f2fe; } QPushButton:hover { background: #bfdbfe; }")
+            question_payload = row_data.to_dict()
+            qid_for_add = row_data.get("QuestionID") or row_data.get("question_id") or row_data.get("id")
+            if qid_for_add is not None:
+                try:
+                    qid_for_add = int(qid_for_add)
+                except Exception:
+                    pass
+            question_payload["question_id"] = qid_for_add
+            question_payload["row_number"] = qid_for_add
+            add_btn.clicked.connect(lambda _, q=question_payload: self._prompt_add_question_to_list(q))
+            self.sim_results.setCellWidget(row, 0, add_btn)
+
+            cells = [cid, qno, chapter_val, mag_val, qset_val, page_val, f"{score:.3f}", full_text]
+            for col, val in enumerate(cells, start=1):
+                item = QTableWidgetItem(str(val))
+                if col == 8:  # Question text column
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
+                self.sim_results.setItem(row, col, item)
+        self.sim_results.resizeRowsToContents()
 
         # Show target text
         target_row = df[df["QuestionID"] == target_id].iloc[0]
@@ -2428,6 +2460,118 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_base_done = done
         self.sim_embed_total = total
         self._set_embed_counts_display(done, total)
+
+    # ------------------------------------------------------------------
+    # Add question to custom list from similarity table
+    # ------------------------------------------------------------------
+    def _prompt_add_question_to_list(self, question: dict) -> None:
+        """Prompt user to pick a custom list (with magazine/month filters) and add the question."""
+        if not self.question_lists:
+            QMessageBox.information(self, "No Lists", "Create a custom list first.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add to Custom List")
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        filter_row = QHBoxLayout()
+        mag_edit = QLineEdit()
+        mag_edit.setPlaceholderText("Filter by magazine")
+        created_edit = QLineEdit()
+        created_edit.setPlaceholderText("Filter by created YYYY-MM")
+        filter_row.addWidget(mag_edit, 1)
+        filter_row.addWidget(created_edit, 1)
+        layout.addLayout(filter_row)
+
+        list_widget = QListWidget()
+        layout.addWidget(list_widget, 1)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText("Add")
+        layout.addWidget(btns)
+        btns.accepted.connect(dialog.accept)
+        btns.rejected.connect(dialog.reject)
+
+        # Build selectable entries from saved lists metadata
+        entries = self._filtered_saved_list_entries_for_dialog("", "")
+
+        def refresh():
+            entries_local = self._filtered_saved_list_entries_for_dialog(
+                mag_edit.text().strip().lower(), created_edit.text().strip().lower()
+            )
+            list_widget.clear()
+            for entry in entries_local:
+                text = entry.get("display", entry.get("name", ""))
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, entry.get("name", ""))
+                list_widget.addItem(item)
+
+        # Completers
+        mags = sorted(
+            {e.get("magazine", "").lower() for e in self.saved_list_entries_all if e.get("magazine")}
+        )
+        months = sorted(
+            {e.get("created_month_tag", "").lower() for e in self.saved_list_entries_all if e.get("created_month_tag")}
+        )
+        mag_edit.setCompleter(QCompleter(mags))
+        created_edit.setCompleter(QCompleter(months))
+        mag_edit.textChanged.connect(lambda _: refresh())
+        created_edit.textChanged.connect(lambda _: refresh())
+
+        refresh()
+        if dialog.exec() != QDialog.Accepted:
+            return
+        item = list_widget.currentItem()
+        if not item:
+            return
+        list_name = item.data(Qt.UserRole)
+        self._add_question_to_list_by_name(list_name, question)
+
+    def _filtered_saved_list_entries_for_dialog(self, mag: str, created: str) -> list[dict]:
+        """Filter saved list entries without mutating UI filters."""
+        result = []
+        mag = (mag or "").lower()
+        created = (created or "").lower()
+        for entry in getattr(self, "saved_list_entries_all", []):
+            if mag:
+                mags = entry.get("magazine_names", [])
+                if not any(mag in m.lower() for m in mags):
+                    continue
+            if created:
+                month_tag = (entry.get("created_month_tag", "") or "").lower()
+                if not month_tag.startswith(created):
+                    continue
+            result.append(entry)
+        return result
+
+    def _add_question_to_list_by_name(self, list_name: str, question: dict) -> None:
+        """Append question to a custom list and persist."""
+        if list_name not in self.question_lists:
+            QMessageBox.warning(self, "List Missing", f"List '{list_name}' not found.")
+            return
+        # Prevent duplicate by QuestionID or row_number if present
+        qcopy = question.copy()
+        qid = qcopy.get("QuestionID") or qcopy.get("question_id") or qcopy.get("id")
+        if qid is None:
+            QMessageBox.warning(self, "Missing ID", "Cannot add question without an ID.")
+            return
+        try:
+            qid_int = int(qid)
+        except Exception:
+            qid_int = qid
+        qcopy["question_id"] = qid_int
+        qcopy["QuestionID"] = qid_int
+        qcopy.setdefault("row_number", qid_int)
+        existing = self.question_lists[list_name]
+        if qid and any((q.get("QuestionID") or q.get("question_id") or q.get("id")) == qid for q in existing):
+            QMessageBox.information(self, "Already Present", f"Question already in '{list_name}'.")
+            return
+        existing.append(qcopy)
+        self._save_question_list(list_name)
+        self._load_saved_question_lists()
+        QMessageBox.information(self, "Added", f"Question added to '{list_name}'.")
     def _load_snapshot_table(self):
         if not hasattr(self, "snapshot_table") or not self.db_service:
             return
@@ -3101,6 +3245,50 @@ class TSVWatcherWindow(QMainWindow):
         self.set_status(f"Loaded {source_label}", "success")
         self._refresh_question_analysis()
         self._refresh_similarity_filters()
+
+    def _open_similarity_from_question(self, question: dict) -> None:
+        """Switch to Similar Questions tab and run search for the given question."""
+        qid = (
+            question.get("QuestionID")
+            or question.get("question_id")
+            or question.get("id")
+        )
+        if not qid:
+            QMessageBox.information(self, "Missing ID", "Question ID not available for similarity search.")
+            return
+        # Navigate to Similar Questions page (index 12)
+        if hasattr(self, "sidebar"):
+            self.sidebar.set_selected_index(12)
+        self._on_navigation_changed(12)
+
+        # Prefill fields
+        self.sim_qid_input.setText(str(int(qid)))
+
+        subject = self.current_subject or question.get("subject") or ""
+        if subject:
+            idx = self.sim_subject_combo.findText(subject, Qt.MatchFixedString)
+            if idx >= 0:
+                self.sim_subject_combo.setCurrentIndex(idx)
+
+        chapter_val = (
+            question.get("High level chapter")
+            or question.get("high_level_chapter")
+            or question.get("chapter")
+            or ""
+        )
+        if chapter_val:
+            idx = self.sim_chapter_combo.findText(str(chapter_val), Qt.MatchFixedString)
+            if idx >= 0:
+                self.sim_chapter_combo.setCurrentIndex(idx)
+
+        mag_val = question.get("Magazine Edition") or question.get("magazine") or ""
+        if mag_val:
+            idx = self.sim_mag_combo.findText(str(mag_val), Qt.MatchContains)
+            if idx >= 0:
+                self.sim_mag_combo.setCurrentIndex(idx)
+
+        # Trigger search
+        self._run_similarity_search()
 
     def _create_card(self) -> QWidget:
         card = QWidget()
@@ -5948,6 +6136,7 @@ class TSVWatcherWindow(QMainWindow):
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
+            card_wrapper.find_similar_requested.connect(lambda q=question: self._open_similarity_from_question(q))
             card_wrapper.column_index = idx % 2
 
             if self._is_common_question(question):

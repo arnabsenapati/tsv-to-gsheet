@@ -671,6 +671,7 @@ class DatabaseService:
     def save_question_list(self, list_name: str, questions: List[Dict[str, Any]], metadata: Dict[str, Any]) -> None:
         meta_json = json.dumps(metadata or {}, indent=2)
         self.snapshot_database(f"Save question list {list_name}")
+        print(f"[db] save_question_list name={list_name} items={len(questions)}")
         with self._connect() as conn:
             cur = conn.execute(
                 """

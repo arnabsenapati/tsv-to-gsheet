@@ -1647,6 +1647,8 @@ class QuestionCardWithRemoveButton(QWidget):
 
     remove_requested = Signal(dict)  # Emits question data when remove button clicked
 
+    find_similar_requested = Signal(dict)  # Emits question data when find-similar button clicked
+
     
 
     def __init__(self, question_data: dict, parent=None):
@@ -1693,6 +1695,17 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.clicked.connect(self._show_image_popover)
         self.image_btn.setVisible(False)
         self.image_btn.setCursor(Qt.PointingHandCursor)
+
+        # Find similar button
+        self.similar_btn = QPushButton(self)
+        self.similar_btn.setIcon(load_icon("find-similar.png"))
+        self.similar_btn.setIconSize(QSize(16, 16))
+        self.similar_btn.setToolTip("Find similar questions")
+        self.similar_btn.setStyleSheet(self._image_button_style(active=False))
+        self.similar_btn.setFixedSize(28, 28)
+        self.similar_btn.clicked.connect(lambda: self.find_similar_requested.emit(self.question_data))
+        self.similar_btn.setVisible(False)
+        self.similar_btn.setCursor(Qt.PointingHandCursor)
 
         # Edit button (matches base card style)
         self.edit_btn = QPushButton(self)
@@ -1771,6 +1784,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.raise_()
         self.image_btn.raise_()
+        self.similar_btn.raise_()
         self.edit_btn.raise_()
         self._update_image_button_state()
 
@@ -1780,12 +1794,14 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.setVisible(True)
         self.image_btn.setVisible(True)
+        self.similar_btn.setVisible(True)
         self.edit_btn.setVisible(True)
 
         # Position buttons in top-right corner
         self.remove_btn.move(self.width() - 32, 4)
         self.image_btn.move(self.width() - 64, 4)
-        self.edit_btn.move(self.width() - 92, 6)
+        self.similar_btn.move(self.width() - 96, 4)
+        self.edit_btn.move(self.width() - 124, 6)
 
         super().enterEvent(event)
 
@@ -1797,6 +1813,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_btn.setVisible(False)
         self.image_btn.setVisible(False)
+        self.similar_btn.setVisible(False)
         self.edit_btn.setVisible(False)
 
         super().leaveEvent(event)
@@ -4589,7 +4606,7 @@ class NavigationSidebar(QWidget):
             ("data_quality_icon_v2.png", "Data Quality", 9, False),
             ("data-snapshot.png", "Snapshots", 10, False),
             ("Question-Analysis.png", "Question Analysis", 11, False),
-            ("random.png", "Similar Questions", 12, False),
+            ("find-similar.png", "Similar Questions", 12, False),
         ]
         self.nav_labels = [text for _, text, _, _ in nav_items]
         self.nav_icons = [icon for icon, _, _, _ in nav_items]
