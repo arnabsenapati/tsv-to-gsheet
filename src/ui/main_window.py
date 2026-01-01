@@ -967,19 +967,24 @@ class TSVWatcherWindow(QMainWindow):
         lists_card = self._create_card()
         lists_tab_layout.addWidget(lists_card)
         lists_card_layout = QVBoxLayout(lists_card)
-        
-        lists_header_layout = QHBoxLayout()
-        lists_card_layout.addWidget(self._create_label("Custom Lists"))
-        lists_header_layout.addStretch()
-        lists_card_layout.addLayout(lists_header_layout)
-        
+
+        def _section_label(text: str, color: str = "#0f172a") -> QLabel:
+            lbl = QLabel(text)
+            lbl.setStyleSheet(
+                f"padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; "
+                f"border-radius: 8px; font-weight: 700; color: {color};"
+            )
+            return lbl
+
+        lists_card_layout.addWidget(_section_label("Custom Lists"))
+
         lists_split = QSplitter(Qt.Horizontal)
         lists_card_layout.addWidget(lists_split, 1)
-        
+
         # Left side - list of saved lists
         saved_lists_card = self._create_card()
         saved_lists_layout = QVBoxLayout(saved_lists_card)
-        saved_lists_layout.addWidget(self._create_label("Saved Lists"))
+        saved_lists_layout.addWidget(_section_label("Saved Lists", "#0ea5e9"))
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(6)
@@ -1077,7 +1082,7 @@ class TSVWatcherWindow(QMainWindow):
 
         self.archived_lists_widget = QListWidget()
         self.archived_lists_widget.itemSelectionChanged.connect(self.on_archived_list_selected)
-        saved_lists_layout.addWidget(self._create_label("Archived Lists"))
+        saved_lists_layout.addWidget(_section_label("Archived Lists", "#9333ea"))
         saved_lists_layout.addWidget(self.archived_lists_widget)
         lists_split.addWidget(saved_lists_card)
         
