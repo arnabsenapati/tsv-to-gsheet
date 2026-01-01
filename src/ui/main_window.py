@@ -1042,6 +1042,13 @@ class TSVWatcherWindow(QMainWindow):
         delete_list_btn.setFixedSize(QSize(32, 28))
         delete_list_btn.setStyleSheet(neutral_btn_style)
         delete_list_btn.clicked.connect(self.delete_question_list)
+        archive_list_btn = QPushButton()
+        archive_list_btn.setIcon(load_icon("archive-list.png"))
+        archive_list_btn.setIconSize(QSize(18, 18))
+        archive_list_btn.setToolTip("Archive List")
+        archive_list_btn.setFixedSize(QSize(32, 28))
+        archive_list_btn.setStyleSheet(neutral_btn_style)
+        archive_list_btn.clicked.connect(self.archive_question_list)
         theory_btn = QPushButton()
         theory_btn.setIcon(load_icon("upload-latex.png"))
         theory_btn.setIconSize(QSize(18, 18))
@@ -1059,13 +1066,19 @@ class TSVWatcherWindow(QMainWindow):
         list_controls_layout.addWidget(new_list_btn)
         list_controls_layout.addWidget(rename_list_btn)
         list_controls_layout.addWidget(delete_list_btn)
+        list_controls_layout.addWidget(archive_list_btn)
         list_controls_layout.addWidget(theory_btn)
         list_controls_layout.addWidget(theory_pdf_btn)
         saved_lists_layout.addLayout(list_controls_layout)
-        
+
         self.saved_lists_widget = QListWidget()
         self.saved_lists_widget.itemSelectionChanged.connect(self.on_saved_list_selected)
         saved_lists_layout.addWidget(self.saved_lists_widget)
+
+        self.archived_lists_widget = QListWidget()
+        self.archived_lists_widget.itemSelectionChanged.connect(self.on_archived_list_selected)
+        saved_lists_layout.addWidget(self._create_label("Archived Lists"))
+        saved_lists_layout.addWidget(self.archived_lists_widget)
         lists_split.addWidget(saved_lists_card)
         
         # Right side - questions in selected list
@@ -5658,6 +5671,7 @@ class TSVWatcherWindow(QMainWindow):
             self.question_lists_metadata[list_name] = meta
             created_at = meta.get("_created_at") or ""
             magazine = meta.get("magazine", "")
+            archived_flag = bool(meta.get("archived"))
             # Collect magazines from question data
             q_mags = []
             for q in questions:
@@ -5685,11 +5699,13 @@ class TSVWatcherWindow(QMainWindow):
                     "created_at": created_at,
                     "created_month_tag": created_month_tag,
                     "magazine_names": mags_unique,
+                    "archived": archived_flag,
                 }
             )
 
         self._update_list_filter_completers()
-        self._render_saved_list_entries(self._filtered_saved_list_entries())
+        self._render_saved_list_entries(self._filtered_saved_list_entries(include_archived=False))
+        self._render_archived_list_entries(self._filtered_saved_list_entries(include_archived=True))
 
         # Do not auto-select a list; wait for user to pick one
         
@@ -5697,7 +5713,7 @@ class TSVWatcherWindow(QMainWindow):
         self.drag_drop_panel.update_list_selector(self.question_lists)
         self._refresh_compare_options()
 
-    def _filtered_saved_list_entries(self) -> list[dict]:
+    def _filtered_saved_list_entries(self, include_archived: bool = False) -> list[dict]:
         """Return saved list entries matching current filters."""
         mag = ""
         created = ""
@@ -5707,6 +5723,10 @@ class TSVWatcherWindow(QMainWindow):
             created = self.list_created_filter_input.text().strip().lower()
         result = []
         for entry in self.saved_list_entries_all:
+            if include_archived and not entry.get("archived"):
+                continue
+            if not include_archived and entry.get("archived"):
+                continue
             if mag:
                 mags = entry.get("magazine_names", [])
                 if not any(mag in m.lower() for m in mags):
@@ -5754,6 +5774,31 @@ class TSVWatcherWindow(QMainWindow):
             self.saved_lists_widget.setItemWidget(item, row_widget)
             item.setSizeHint(row_widget.sizeHint())
 
+    def _render_archived_list_entries(self, entries: list[dict]) -> None:
+        """Render archived lists into the archived list widget."""
+        if not hasattr(self, "archived_lists_widget"):
+            return
+        self.archived_lists_widget.clear()
+        for entry in entries:
+            list_name = entry.get("name", "")
+            display_text = entry.get("display", list_name)
+
+            item = QListWidgetItem()
+            item.setData(Qt.UserRole, list_name)
+
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(6, 2, 6, 2)
+            row_layout.setSpacing(6)
+
+            label = QLabel(display_text)
+            label.setStyleSheet("color: #0f172a; font-weight: 600;")
+            row_layout.addWidget(label, 1)
+
+            self.archived_lists_widget.addItem(item)
+            self.archived_lists_widget.setItemWidget(item, row_widget)
+            item.setSizeHint(row_widget.sizeHint())
+
     def _update_list_filter_completers(self):
         """Update autocomplete options for magazine and created month/year."""
         mags = sorted(
@@ -5785,7 +5830,8 @@ class TSVWatcherWindow(QMainWindow):
         self.saved_list_filter_created = (
             self.list_created_filter_input.text().strip() if hasattr(self, "list_created_filter_input") else ""
         )
-        self._render_saved_list_entries(self._filtered_saved_list_entries())
+        self._render_saved_list_entries(self._filtered_saved_list_entries(include_archived=False))
+        self._render_archived_list_entries(self._filtered_saved_list_entries(include_archived=True))
 
     def _clear_saved_list_filters(self):
         """Clear saved list filters and refresh list."""
@@ -5795,7 +5841,8 @@ class TSVWatcherWindow(QMainWindow):
             self.list_created_filter_input.clear()
         self.saved_list_filter_mag = ""
         self.saved_list_filter_created = ""
-        self._render_saved_list_entries(self.saved_list_entries_all)
+        self._render_saved_list_entries(self._filtered_saved_list_entries(include_archived=False))
+        self._render_archived_list_entries(self._filtered_saved_list_entries(include_archived=True))
 
     def _reload_question_list(self, list_name: str) -> None:
         """Reload a single custom list from the database and refresh the UI row."""
@@ -5907,11 +5954,14 @@ class TSVWatcherWindow(QMainWindow):
     
     def delete_question_list(self) -> None:
         """Delete selected question list."""
-        current_item = self.saved_lists_widget.currentItem()
+        widget = self.saved_lists_widget
+        if hasattr(self, "archived_lists_widget") and self.archived_lists_widget.hasFocus():
+            widget = self.archived_lists_widget
+        current_item = widget.currentItem() if widget else None
         if not current_item:
             QMessageBox.information(self, "No Selection", "Please select a list to delete.")
             return
-        
+
         list_name = current_item.data(Qt.UserRole)
         reply = QMessageBox.question(
             self,
@@ -5940,6 +5990,30 @@ class TSVWatcherWindow(QMainWindow):
                     item.widget().deleteLater()
         self._refresh_compare_options()
         self.log(f"Deleted question list: {list_name}")
+
+    def archive_question_list(self) -> None:
+        """Archive the currently selected question list."""
+        widget = self.saved_lists_widget
+        if hasattr(self, "archived_lists_widget") and self.archived_lists_widget.hasFocus():
+            widget = self.archived_lists_widget
+        current_item = widget.currentItem() if widget else None
+        if not current_item:
+            QMessageBox.information(self, "No Selection", "Please select a list to archive.")
+            return
+        list_name = current_item.data(Qt.UserRole)
+        if not self.db_service:
+            QMessageBox.warning(self, "Unavailable", "Database service is not available.")
+            return
+        try:
+            self.db_service.set_list_archived(list_name, True)
+        except Exception as exc:
+            QMessageBox.critical(self, "Archive Failed", f"Could not archive list:\n{exc}")
+            return
+        meta = self.question_lists_metadata.get(list_name, {})
+        meta["archived"] = True
+        self.question_lists_metadata[list_name] = meta
+        self._load_saved_question_lists()
+        QMessageBox.information(self, "Archived", f"Archived list '{list_name}'.")
 
     def _current_list_name(self) -> str | None:
         item = self.saved_lists_widget.currentItem()
@@ -6747,8 +6821,25 @@ class TSVWatcherWindow(QMainWindow):
         )
     
     def on_saved_list_selected(self) -> None:
-        """Handle selection of a saved question list."""
-        current_item = self.saved_lists_widget.currentItem()
+        """Handle selection of an active saved question list."""
+        if hasattr(self, "archived_lists_widget"):
+            self.archived_lists_widget.blockSignals(True)
+            self.archived_lists_widget.clearSelection()
+            self.archived_lists_widget.blockSignals(False)
+        self._handle_list_selection(from_archived=False)
+
+    def on_archived_list_selected(self) -> None:
+        """Handle selection of an archived question list."""
+        if hasattr(self, "saved_lists_widget"):
+            self.saved_lists_widget.blockSignals(True)
+            self.saved_lists_widget.clearSelection()
+            self.saved_lists_widget.blockSignals(False)
+        self._handle_list_selection(from_archived=True)
+
+    def _handle_list_selection(self, from_archived: bool) -> None:
+        """Common selection handling for active/archived lists."""
+        widget = self.archived_lists_widget if from_archived else self.saved_lists_widget
+        current_item = widget.currentItem()
         if not current_item:
             self.list_name_label.setText("Select a list to view questions")
             self.current_list_name = None
@@ -6759,7 +6850,6 @@ class TSVWatcherWindow(QMainWindow):
                     if item.widget():
                         item.widget().deleteLater()
             self.drag_drop_panel.display_existing_questions([])
-            # Hide panel if no list selected
             self.drag_drop_panel.setVisible(False)
             self._refresh_compare_options()
             return
@@ -6772,11 +6862,9 @@ class TSVWatcherWindow(QMainWindow):
             self._populate_list_question_table(list_name)
             self._update_comparison_results()
 
-            # Display existing questions in drag-drop panel
             if list_name in self.question_lists:
                 questions = self.question_lists[list_name]
                 self.drag_drop_panel.display_existing_questions(questions)
-                # Show the panel to display existing questions
                 self.drag_drop_panel.setVisible(True)
         finally:
             self._show_list_loading(False)

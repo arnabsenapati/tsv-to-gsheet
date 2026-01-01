@@ -707,6 +707,28 @@ class DatabaseService:
                 )
                 position += 1
 
+    def set_list_archived(self, list_name: str, archived: bool) -> None:
+        """Mark a saved list as archived by updating its metadata."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT metadata_json FROM question_lists WHERE name = ?", (list_name,)).fetchone()
+            meta = {}
+            if row and row["metadata_json"]:
+                try:
+                    meta = json.loads(row["metadata_json"]) or {}
+                except Exception:
+                    meta = {}
+            meta["archived"] = bool(archived)
+            meta_json = json.dumps(meta, ensure_ascii=False, indent=2)
+            self.snapshot_database(f"{'Archive' if archived else 'Unarchive'} list {list_name}")
+            conn.execute(
+                """
+                INSERT INTO question_lists(name, metadata_json)
+                VALUES (?, ?)
+                ON CONFLICT(name) DO UPDATE SET metadata_json = excluded.metadata_json
+                """,
+                (list_name, meta_json),
+            )
+
     def get_list_theory(self, list_name: str) -> str:
         with self._connect() as conn:
             row = conn.execute("SELECT metadata_json FROM question_lists WHERE name = ?", (list_name,)).fetchone()
