@@ -116,6 +116,24 @@ from utils.helpers import (
 )
 
 
+def format_file_size(size_bytes: int | float | None) -> str:
+    """Return a human-friendly file size string."""
+    if size_bytes is None:
+        return "-"
+    try:
+        size = float(size_bytes)
+    except Exception:
+        return "-"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return "-"
+
+
 class SnapshotDialog(QDialog):
     """Dialog to list and restore DB snapshots."""
 
@@ -132,7 +150,8 @@ class SnapshotDialog(QDialog):
         for snap in self.snapshots:
             ts = snap.get("timestamp", "")
             reason = snap.get("reason", "")
-            item = QListWidgetItem(f"{ts}  |  {reason}")
+            size_display = format_file_size(snap.get("size_bytes"))
+            item = QListWidgetItem(f"{ts}  |  {size_display}  |  {reason}")
             item.setData(Qt.UserRole, snap)
             self.list_widget.addItem(item)
         layout.addWidget(self.list_widget, 1)
@@ -160,7 +179,8 @@ class SnapshotDialog(QDialog):
             return
         ts = snap.get("timestamp", "")
         reason = snap.get("reason", "")
-        self.detail_label.setText(f"Timestamp: {ts}\nReason: {reason}")
+        size_display = format_file_size(snap.get("size_bytes"))
+        self.detail_label.setText(f"Timestamp: {ts}\nSize: {size_display}\nReason: {reason}")
 
     def selected_snapshot(self) -> dict | None:
         item = self.list_widget.currentItem()
@@ -973,17 +993,28 @@ class TSVWatcherWindow(QMainWindow):
         self.list_created_filter_input.textEdited.connect(self._apply_saved_list_filters)
         filter_row.addWidget(self.list_created_filter_input)
 
+        neutral_btn_style = (
+            "QPushButton { background: #f1f5f9; border: none; border-radius: 8px; padding: 4px 6px; } "
+            "QPushButton:hover { background: #2563eb; color: white; } "
+            "QPushButton:pressed { background: #1d4ed8; color: white; } "
+            "QPushButton:focus { outline: none; }"
+        )
+
         apply_filter_btn = QPushButton()
-        apply_filter_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
+        apply_filter_btn.setIcon(load_icon("apply-filter.png"))
+        apply_filter_btn.setIconSize(QSize(18, 18))
         apply_filter_btn.setToolTip("Apply filters")
         apply_filter_btn.setFixedSize(QSize(32, 28))
+        apply_filter_btn.setStyleSheet(neutral_btn_style)
         apply_filter_btn.clicked.connect(self._apply_saved_list_filters)
         filter_row.addWidget(apply_filter_btn)
 
         clear_filter_btn = QPushButton()
-        clear_filter_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        clear_filter_btn.setIcon(load_icon("clear-filter.png"))
+        clear_filter_btn.setIconSize(QSize(18, 18))
         clear_filter_btn.setToolTip("Clear filters")
         clear_filter_btn.setFixedSize(QSize(32, 28))
+        clear_filter_btn.setStyleSheet(neutral_btn_style)
         clear_filter_btn.clicked.connect(self._clear_saved_list_filters)
         filter_row.addWidget(clear_filter_btn)
 
@@ -991,29 +1022,39 @@ class TSVWatcherWindow(QMainWindow):
 
         list_controls_layout = QHBoxLayout()
         new_list_btn = QPushButton()
-        new_list_btn.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
+        new_list_btn.setIcon(load_icon("new-list.png"))
+        new_list_btn.setIconSize(QSize(18, 18))
         new_list_btn.setToolTip("New List")
         new_list_btn.setFixedSize(QSize(32, 28))
+        new_list_btn.setStyleSheet(neutral_btn_style)
         new_list_btn.clicked.connect(self.create_new_question_list)
         rename_list_btn = QPushButton()
-        rename_list_btn.setIcon(self.style().standardIcon(QStyle.SP_FileDialogContentsView))
+        rename_list_btn.setIcon(load_icon("rename-list.png"))
+        rename_list_btn.setIconSize(QSize(18, 18))
         rename_list_btn.setToolTip("Rename List")
         rename_list_btn.setFixedSize(QSize(32, 28))
+        rename_list_btn.setStyleSheet(neutral_btn_style)
         rename_list_btn.clicked.connect(self.rename_question_list)
         delete_list_btn = QPushButton()
-        delete_list_btn.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        delete_list_btn.setIcon(load_icon("delete-list.png"))
+        delete_list_btn.setIconSize(QSize(18, 18))
         delete_list_btn.setToolTip("Delete List")
         delete_list_btn.setFixedSize(QSize(32, 28))
+        delete_list_btn.setStyleSheet(neutral_btn_style)
         delete_list_btn.clicked.connect(self.delete_question_list)
         theory_btn = QPushButton()
-        theory_btn.setIcon(self.style().standardIcon(QStyle.SP_ArrowUp))
+        theory_btn.setIcon(load_icon("upload-latex.png"))
+        theory_btn.setIconSize(QSize(18, 18))
         theory_btn.setToolTip("Upload Theory")
         theory_btn.setFixedSize(QSize(32, 28))
+        theory_btn.setStyleSheet(neutral_btn_style)
         theory_btn.clicked.connect(self._open_theory_dialog)
         theory_pdf_btn = QPushButton()
-        theory_pdf_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        theory_pdf_btn.setIcon(load_icon("download-pdf.png"))
+        theory_pdf_btn.setIconSize(QSize(18, 18))
         theory_pdf_btn.setToolTip("Download Theory PDF")
         theory_pdf_btn.setFixedSize(QSize(32, 28))
+        theory_pdf_btn.setStyleSheet(neutral_btn_style)
         theory_pdf_btn.clicked.connect(self._download_theory_pdf)
         list_controls_layout.addWidget(new_list_btn)
         list_controls_layout.addWidget(rename_list_btn)
@@ -1660,8 +1701,8 @@ class TSVWatcherWindow(QMainWindow):
         header_row.addWidget(restore_btn)
         card_layout.addLayout(header_row)
 
-        self.snapshot_table = QTableWidget(0, 3)
-        self.snapshot_table.setHorizontalHeaderLabels(["Timestamp", "Reason", "Path"])
+        self.snapshot_table = QTableWidget(0, 4)
+        self.snapshot_table.setHorizontalHeaderLabels(["Timestamp", "Reason", "Size", "Path"])
         self.snapshot_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.snapshot_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.snapshot_table.horizontalHeader().setStretchLastSection(True)
@@ -1764,6 +1805,7 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_counts = QLabel("Embeddings: 0/0")
         self.sim_embed_counts.setStyleSheet("color: #0f172a;")
         self.sim_embed_status = QLabel("")
+        self.sim_embed_snapshot_on_finish: bool = False
         self.sim_embed_btn = QPushButton("Compute Missing Embeddings")
         self.sim_embed_btn.setStyleSheet("background-color: #16a34a; color: white; padding: 6px 12px; border-radius: 4px;")
         self.sim_embed_btn.clicked.connect(self._compute_missing_embeddings)
@@ -2066,23 +2108,24 @@ class TSVWatcherWindow(QMainWindow):
             top = counts.head(12)
             labels = top[col].astype(str).tolist()
             sizes = top["count"].tolist()
+
+            def _truncate_label(text: str, max_len: int = 28) -> str:
+                return text if len(text) <= max_len else text[: max_len - 1] + "…"
+
+            display_labels = [_truncate_label(lbl) for lbl in labels]
             # Shared color palette for pie and bars
             colors = [cm.tab20(i / max(1, len(labels))) for i in range(len(labels))]
             wedges, _texts, _autotexts = ax_pie.pie(
                 sizes,
-                labels=labels,
+                labels=display_labels,
                 autopct="%1.0f%%",
                 textprops={"fontsize": 8},
                 colors=colors,
             )
             ax_pie.set_title(f"{col} distribution", fontsize=10)
-            def _truncate(text: str, max_len: int = 18) -> str:
-                return text if len(text) <= max_len else text[: max_len - 1] + "…"
-
             x = list(range(len(labels)))
-            trunc_labels = [_truncate(lbl) for lbl in labels]
             bars = ax_bar.bar(x, sizes, color=colors)
-            ax_bar.set_xticks(x, trunc_labels, rotation=30, ha="right", fontsize=8)
+            ax_bar.set_xticks(x, display_labels, rotation=30, ha="right", fontsize=8)
             ax_bar.set_title(f"Count by {col}", fontsize=10)
             ax_bar.set_ylabel("Questions")
             self._attach_analysis_hover(wedges, labels, sizes, bars, labels, sizes, colors)
@@ -2367,6 +2410,7 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_btn.setText("Computing...")
         self.sim_embed_btn.setEnabled(False)
         self.sim_embed_status.setText(f"Computing embeddings for {len(missing_ids)} question(s)...")
+        self.sim_embed_snapshot_on_finish = False
         self._set_embed_counts_display(self.sim_embed_base_done, self.sim_embed_total)
         QApplication.processEvents()
 
@@ -2389,6 +2433,7 @@ class TSVWatcherWindow(QMainWindow):
     def _stop_embedding_compute(self):
         """Signal to stop embedding computation after current batch."""
         self.sim_embed_cancel = True
+        self.sim_embed_snapshot_on_finish = True
         if hasattr(self, "sim_embed_worker") and self.sim_embed_worker:
             try:
                 self.sim_embed_worker.stop()
@@ -2420,12 +2465,16 @@ class TSVWatcherWindow(QMainWindow):
             msg = f"Stopped after {done}/{total} embeddings."
             self.sim_embed_status.setText(msg)
             self.sim_status.setText("Embedding computation stopped.")
+            if self.sim_embed_snapshot_on_finish:
+                self._snapshot_embeddings(f"Embeddings stopped at {done}/{total}")
         else:
             msg = f"Computed embeddings for {done} question(s)."
             self.sim_embed_status.setText(msg)
             self.sim_status.setText("Embeddings updated. Run similarity search again.")
+            self._snapshot_embeddings(f"Embeddings complete {completed}/{self.sim_embed_total}")
         # refresh counts from DB in case they changed outside
         self._refresh_embed_counts_display()
+        self.sim_embed_snapshot_on_finish = False
 
     def _on_embed_error(self, msg: str):
         self.sim_embed_stop_btn.setEnabled(False)
@@ -2433,6 +2482,16 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_embed_btn.setText("Compute Missing Embeddings")
         QMessageBox.warning(self, "Embedding Error", msg)
         self._refresh_embed_counts_display()
+
+    def _snapshot_embeddings(self, reason: str) -> None:
+        """Create a snapshot after embedding run completes or is stopped."""
+        if not self.db_service:
+            return
+        try:
+            self.db_service.snapshot_database(reason)
+            self.sim_embed_status.setText(f"{self.sim_embed_status.text()} | Snapshot saved")
+        except Exception as exc:
+            self.sim_embed_status.setText(f"{self.sim_embed_status.text()} | Snapshot failed: {exc}")
 
     def _set_embed_counts_display(self, done: int, total: int) -> None:
         if hasattr(self, "sim_embed_counts"):
@@ -2582,7 +2641,8 @@ class TSVWatcherWindow(QMainWindow):
             ts = snap.get("timestamp", "")
             reason = snap.get("reason", "")
             path = snap.get("db_file", "")
-            for c_idx, val in enumerate([ts, reason, path]):
+            size_display = format_file_size(snap.get("size_bytes"))
+            for c_idx, val in enumerate([ts, reason, size_display, path]):
                 item = QTableWidgetItem(str(val) if val is not None else "")
                 table.setItem(r_idx, c_idx, item)
         table.resizeColumnsToContents()
@@ -2596,7 +2656,7 @@ class TSVWatcherWindow(QMainWindow):
             return
         ts_item = self.snapshot_table.item(row, 0)
         reason_item = self.snapshot_table.item(row, 1)
-        path_item = self.snapshot_table.item(row, 2)
+        path_item = self.snapshot_table.item(row, 3)
         ts = ts_item.text() if ts_item else ""
         reason = reason_item.text() if reason_item else ""
         path = path_item.text() if path_item else ""
@@ -6417,7 +6477,7 @@ class TSVWatcherWindow(QMainWindow):
             return
         if not file_path.lower().endswith(".pdf"):
             file_path += ".pdf"
-        
+
         def _numeric_sort_value(value) -> float:
             """Convert page/question numbers to numeric values for sorting."""
             if value is None:
@@ -6574,6 +6634,7 @@ class TSVWatcherWindow(QMainWindow):
             pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
             pdf.ln(2)
 
+        # Write unencrypted PDF to temp path first
         try:
             pdf.output(file_path)
             QMessageBox.information(self, "Exported", f"Saved PDF to:\n{file_path}")
