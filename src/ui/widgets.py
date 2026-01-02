@@ -1659,9 +1659,8 @@ class QuestionCardWithRemoveButton(QWidget):
         self.question_id = question_data.get("question_id")
         self.db_service = getattr(parent, "db_service", None) if parent else None
 
-        self.setMinimumHeight(100)
-
-        self.setMaximumHeight(150)
+        self.setMinimumHeight(190)
+        self.setMaximumHeight(190)
 
         
 
@@ -2001,6 +2000,112 @@ class QuestionCardWithRemoveButton(QWidget):
         dialog.exec()
         self._update_image_button_state()
 
+
+class SimilarQuestionCard(QWidget):
+    """
+    Wrapper for QuestionCardWidget that adds an 'Add to custom list' button on hover.
+    """
+
+    clicked = Signal(dict)
+    add_to_list_requested = Signal(dict)
+
+    def __init__(self, question_data: dict, parent=None):
+        super().__init__(parent)
+        self.question_data = question_data
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.card = QuestionCardWidget(question_data, self)
+        self.card.clicked.connect(lambda q: self.clicked.emit(q))
+        layout.addWidget(self.card)
+
+        self.add_btn = QPushButton(self.card)
+        self.add_btn.setIcon(load_icon("add-question-list.png"))
+        self.add_btn.setIconSize(QSize(16, 16))
+        self.add_btn.setToolTip("Add to custom list")
+        self.add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #22c55e;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 14px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #16a34a;
+            }
+        """)
+        self.add_btn.setFixedSize(28, 28)
+        self.add_btn.clicked.connect(lambda: self.add_to_list_requested.emit(self.question_data))
+        self.add_btn.setVisible(False)
+        self.add_btn.setCursor(Qt.PointingHandCursor)
+        # Ensure stacking above the card
+        self.add_btn.raise_()
+        if hasattr(self.card, "image_btn"):
+            self.card.image_btn.raise_()
+        if hasattr(self.card, "edit_btn"):
+            self.card.edit_btn.raise_()
+
+    def enterEvent(self, event):
+        self.add_btn.setVisible(True)
+        if hasattr(self.card, "image_btn"):
+            self.card.image_btn.setVisible(True)
+        if hasattr(self.card, "edit_btn"):
+            self.card.edit_btn.setVisible(True)
+        self._position_buttons()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.add_btn.setVisible(False)
+        if hasattr(self.card, "image_btn"):
+            self.card.image_btn.setVisible(False)
+        if hasattr(self.card, "edit_btn"):
+            self.card.edit_btn.setVisible(False)
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_buttons()
+
+    def _position_buttons(self):
+        # Align add > edit > image in a single row, right-aligned with even spacing.
+        spacing = 4
+        y = 4
+
+        add_w = self.add_btn.width()
+        img_w = self.card.image_btn.width() if hasattr(self.card, "image_btn") else add_w
+        edit_w = self.card.edit_btn.width() if hasattr(self.card, "edit_btn") else add_w
+
+        # Right to left: image, edit, add (final visual: add | edit | image from right)
+        image_x = self.card.width() - img_w - spacing
+        edit_x = image_x - spacing - edit_w
+        add_x = edit_x - spacing - add_w
+
+        # Ensure we don't go negative; if narrow, stack on the right.
+        if add_x < 0:
+            add_x = spacing
+            edit_x = add_x + add_w + spacing
+            image_x = edit_x + edit_w + spacing
+
+        self.add_btn.move(add_x, y)
+        if hasattr(self.card, "image_btn"):
+            self.card.image_btn.move(image_x, y)
+        if hasattr(self.card, "edit_btn"):
+            self.card.edit_btn.move(edit_x, y)
+        # Keep z-order consistent
+        self.add_btn.raise_()
+        if hasattr(self.card, "image_btn"):
+            self.card.image_btn.raise_()
+        if hasattr(self.card, "edit_btn"):
+            self.card.edit_btn.raise_()
+
     def _add_images(self, kind: str, refresh_callback=None):
         """Open file picker and attach images of the given kind for this question."""
         if not self.question_id or not self.db_service:
@@ -2155,6 +2260,7 @@ class QuestionCardWidget(QLabel):
 
         self.question_id = question_data.get("question_id") or question_data.get("id")
         self.db_service = self._find_db_service()
+        self.tag_service = self._find_tag_service()
 
         self.is_selected = False
         self.original_stylesheet = ""
@@ -2210,9 +2316,8 @@ class QuestionCardWidget(QLabel):
 
         self.setCursor(Qt.PointingHandCursor)
 
-        self.setMinimumHeight(100)
-
-        self.setMaximumHeight(150)
+        self.setMinimumHeight(190)
+        self.setMaximumHeight(190)
 
         # Image button
         self.image_btn = QPushButton(self)
@@ -2236,8 +2341,8 @@ class QuestionCardWidget(QLabel):
                 color: white;
                 border: none;
                 border-radius: 50%;
-                width: 24px;
-                height: 24px;
+                width: 28px;
+                height: 28px;
                 padding: 0px;
                 font-weight: bold;
                 font-size: 12px;
@@ -2247,7 +2352,7 @@ class QuestionCardWidget(QLabel):
                 background-color: #d97706;
             }
         """)
-        self.edit_btn.setFixedSize(24, 24)
+        self.edit_btn.setFixedSize(28, 28)
         self.edit_btn.clicked.connect(self._show_edit_dialog)
         self.edit_btn.setVisible(False)
         self.edit_btn.setCursor(Qt.PointingHandCursor)
@@ -2284,60 +2389,48 @@ class QuestionCardWidget(QLabel):
 
         question_text = q.get("text", q.get("question_text", "No question text available"))
 
-        question_set = q.get("question_set_name", "Unknown")
+        question_set = q.get("question_set_group") or q.get("question_set_name", "Unknown")
 
         magazine = q.get("magazine", "Unknown")
 
-        tags = q.get("tags", [])
+        tags = list(q.get("tags", []) or [])
+        group_tags = list(q.get("group_tags", []) or [])
+        if q.get("question_set_group") and not group_tags and self.tag_service:
+            try:
+                group_tags = self.tag_service.get_group_tags(q["question_set_group"])
+                group_name = q.get("question_set_group")
+                if group_tags:
+                    q["group_tags"] = group_tags
+                    q["group_tag_colors"] = {t: self.tag_service.get_or_assign_tag_color(t) for t in group_tags}
+            except Exception:
+                group_tags = group_tags
+        all_tags = list(dict.fromkeys(tags + group_tags))
+        tag_colors = {
+            "important": "#ef4444",
+            "previous year": "#f59e0b",
+            "prev-year": "#f59e0b",
+            "conceptual": "#8b5cf6",
+            "numerical": "#10b981",
+            "difficult": "#dc2626",
+            "easy": "#22c55e",
+        }
+        tag_colors.update(q.get("group_tag_colors", {}) or {})
 
-        
+        # Truncate question to ~18 words (approximately 90-100 chars)
+        preview = self._truncate_text(question_text, max_words=18)
 
-        # Truncate question to ~20 words (approximately 100 chars)
-
-        preview = self._truncate_text(question_text, max_words=20)
-
-        
-
-        # Build tag badges HTML
-
+        # Build tag badges HTML for bottom ribbon
         tag_html = ""
-
-        if tags:
-
-            tag_colors = {
-
-                "important": "#ef4444",
-
-                "previous year": "#f59e0b",
-
-                "prev-year": "#f59e0b",
-
-                "conceptual": "#8b5cf6",
-
-                "numerical": "#10b981",
-
-                "difficult": "#dc2626",
-
-                "easy": "#22c55e",
-
-            }
-
+        if all_tags:
             tag_badges = []
-
-            for tag in tags[:3]:  # Show max 3 tags
-
-                color = tag_colors.get(tag.lower(), "#6b7280")
-
+            for tag in all_tags[:5]:
+                color = tag_colors.get(tag, tag_colors.get(tag.lower(), "#6b7280"))
                 tag_badges.append(
-
                     f'<span style="background-color: {color}; color: white; '
-
-                    f'padding: 2px 6px; border-radius: 3px; font-size: 10px; '
-
-                    f'font-weight: bold; margin-left: 4px;">{tag}</span>'
-
+                    f'padding: 2px 6px; border-radius: 2px; font-size: 9px; '
+                    f'font-weight: 700; display: inline-block; margin-right: 6px;">{tag}</span>'
                 )
-
+            # Use spaces to ensure separation in Qt rich text
             tag_html = " ".join(tag_badges)
 
         
@@ -2363,8 +2456,6 @@ class QuestionCardWidget(QLabel):
 
                 <span style="color: #64748b; font-size: 12px; margin-left: 12px;">Page {page}</span>{camera_html}
 
-                {tag_html}
-
             </div>
 
             <div style="border-top: 1px solid #cbd5e1; padding-top: 8px; margin-bottom: 8px;">
@@ -2377,13 +2468,15 @@ class QuestionCardWidget(QLabel):
 
             </div>
 
-            <div style="font-size: 11px; color: #94a3b8;">
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">
 
                 <span style="color: #475569;">{question_set}</span> | 
 
                 <span style="color: #475569;">{magazine}</span>
 
             </div>
+
+            {('<div style="margin-top: 4px;">' + tag_html + '</div>') if tag_html else ''}
 
         </div>
 
@@ -2458,6 +2551,15 @@ class QuestionCardWidget(QLabel):
         while parent:
             if hasattr(parent, "db_service"):
                 return getattr(parent, "db_service")
+            parent = parent.parent()
+        return None
+
+    def _find_tag_service(self):
+        """Walk parents to find tag_service if available."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "tag_service"):
+                return getattr(parent, "tag_service")
             parent = parent.parent()
         return None
 

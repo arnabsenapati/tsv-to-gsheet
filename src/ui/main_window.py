@@ -85,6 +85,7 @@ from config.constants import (
 from services.db_service import DatabaseService
 from services.excel_service import process_tsv
 from services.question_set_group_service import QuestionSetGroupService
+from services.tag_service import TagService
 from ui.dialogs import QuestionEditDialog
 from services.cbt_package import build_payload, save_cqt, hash_eval_password
 from ui.dialogs import MultiSelectTagDialog, PasswordPromptDialog, CQTAuthorPreviewDialog
@@ -99,6 +100,7 @@ from ui.widgets import (
     NavigationSidebar,
     QuestionCardWidget,
     QuestionCardWithRemoveButton,
+    SimilarQuestionCard,
     QuestionTreeWidget,
     QuestionListCardView,
     TagBadge,
@@ -290,6 +292,7 @@ class TSVWatcherWindow(QMainWindow):
         self.current_magazine_display_name: str = ""  # Human-friendly magazine name for UI
         self.watch_Database_path: Path | None = None  # deprecated
         self.db_service = DatabaseService(DEFAULT_DB_PATH)
+        self.tag_service = TagService(db_service=self.db_service)
         self.current_db_path: Path = DEFAULT_DB_PATH
         self.current_subject: str | None = None
         self.use_database: bool = False
@@ -1454,6 +1457,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # Initialize the Question Set Group Service (DB-backed)
         self.question_set_group_service = QuestionSetGroupService(db_service=self.db_service)
+        self.tag_service = TagService(db_service=self.db_service)
         
         # Create the Question Set Grouping View
         self.question_set_grouping_view = QuestionSetGroupingView()
@@ -1463,6 +1467,15 @@ class TSVWatcherWindow(QMainWindow):
         grouping_layout.addWidget(self.question_set_grouping_view, 1)
         
         self.content_stack.addWidget(grouping_page)
+
+    def _get_question_set_group_name(self, question_set: str | None) -> str | None:
+        """Return display name of the Question Set Group for a given question set, if any."""
+        if not question_set or not getattr(self, "question_set_group_service", None):
+            return None
+        try:
+            return self.question_set_group_service.get_group_for_question_set(question_set)
+        except Exception:
+            return None
     
     def _on_question_set_moved(self, qs_name: str, from_group: str, to_group: str):
         """Handle when a question set is moved between groups."""
@@ -1786,23 +1799,16 @@ class TSVWatcherWindow(QMainWindow):
         self.sim_status.setStyleSheet("color: #475569;")
         card_layout.addWidget(self.sim_status)
 
-        self.sim_results = QTableWidget(0, 9)
-        self.sim_results.setHorizontalHeaderLabels([
-            "Add",
-            "ID",
-            "Q#",
-            "Chapter",
-            "Magazine",
-            "Question Set",
-            "Page",
-            "Score",
-            "Question Text",
-        ])
-        self.sim_results.horizontalHeader().setStretchLastSection(True)
-        self.sim_results.setSelectionBehavior(QTableWidget.SelectRows)
-        self.sim_results.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.sim_results.setWordWrap(True)
-        card_layout.addWidget(self.sim_results, 1)
+        # Similar question results - card view
+        self.sim_cards_area = QScrollArea()
+        self.sim_cards_area.setWidgetResizable(True)
+        self.sim_cards_container = QWidget()
+        self.sim_cards_layout = QGridLayout(self.sim_cards_container)
+        self.sim_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.sim_cards_layout.setHorizontalSpacing(12)
+        self.sim_cards_layout.setVerticalSpacing(12)
+        self.sim_cards_area.setWidget(self.sim_cards_container)
+        card_layout.addWidget(self.sim_cards_area, 1)
 
         # Target question preview
         self.sim_target_box = QFrame()
@@ -2280,6 +2286,16 @@ class TSVWatcherWindow(QMainWindow):
             self.sim_mag_combo.addItem(m)
         self.sim_mag_combo.blockSignals(False)
 
+    def _clear_sim_cards(self):
+        if not hasattr(self, "sim_cards_layout"):
+            return
+        while self.sim_cards_layout.count():
+            item = self.sim_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        # add a spacer to keep items aligned top if using grid
+        self.sim_cards_layout.setRowStretch(1000, 1)
+
     def _run_similarity_search(self):
         if self.Database_df is None or self.Database_df.empty:
             QMessageBox.information(self, "No Data", "Load questions from the database first.")
@@ -2317,7 +2333,7 @@ class TSVWatcherWindow(QMainWindow):
         candidate_ids = candidate_ids & emb_ids
         if target_id not in emb_ids or not candidate_ids:
             self.sim_status.setText("No embeddings available for this question/filters. Add embeddings to run similarity search.")
-            self.sim_results.setRowCount(0)
+            self._clear_sim_cards()
             self.sim_target_box.setVisible(False)
             return
 
@@ -2327,7 +2343,7 @@ class TSVWatcherWindow(QMainWindow):
         vecs = {row["question_id"]: row["vector"] for row in embed_rows}
         if target_id not in vecs:
             self.sim_status.setText("Target question embedding not found.")
-            self.sim_results.setRowCount(0)
+            self._clear_sim_cards()
             self.sim_target_box.setVisible(False)
             return
 
@@ -2349,8 +2365,8 @@ class TSVWatcherWindow(QMainWindow):
         top_n = int(self.sim_topn_combo.currentText()) if hasattr(self, "sim_topn_combo") else 10
         top_hits = scores[:top_n]
 
-        self.sim_results.setRowCount(len(top_hits))
-        for row, (cid, score) in enumerate(top_hits):
+        self._clear_sim_cards()
+        for idx, (cid, score) in enumerate(top_hits):
             row_data = df[df["QuestionID"] == cid].iloc[0]
             qno = row_data.get("Qno", row_data.get("question_number", ""))
             chapter_val = row_data.get("High level chapter", row_data.get("high_level_chapter", row_data.get("chapter", "")))
@@ -2358,13 +2374,8 @@ class TSVWatcherWindow(QMainWindow):
             qset_val = row_data.get("Name of Question Set", row_data.get("question_set_name", row_data.get("question_set", "")))
             full_text = str(row_data.get("Full Question Text", row_data.get("question_text", "")))
             page_val = row_data.get("PageNo", row_data.get("page_range", ""))
+            group_val = self._get_question_set_group_name(qset_val)
 
-            # Add button
-            add_btn = QPushButton()
-            add_btn.setIcon(load_icon("add-question-list.png"))
-            add_btn.setToolTip("Add to custom list")
-            add_btn.setFixedSize(28, 24)
-            add_btn.setStyleSheet("QPushButton { border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px; background: #e0f2fe; } QPushButton:hover { background: #bfdbfe; }")
             question_payload = row_data.to_dict()
             qid_for_add = row_data.get("QuestionID") or row_data.get("question_id") or row_data.get("id")
             if qid_for_add is not None:
@@ -2372,18 +2383,52 @@ class TSVWatcherWindow(QMainWindow):
                     qid_for_add = int(qid_for_add)
                 except Exception:
                     pass
-            question_payload["question_id"] = qid_for_add
-            question_payload["row_number"] = qid_for_add
-            add_btn.clicked.connect(lambda _, q=question_payload: self._prompt_add_question_to_list(q))
-            self.sim_results.setCellWidget(row, 0, add_btn)
+            question_payload.update(
+                {
+                    "question_id": qid_for_add,
+                    "row_number": qid_for_add,
+                    "qno": qno or qid_for_add,
+                    "page": page_val,
+                    "question_set_name": qset_val,
+                    "question_set_group": group_val,
+                    "magazine": mag_val,
+                    "text": full_text,
+                    "question_text": full_text,
+                }
+            )
+            if group_val and hasattr(self, "tag_service") and self.tag_service:
+                tags = self.tag_service.get_question_set_group_tags(group_val) or self.tag_service.get_group_tags(group_val)
+                if tags:
+                    question_payload["group_tags"] = tags
+                    question_payload["group_tag_colors"] = {t: self.tag_service.get_or_assign_tag_color(t) for t in tags}
+                    if hasattr(self, "log"):
+                        try:
+                            self.log(f"[TagsDebug] SimilarCard: {group_val} tags={tags}")
+                        except Exception:
+                            pass
 
-            cells = [cid, qno, chapter_val, mag_val, qset_val, page_val, f"{score:.3f}", full_text]
-            for col, val in enumerate(cells, start=1):
-                item = QTableWidgetItem(str(val))
-                if col == 8:  # Question text column
-                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
-                self.sim_results.setItem(row, col, item)
-        self.sim_results.resizeRowsToContents()
+            card = SimilarQuestionCard(question_payload, self)
+            card.add_to_list_requested.connect(lambda _, q=question_payload: self._prompt_add_question_to_list(q))
+            card.clicked.connect(lambda _, q=question_payload: self._open_similarity_from_question(q))
+
+            meta_text = f"ID {cid} • Score {score:.3f} • {chapter_val}"
+            if len(meta_text) > 120:
+                meta_text = meta_text[:117] + "..."
+            meta = QLabel(meta_text)
+            meta.setStyleSheet("color:#475569; font-size:12px; padding:2px 4px;")
+            meta.setWordWrap(False)
+            meta.setFixedHeight(20)
+
+            wrapper = QWidget()
+            wrapper_layout = QVBoxLayout(wrapper)
+            wrapper_layout.setContentsMargins(0, 0, 0, 0)
+            wrapper_layout.setSpacing(4)
+            wrapper_layout.addWidget(meta)
+            wrapper_layout.addWidget(card)
+
+            row = idx // 2
+            col = idx % 2
+            self.sim_cards_layout.addWidget(wrapper, row, col)
 
         # Show target text
         target_row = df[df["QuestionID"] == target_id].iloc[0]
@@ -6272,6 +6317,22 @@ class TSVWatcherWindow(QMainWindow):
         # Add question cards in 2-column grid using QuestionCardWithRemoveButton wrapper
         sorted_questions = sorted(questions, key=self._get_question_sort_key)
         for idx, question in enumerate(sorted_questions):
+            qset_name = question.get("question_set_name") or question.get("question_set")
+            group_name = self._get_question_set_group_name(str(qset_name)) if qset_name else None
+            if group_name:
+                question["question_set_group"] = group_name
+                # Attach group tags and colors for ribbon
+                if hasattr(self, "tag_service") and self.tag_service:
+                    tags = self.tag_service.get_question_set_group_tags(group_name) or self.tag_service.get_group_tags(group_name)
+                    if tags:
+                        question["group_tags"] = tags
+                        colors = {t: self.tag_service.get_or_assign_tag_color(t) for t in tags}
+                        question["group_tag_colors"] = colors
+                        if hasattr(self, "log"):
+                            try:
+                                self.log(f"[TagsDebug] CustomList: {group_name} tags={tags}")
+                            except Exception:
+                                pass
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))

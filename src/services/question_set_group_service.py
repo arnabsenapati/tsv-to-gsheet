@@ -68,6 +68,7 @@ class QuestionSetGroupService:
         self.config_file = config_file
         self.db_service = db_service
         self.groups: dict[str, dict] = {}  # group_name -> {display_name, question_sets, color}
+        self._question_set_to_group: dict[str, str] = {}
         
         # Load existing groups from file
         self.load_groups()
@@ -84,6 +85,7 @@ class QuestionSetGroupService:
             data = self.db_service.load_config("QuestionSetGroup")
             if data:
                 self.groups = data.get("groups", {})
+                self._rebuild_reverse_map()
                 loaded = True
 
         if not loaded:
@@ -99,6 +101,15 @@ class QuestionSetGroupService:
                 "question_sets": [],
                 "color": self.GROUP_COLORS[i % len(self.GROUP_COLORS)],
             }
+        self._rebuild_reverse_map()
+
+    def _rebuild_reverse_map(self) -> None:
+        """Build reverse lookup from question set -> display name."""
+        self._question_set_to_group = {}
+        for group_name, data in self.groups.items():
+            display = data.get("display_name", group_name)
+            for qs in data.get("question_sets", []):
+                self._question_set_to_group[qs] = display
     
     def _get_saved_groups_from_file(self) -> dict:
         """Get groups currently saved in file (without defaults)."""
@@ -126,6 +137,7 @@ class QuestionSetGroupService:
                 json.dumps(payload, indent=2),
                 encoding="utf-8",
             )
+        self._rebuild_reverse_map()
     
     def get_all_groups(self) -> dict[str, dict]:
         """
@@ -162,6 +174,12 @@ class QuestionSetGroupService:
         if group:
             return group.get("question_sets", [])
         return []
+
+    def get_group_for_question_set(self, question_set_name: str) -> Optional[str]:
+        """
+        Return the display name of the group that contains the given question set.
+        """
+        return self._question_set_to_group.get(question_set_name)
     
     def get_others_group(self, all_question_sets: list[str]) -> dict:
         """
@@ -210,6 +228,7 @@ class QuestionSetGroupService:
             question_sets.append(question_set_name)
             self.groups[group_name]["question_sets"] = question_sets
             self.save_groups()
+            self._rebuild_reverse_map()
         
         return True
     
@@ -236,6 +255,7 @@ class QuestionSetGroupService:
             question_sets.remove(question_set_name)
             self.groups[group_name]["question_sets"] = question_sets
             self.save_groups()
+            self._rebuild_reverse_map()
         
         return True
     
@@ -260,7 +280,10 @@ class QuestionSetGroupService:
         if to_group == "Others":
             return False
         
-        return self.add_question_set_to_group(to_group, question_set_name)
+        moved = self.add_question_set_to_group(to_group, question_set_name)
+        if moved:
+            self._rebuild_reverse_map()
+        return moved
     
     def create_group(self, group_name: str) -> bool:
         """
@@ -322,4 +345,5 @@ class QuestionSetGroupService:
         group_data["display_name"] = new_name
         self.groups[new_name] = group_data
         self.save_groups()
+        self._rebuild_reverse_map()
         return True

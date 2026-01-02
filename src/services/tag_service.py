@@ -53,8 +53,13 @@ class TagService:
         self.available_colors = available_colors or TAG_COLORS
         
         # Storage for tags and colors
-        self.group_tags: dict[str, list[str]] = {}  # group_name -> [tag1, tag2, ...]
+        self.group_tags: dict[str, list[str]] = {}  # question group -> [tag1, ...]
+        self.question_set_group_tags: dict[str, list[str]] = {}  # question set group -> [tag1, ...]
         self.tag_colors: dict[str, str] = {}  # tag_name -> "#hexcolor"
+        self._group_to_tags_cache: dict[str, list[str]] = {}
+        self._group_tags_lower: dict[str, list[str]] = {}
+        self._qset_group_to_tags: dict[str, list[str]] = {}
+        self._qset_group_tags_lower: dict[str, list[str]] = {}
         
         # Load existing tags from file
         self.load_tags()
@@ -70,7 +75,9 @@ class TagService:
         if self.db_service:
             data = self.db_service.load_config("TagsConfig")
         self.group_tags = data.get("group_tags", {})
+        self.question_set_group_tags = data.get("question_set_group_tags", {})
         self.tag_colors = data.get("tag_colors", {})
+        self._rebuild_caches()
     
     def save_tags(self) -> None:
         """
@@ -85,6 +92,14 @@ class TagService:
         }
         if self.db_service:
             self.db_service.save_config("TagsConfig", payload)
+        self._rebuild_caches()
+
+    def _rebuild_caches(self) -> None:
+        """Rebuild in-memory caches for fast and case-insensitive lookups."""
+        self._group_to_tags_cache = {g: list(tags) for g, tags in self.group_tags.items()}
+        self._group_tags_lower = {g.lower(): list(tags) for g, tags in self.group_tags.items()}
+        self._qset_group_to_tags = {g: list(tags) for g, tags in self.question_set_group_tags.items()}
+        self._qset_group_tags_lower = {g.lower(): list(tags) for g, tags in self.question_set_group_tags.items()}
     
     def get_group_tags(self, group_name: str) -> list[str]:
         """
@@ -96,7 +111,25 @@ class TagService:
         Returns:
             List of tag names (empty list if group has no tags)
         """
-        return self.group_tags.get(group_name, [])
+        if not group_name:
+            return []
+        # Exact match first
+        tags = self._group_to_tags_cache.get(group_name)
+        if tags:
+            return tags
+        # Case-insensitive fallback
+        return self._group_tags_lower.get(group_name.lower(), []) or self.group_tags.get(group_name, [])
+
+    def get_question_set_group_tags(self, group_name: str) -> list[str]:
+        """
+        Get tags for a question set group (as stored in question_set_group_tags).
+        """
+        if not group_name:
+            return []
+        tags = self._qset_group_to_tags.get(group_name)
+        if tags:
+            return tags
+        return self._qset_group_tags_lower.get(group_name.lower(), []) or self.question_set_group_tags.get(group_name, [])
     
     def set_group_tags(self, group_name: str, tags: list[str]) -> None:
         """
@@ -128,6 +161,7 @@ class TagService:
         if tag not in self.group_tags[group_name]:
             self.group_tags[group_name].append(tag)
             self.save_tags()
+            self._rebuild_caches()
     
     def remove_tag_from_group(self, group_name: str, tag: str) -> None:
         """
