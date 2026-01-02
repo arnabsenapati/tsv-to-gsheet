@@ -304,6 +304,7 @@ class TSVWatcherWindow(QMainWindow):
         self.list_question_set_search_term: str = ""
         self.comparison_target: str | None = None  # List name selected for comparison
         self.comparison_common_ids: set[str] = set()
+        self.comparison_similarity: dict[str, tuple[float, dict]] = {}  # identity -> (max similarity, matched question)
         
         # JEE Main Papers analysis
         self.jee_papers_df: pd.DataFrame | None = None
@@ -6339,8 +6340,10 @@ class TSVWatcherWindow(QMainWindow):
             card_wrapper.find_similar_requested.connect(lambda q=question: self._open_similarity_from_question(q))
             card_wrapper.column_index = idx % 2
 
-            if self._is_common_question(question):
-                self._mark_card_as_common(card_wrapper)
+            match = self._get_comparison_match(question)
+            if match is not None:
+                score, matched_q = match
+                self._mark_card_similarity(card_wrapper, score, matched_q)
 
             row = idx // 2
             col = idx % 2
@@ -6441,7 +6444,8 @@ class TSVWatcherWindow(QMainWindow):
     def _update_comparison_results(self) -> None:
         """Compute and highlight questions common with the comparison list."""
         self.comparison_common_ids.clear()
-        
+        self.comparison_similarity = {}
+
         if (
             not self.current_list_name
             or self.current_list_name not in self.question_lists
@@ -6454,19 +6458,89 @@ class TSVWatcherWindow(QMainWindow):
         
         base_questions = self.question_lists.get(self.current_list_name, [])
         target_questions = self.question_lists.get(self.comparison_target, [])
-        
-        target_ids = {self._get_question_identity(q) for q in target_questions}
-        self.comparison_common_ids = {
-            self._get_question_identity(q) for q in base_questions
-            if self._get_question_identity(q) in target_ids
-        }
-        
-        self.compare_status_label.setText(
-            f"Common with '{self.comparison_target}': {len(self.comparison_common_ids)} highlighted."
-        )
+
+        # Build lookup of question_id for embedding similarity
+        base_map = {}
+        for q in base_questions:
+            qid = q.get("question_id") or q.get("row_number")
+            ident = self._get_question_identity(q)
+            if qid is not None:
+                try:
+                    base_map[ident] = int(qid)
+                except Exception:
+                    continue
+
+        target_map = {}
+        for q in target_questions:
+            qid = q.get("question_id") or q.get("row_number")
+            if qid is not None:
+                try:
+                    target_map[int(qid)] = q
+                except Exception:
+                    continue
+
+        if not base_map or not target_map:
+            self.compare_status_label.setText("Comparison: missing question IDs for similarity.")
+            self.compare_status_label.setVisible(True)
+            self._apply_list_search()
+            return
+
+        # Fetch embeddings
+        try:
+            self.db_service.ensure_question_embeddings_table()
+        except Exception as exc:
+            self.compare_status_label.setText(f"Comparison error: {exc}")
+            self.compare_status_label.setVisible(True)
+            self._apply_list_search()
+            return
+
+        all_ids = list(set(base_map.values()) | set(target_map.keys()))
+        embed_rows = self.db_service.fetch_embeddings(all_ids)
+        vecs = {row["question_id"]: row["vector"] for row in embed_rows}
+
+        # Pre-normalize target vectors
+        import numpy as np  # local
+
+        target_vecs = {}
+        for qid, vec in vecs.items():
+            if qid in target_map:
+                norm = np.linalg.norm(vec) + 1e-9
+                target_vecs[qid] = vec / norm
+
+        if not target_vecs:
+            self.compare_status_label.setText("Comparison: no embeddings for comparison list.")
+            self.compare_status_label.setVisible(True)
+            self._apply_list_search()
+            return
+
+        # Compute max similarity for each base question
+        self.comparison_similarity = {}
+        target_ids = list(target_vecs.keys())
+        target_matrix = np.stack([target_vecs[i] for i in target_ids], axis=0)
+
+        for ident, base_qid in base_map.items():
+            base_vec = vecs.get(base_qid)
+            if base_vec is None:
+                continue
+            base_norm = base_vec / (np.linalg.norm(base_vec) + 1e-9)
+            scores = base_norm @ target_matrix.T
+            if not scores.size:
+                continue
+            best_idx = int(np.argmax(scores))
+            max_score = float(scores[best_idx])
+            if max_score >= 0.5:  # only keep if at least moderate similarity
+                best_target_id = target_ids[best_idx]
+                matched_question = target_map.get(best_target_id, {})
+                self.comparison_similarity[ident] = (max_score, matched_question)
+
+        count_sim = len(self.comparison_similarity)
+        if count_sim == 0:
+            self.compare_status_label.setText(f"Similarity with '{self.comparison_target}': no matches with embeddings (>=0.5).")
+        else:
+            self.compare_status_label.setText(f"Similarity with '{self.comparison_target}': {count_sim} highlighted.")
         self.compare_status_label.setVisible(True)
-        
-        # Repaint cards to show highlights
+
+        # Repaint cards to show highlights based on similarity
         self._apply_list_search()
     
     def _get_question_identity(self, question: dict) -> str:
@@ -6479,6 +6553,70 @@ class TSVWatcherWindow(QMainWindow):
         question_set = self._normalize_label(question.get("question_set_name", ""))
         magazine = self._normalize_label(question.get("magazine", ""))
         return f"{qno}|{question_set}|{magazine}"
+
+    def _get_comparison_match(self, question: dict) -> tuple[float, dict] | None:
+        """Return (score, matched_question) for current comparison target if available."""
+        if not self.comparison_similarity:
+            return None
+        ident = self._get_question_identity(question)
+        return self.comparison_similarity.get(ident)
+
+    def _similarity_color(self, score: float) -> str:
+        """Map score in [0.5,1.0] to a gradient from yellow (50%) to red (100%)."""
+        # Clamp
+        s = max(0.5, min(1.0, score))
+        # Define stops: 0.5 -> yellow (#facc15), 0.75 -> orange (#f97316), 1.0 -> red (#ef4444)
+        def hex_to_rgb(h):
+            h = h.lstrip("#")
+            return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+        def interp(c1, c2, t):
+            return tuple(int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3))
+        yellow = hex_to_rgb("#facc15")
+        orange = hex_to_rgb("#f97316")
+        red = hex_to_rgb("#ef4444")
+        if s <= 0.75:
+            t = (s - 0.5) / 0.25  # 0..1
+            rgb = interp(yellow, orange, t)
+        else:
+            t = (s - 0.75) / 0.25
+            rgb = interp(orange, red, t)
+        return "#%02x%02x%02x" % rgb
+
+    def _mark_card_similarity(self, card_wrapper: QuestionCardWithRemoveButton, score: float, matched_question: dict) -> None:
+        """Visually distinguish a card similar to comparison list using gradient color."""
+        pct = score * 100.0
+        qno = matched_question.get("qno") or matched_question.get("question_number") or matched_question.get("QuestionID") or "?"
+        page = matched_question.get("page") or matched_question.get("page_range") or "?"
+        magazine = matched_question.get("magazine") or matched_question.get("magazine_edition") or matched_question.get("Magazine Edition") or ""
+        badge_text = f"<b>{pct:.1f}%</b> : Q{qno} | P{page} | {magazine}"
+        badge = QLabel(badge_text)
+        badge.setTextFormat(Qt.RichText)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setMaximumHeight(26)
+
+        color = self._similarity_color(score)
+        badge.setStyleSheet(
+            f"background-color: {color}; color: white; border-radius: 10px; padding: 4px 10px; font-weight: 600;"
+        )
+
+        layout = card_wrapper.layout()
+        layout.insertWidget(0, badge)
+
+        card_wrapper.card.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: #fff7ed;
+                border: 2px solid {color};
+                border-radius: 10px;
+                padding: 12px;
+                margin: 4px;
+            }}
+            QLabel:hover {{
+                background-color: #ffedd5;
+                border: 2px solid {color};
+            }}
+            """
+        )
 
     def _parse_magazine_date(self, magazine_label: str) -> tuple[int, int]:
         """

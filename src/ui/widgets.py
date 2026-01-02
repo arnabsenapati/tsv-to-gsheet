@@ -1691,7 +1691,7 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setToolTip("View / add question & answer images")
         self.image_btn.setStyleSheet(self._image_button_style(active=False))
         self.image_btn.setFixedSize(28, 28)
-        self.image_btn.clicked.connect(self._show_image_popover)
+        self.image_btn.clicked.connect(lambda: self.card._show_image_popover() if hasattr(self, "card") and hasattr(self.card, "_show_image_popover") else None)
         self.image_btn.setVisible(False)
         self.image_btn.setCursor(Qt.PointingHandCursor)
 
