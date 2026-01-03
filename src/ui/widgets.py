@@ -44,7 +44,7 @@ import base64
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
-from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage, QCursor
+from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage, QCursor, QIcon
 from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
@@ -79,6 +79,30 @@ try:
     _CAMERA_ICON_B64 = base64.b64encode(_icon_path.read_bytes()).decode("ascii")
 except Exception:
     _CAMERA_ICON_B64 = ""
+
+
+def _show_copy_success_dialog(parent: QWidget, message: str) -> None:
+    msg = QMessageBox(parent)
+    msg.setWindowTitle("Copy images")
+    msg.setText(message)
+    msg.setIcon(QMessageBox.Information)
+    msg.setStyleSheet(
+        """
+        QMessageBox { background-color: #0f172a; }
+        QLabel { color: #f8fafc; background-color: transparent; }
+        QLabel#qt_msgboxex_icon_label { background: transparent; border: none; }
+        QLabel#qt_msgbox_label { background: transparent; }
+        QPushButton {
+            background-color: #1f2937;
+            color: #f8fafc;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+        }
+        QPushButton:hover { background-color: #334155; }
+        """
+    )
+    msg.exec()
 
 
 
@@ -1942,6 +1966,12 @@ class QuestionCardWithRemoveButton(QWidget):
             paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
             buttons.addWidget(paste_btn)
 
+            copy_btn = QPushButton("Copy all")
+            copy_btn.setIcon(load_icon("copy.png"))
+            copy_btn.setToolTip("Copy all images to clipboard")
+            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
+            buttons.addWidget(copy_btn)
+
             clear_btn = QPushButton("Clear all")
             clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
             clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
@@ -1999,6 +2029,53 @@ class QuestionCardWithRemoveButton(QWidget):
 
         dialog.exec()
         self._update_image_button_state()
+
+    def _copy_images_to_clipboard(self, kind: str) -> None:
+        """Delegate copy to inner card if available."""
+        if hasattr(self.card, "_copy_images_to_clipboard"):
+            self.card._copy_images_to_clipboard(kind)
+        else:
+            QMessageBox.information(self, "Copy images", "Copy not available for this card.")
+
+    def _copy_images_to_clipboard(self, kind: str) -> None:
+        """Concatenate all images of a kind and copy to clipboard."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
+            return
+        try:
+            images = self.db_service.get_images(int(self.question_id), kind)
+        except Exception as exc:
+            QMessageBox.warning(self, "Copy images failed", f"Could not load images: {exc}")
+            return
+        if not images:
+            QMessageBox.information(self, "Copy images", "No images to copy.")
+            return
+
+        q_images = []
+        for img in images:
+            qimg = QImage()
+            data = bytes(img.get("data", b""))
+            qimg.loadFromData(data)
+            if not qimg.isNull():
+                q_images.append(qimg)
+        if not q_images:
+            QMessageBox.information(self, "Copy images", "No valid images to copy.")
+            return
+
+        # Concatenate vertically with no spacing
+        width = max(i.width() for i in q_images)
+        height = sum(i.height() for i in q_images)
+        combined = QImage(width, height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in q_images:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
+
+        QGuiApplication.clipboard().setImage(combined)
+        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
 
 
 class SimilarQuestionCard(QWidget):
@@ -2182,9 +2259,44 @@ class SimilarQuestionCard(QWidget):
             refresh_callback()
         self._update_image_button_state()
 
+    def _copy_images_to_clipboard(self, kind: str) -> None:
+        """Concatenate all images of a kind and copy to clipboard."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
+            return
+        try:
+            images = self.db_service.get_images(int(self.question_id), kind)
+        except Exception as exc:
+            QMessageBox.warning(self, "Copy images failed", f"Could not load images: {exc}")
+            return
+        if not images:
+            QMessageBox.information(self, "Copy images", "No images to copy.")
+            return
 
+        q_images = []
+        for img in images:
+            qimg = QImage()
+            data = bytes(img.get("data", b""))
+            qimg.loadFromData(data)
+            if not qimg.isNull():
+                q_images.append(qimg)
+        if not q_images:
+            QMessageBox.information(self, "Copy images", "No valid images to copy.")
+            return
 
+        width = max(i.width() for i in q_images)
+        height = sum(i.height() for i in q_images)
+        combined = QImage(width, height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in q_images:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
 
+        QGuiApplication.clipboard().setImage(combined)
+        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
 
 class QuestionCardWidget(QLabel):
 
@@ -2721,6 +2833,12 @@ class QuestionCardWidget(QLabel):
             paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
             buttons.addWidget(paste_btn)
 
+            copy_btn = QPushButton("Copy all")
+            copy_btn.setIcon(load_icon("copy.png"))
+            copy_btn.setToolTip("Copy all images to clipboard")
+            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
+            buttons.addWidget(copy_btn)
+
             clear_btn = QPushButton("Clear all")
             clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
             clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
@@ -2852,6 +2970,45 @@ class QuestionCardWidget(QLabel):
         if refresh_callback:
             refresh_callback()
         self._update_image_button_state()
+
+    def _copy_images_to_clipboard(self, kind: str) -> None:
+        """Concatenate all images of a kind and copy to clipboard."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
+            return
+        try:
+            images = self.db_service.get_images(int(self.question_id), kind)
+        except Exception as exc:
+            QMessageBox.warning(self, "Copy images failed", f"Could not load images: {exc}")
+            return
+        if not images:
+            QMessageBox.information(self, "Copy images", "No images to copy.")
+            return
+
+        q_images = []
+        for img in images:
+            qimg = QImage()
+            data = bytes(img.get("data", b""))
+            qimg.loadFromData(data)
+            if not qimg.isNull():
+                q_images.append(qimg)
+        if not q_images:
+            QMessageBox.information(self, "Copy images", "No valid images to copy.")
+            return
+
+        width = max(i.width() for i in q_images)
+        height = sum(i.height() for i in q_images)
+        combined = QImage(width, height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in q_images:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
+
+        QGuiApplication.clipboard().setImage(combined)
+        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
 
     
 

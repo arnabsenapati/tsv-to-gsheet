@@ -1694,7 +1694,9 @@ class TSVWatcherWindow(QMainWindow):
         card_layout.addLayout(header_row)
 
         self.data_quality_table = QTableWidget(0, 7)
-        self.data_quality_table.setHorizontalHeaderLabels(["ID", "Q#", "Page", "Set", "Magazine", "Missing Fields", "Edit"])
+        self.data_quality_table.setHorizontalHeaderLabels(
+            ["ID", "Q#", "Page", "Set", "Magazine", "Missing Fields", "Edit"]
+        )
         self.data_quality_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.data_quality_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.data_quality_table.horizontalHeader().setStretchLastSection(True)

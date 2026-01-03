@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -315,6 +315,13 @@ class DatabaseService:
             magazine = row["magazine"] or ""
             edition = row["edition"] or ""
             mag_edition = f"{magazine} | {edition}" if magazine or edition else ""
+            if int(row["id"]) == 3782:
+                normalized = normalize_magazine_edition(mag_edition)
+                print(
+                    "[MagEditionDebug] "
+                    f"id=3782 magazine='{magazine}' edition='{edition}' "
+                    f"mag_edition='{mag_edition}' normalized='{normalized}'"
+                )
             data.append(
                 {
                     "Qno": row["question_number"] or "",
@@ -328,6 +335,67 @@ class DatabaseService:
             )
 
         return pd.DataFrame(data)
+
+    def recompute_magazine_metadata(
+        self, progress_cb: Optional[Callable[[int, int], None]] = None
+    ) -> tuple[int, int]:
+        """
+        Recompute normalized_magazine, issue_year, and issue_month using magazine + edition.
+
+        Returns:
+            (total_rows, updated_rows)
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, magazine, edition, normalized_magazine, issue_year, issue_month
+                FROM questions
+                """
+            ).fetchall()
+
+        updates: list[tuple] = []
+        total = len(rows)
+        for idx, row in enumerate(rows, start=1):
+            if progress_cb:
+                progress_cb(idx, total)
+            magazine = row["magazine"] or ""
+            edition = row["edition"] or ""
+            mag_edition = f"{magazine} | {edition}" if magazine or edition else ""
+            normalized = normalize_magazine_edition(mag_edition)
+            issue_year = None
+            issue_month = None
+            if normalized:
+                parts = normalized.split("|", 1)
+                if len(parts) > 1:
+                    edition_norm = parts[1].strip()
+                    if len(edition_norm) == 7 and edition_norm[4] == "-":
+                        try:
+                            issue_year = int(edition_norm[:4])
+                            issue_month = int(edition_norm[5:7])
+                        except Exception:
+                            issue_year = None
+                            issue_month = None
+
+            if (
+                normalized != (row["normalized_magazine"] or "")
+                or issue_year != row["issue_year"]
+                or issue_month != row["issue_month"]
+            ):
+                updates.append((normalized, issue_year, issue_month, int(row["id"])))
+
+        if updates:
+            with self._connect() as conn:
+                self.snapshot_database("Recompute normalized magazine/issue fields")
+                conn.executemany(
+                    """
+                    UPDATE questions
+                    SET normalized_magazine = ?, issue_year = ?, issue_month = ?
+                    WHERE id = ?
+                    """,
+                    updates,
+                )
+
+        return len(rows), len(updates)
 
     def load_config(self, key: str) -> Dict[str, Any]:
         with self._connect() as conn:
@@ -411,7 +479,10 @@ class DatabaseService:
         inserts: List[Tuple] = []
 
         for rec in records:
-            norm_mag = normalize_magazine_edition(rec.get("magazine", ""))
+            mag_val = rec.get("magazine") or ""
+            ed_val = rec.get("edition") or ""
+            mag_edition = f"{mag_val} | {ed_val}" if ed_val else mag_val
+            norm_mag = normalize_magazine_edition(mag_edition)
             norm_qno = normalize_qno(rec.get("question_number"))
             norm_page = normalize_page(rec.get("page_range"))
             combo = (norm_mag, norm_qno, norm_page)
