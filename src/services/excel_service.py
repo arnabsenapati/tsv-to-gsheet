@@ -53,7 +53,12 @@ def read_tsv_rows(tsv_path: Path) -> list[list[str]]:
 # TSV -> DB import
 # ---------------------------------------------------------------------------
 
-def process_tsv(tsv_path: Path, db_service: DatabaseService, subject_name: str) -> str:
+def process_tsv(
+    tsv_path: Path,
+    db_service: DatabaseService,
+    subject_name: str,
+    overwrite_duplicates: bool = False,
+) -> str:
     """
     Process a TSV file and insert rows into SQLite.
 
@@ -126,8 +131,10 @@ def process_tsv(tsv_path: Path, db_service: DatabaseService, subject_name: str) 
                 }
             )
 
-        inserted_ids, duplicates = db_service.insert_questions_from_tsv(subject_name, records)
-        if duplicates:
+        inserted_ids, duplicates, updated_ids = db_service.insert_questions_from_tsv(
+            subject_name, records, overwrite_duplicates=overwrite_duplicates
+        )
+        if duplicates and not overwrite_duplicates:
             readable = "; ".join(
                 f"Magazine '{mag}' Question '{qno}' Page '{page}' already exists (DB has Qno '{ex_qno}', Page '{ex_page}')"
                 for mag, qno, page, ex_qno, ex_page in duplicates
@@ -163,6 +170,8 @@ def process_tsv(tsv_path: Path, db_service: DatabaseService, subject_name: str) 
                 page_range = page_numbers[0] if len(page_numbers) == 1 else f"{page_numbers[0]}-{page_numbers[-1]}"
 
         status_message = f"Inserted {len(inserted_ids)} rows (IDs: {id_range}, Pages: {page_range})"
+        if updated_ids:
+            status_message += f"; Updated {len(updated_ids)} duplicate row(s)"
 
         try:
             tsv_path.unlink()

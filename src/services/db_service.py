@@ -315,13 +315,6 @@ class DatabaseService:
             magazine = row["magazine"] or ""
             edition = row["edition"] or ""
             mag_edition = f"{magazine} | {edition}" if magazine or edition else ""
-            if int(row["id"]) == 3782:
-                normalized = normalize_magazine_edition(mag_edition)
-                print(
-                    "[MagEditionDebug] "
-                    f"id=3782 magazine='{magazine}' edition='{edition}' "
-                    f"mag_edition='{mag_edition}' normalized='{normalized}'"
-                )
             data.append(
                 {
                     "Qno": row["question_number"] or "",
@@ -465,11 +458,12 @@ class DatabaseService:
         self,
         subject_name: str,
         records: List[Dict[str, Any]],
-    ) -> Tuple[List[int], List[tuple]]:
+        overwrite_duplicates: bool = False,
+    ) -> Tuple[List[int], List[tuple], List[int]]:
         """
         Insert question records into DB with duplicate detection.
 
-        Returns (inserted_ids, duplicates) where duplicates is a list of tuples:
+        Returns (inserted_ids, duplicates, updated_ids) where duplicates is a list of tuples:
         (magazine, qno, page, existing_qno, existing_page).
         """
         self.snapshot_database(f"Import questions for subject {subject_name}")
@@ -477,6 +471,8 @@ class DatabaseService:
         existing = self._collect_existing_triplets(subject_id)
         duplicates: List[tuple] = []
         inserts: List[Tuple] = []
+        updates: List[Tuple] = []
+        updated_ids: List[int] = []
 
         for rec in records:
             mag_val = rec.get("magazine") or ""
@@ -487,7 +483,45 @@ class DatabaseService:
             norm_page = normalize_page(rec.get("page_range"))
             combo = (norm_mag, norm_qno, norm_page)
             if norm_mag and norm_qno and norm_page and combo in existing:
-                _, ex_qno, ex_page, _ = existing[combo]
+                _, ex_qno, ex_page, existing_id = existing[combo]
+                if overwrite_duplicates:
+                    edition = ""
+                    issue_year = None
+                    issue_month = None
+                    if norm_mag:
+                        parts = norm_mag.split("|", 1)
+                        if len(parts) > 1:
+                            edition = parts[1]
+                            if len(edition) == 7 and edition[4] == "-":
+                                try:
+                                    issue_year = int(edition[:4])
+                                    issue_month = int(edition[5:7])
+                                except Exception:
+                                    issue_year = None
+                                    issue_month = None
+                    updates.append(
+                        (
+                            rec.get("source") or "",
+                            rec.get("magazine") or "",
+                            norm_mag,
+                            edition or rec.get("edition") or "",
+                            issue_year,
+                            issue_month,
+                            rec.get("page_range") or "",
+                            rec.get("question_set") or "",
+                            rec.get("question_set_name") or "",
+                            rec.get("chapter") or "",
+                            rec.get("high_level_chapter") or "",
+                            rec.get("question_number") or "",
+                            rec.get("question_text") or "",
+                            rec.get("answer_text"),
+                            rec.get("explanation"),
+                            rec.get("metadata_json"),
+                            int(existing_id),
+                        )
+                    )
+                    updated_ids.append(int(existing_id))
+                    continue
                 duplicates.append(
                     (
                         rec.get("magazine") or "",
@@ -556,7 +590,27 @@ class DatabaseService:
                     start_id = cur.lastrowid - len(inserts) + 1
                     inserted_ids = list(range(start_id, cur.lastrowid + 1))
 
-        return inserted_ids, duplicates
+        if updates:
+            with self._connect() as conn:
+                conn.executemany(
+                    """
+                    UPDATE questions
+                    SET source = ?, magazine = ?, normalized_magazine = ?, edition = ?,
+                        issue_year = ?, issue_month = ?, page_range = ?, question_set = ?,
+                        question_set_name = ?, chapter = ?, high_level_chapter = ?,
+                        question_number = ?, question_text = ?, answer_text = ?,
+                        explanation = ?, metadata_json = ?
+                    WHERE id = ?
+                    """,
+                    updates,
+                )
+                if overwrite_duplicates and updated_ids:
+                    unique_ids = sorted(set(updated_ids))
+                    conn.executemany(
+                        "DELETE FROM question_embeddings WHERE question_id = ?",
+                        [(qid,) for qid in unique_ids],
+                    )
+        return inserted_ids, duplicates, updated_ids
 
     # ------------------------------------------------------------------
     # Images
@@ -685,6 +739,20 @@ class DatabaseService:
         values = list(updates.values())
         values.append(question_id)
         with self._connect() as conn:
+            if "question_text" in updates:
+                row = conn.execute(
+                    "SELECT question_text FROM questions WHERE id = ?",
+                    (question_id,),
+                ).fetchone()
+                previous_text = (row["question_text"] if row else None) or ""
+                next_text = updates.get("question_text") or ""
+                if previous_text.strip() != str(next_text).strip():
+                    cur = conn.execute(
+                        "DELETE FROM question_embeddings WHERE question_id = ?",
+                        (question_id,),
+                    )
+                    if cur.rowcount:
+                        pass
             conn.execute(f"UPDATE questions SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
 
     def load_question_lists(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
@@ -916,36 +984,55 @@ class DatabaseService:
                 return f"qno_{q.get('qno')}"
             return f"idx_{idx}"
 
-        def _answered(qtype: str, resp: Any) -> bool:
-            if qtype == "numerical":
-                if resp is None:
-                    return False
-                if isinstance(resp, (int, float)):
-                    return str(resp).strip() != ""
-                if isinstance(resp, str):
-                    return resp.strip() != ""
-                return False
-            else:
-                if isinstance(resp, str):
-                    resp_list = [resp] if resp else []
-                else:
-                    resp_list = resp or []
-                return bool(resp_list)
+        def _extract_answer(resp: Any) -> Any:
+            if isinstance(resp, dict):
+                return resp.get("answer")
+            return resp
 
-        def _is_correct(q: Dict[str, Any], resp: Any) -> bool:
+        def _normalize_mcq_response(resp_val: Any) -> list[str]:
+            if resp_val is None:
+                return []
+            if isinstance(resp_val, str):
+                text = resp_val.strip()
+                if not text:
+                    return []
+                if "," in text:
+                    return [part.strip() for part in text.split(",") if part.strip()]
+                return [text]
+            if isinstance(resp_val, (list, tuple, set)):
+                items: list[str] = []
+                for item in resp_val:
+                    text = str(item).strip()
+                    if text:
+                        items.append(text)
+                return items
+            return []
+
+        def _normalize_numerical_response(resp_val: Any) -> str:
+            if resp_val is None:
+                return ""
+            if isinstance(resp_val, (int, float)):
+                return str(resp_val).strip()
+            return str(resp_val).strip()
+
+        def _answered(qtype: str, resp_val: Any) -> bool:
+            if qtype == "numerical":
+                return bool(_normalize_numerical_response(resp_val))
+            return bool(_normalize_mcq_response(resp_val))
+
+        def _is_correct(q: Dict[str, Any], resp_val: Any) -> bool:
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
             if qtype == "numerical":
                 answer_val = str(q.get("numerical_answer", "")).strip()
-                sel_val = str(resp).strip() if resp is not None else ""
+                sel_val = _normalize_numerical_response(resp_val)
                 return bool(answer_val) and sel_val == answer_val
+            sel_list = _normalize_mcq_response(resp_val)
+            correct_opts_raw = q.get("correct_options", []) or []
+            if isinstance(correct_opts_raw, str):
+                correct_opts = [correct_opts_raw]
             else:
-                if isinstance(resp, str):
-                    sel_list = [resp] if resp else []
-                else:
-                    sel_list = resp or []
-                sel_set = set(sel_list)
-                correct_opts = set(q.get("correct_options", []))
-                return bool(correct_opts) and sel_set == correct_opts
+                correct_opts = [str(opt).strip() for opt in correct_opts_raw if str(opt).strip()]
+            return bool(correct_opts) and set(sel_list) == set(correct_opts)
 
         answered_cnt = 0
         correct_cnt = 0
@@ -955,9 +1042,10 @@ class DatabaseService:
         for idx, q in enumerate(questions):
             key = _qkey(q, idx)
             resp = responses.get(str(key))
+            resp_val = _extract_answer(resp)
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
-            is_ans = _answered(qtype, resp)
-            is_correct = _is_correct(q, resp) if evaluated else False
+            is_ans = _answered(qtype, resp_val)
+            is_correct = _is_correct(q, resp_val) if evaluated else False
             if is_ans:
                 answered_cnt += 1
             if evaluated:
@@ -966,6 +1054,11 @@ class DatabaseService:
                 elif is_ans:
                     wrong_cnt += 1
             q_score = 4 if is_correct else (-1 if evaluated and is_ans and not is_correct else 0)
+            correct_opts = q.get("correct_options", [])
+            numerical_answer = q.get("numerical_answer")
+            qid = q.get("question_id")
+            qno = q.get("qno")
+            # Debug prints removed
             question_rows.append(
                 (
                     idx,

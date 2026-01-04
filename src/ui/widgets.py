@@ -1930,14 +1930,32 @@ class QuestionCardWithRemoveButton(QWidget):
                 except Exception:
                     pass
 
+    def _find_parent_scroll_area(self) -> QScrollArea | None:
+        """Find the nearest parent scroll area to preserve position after dialogs."""
+        parent = self.parent()
+        while parent:
+            if isinstance(parent, QScrollArea):
+                return parent
+            parent = parent.parent()
+        return None
+
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
+        scroll_area = self._find_parent_scroll_area()
+        scroll_value = scroll_area.verticalScrollBar().value() if scroll_area else None
+
+        def restore_scroll() -> None:
+            if scroll_area and scroll_value is not None:
+                QTimer.singleShot(0, lambda: scroll_area.verticalScrollBar().setValue(scroll_value))
+
         if not self.question_id:
             QMessageBox.information(self, "No Question ID", "Cannot manage images because this question is missing an ID.")
+            restore_scroll()
             return
 
         if not self.db_service:
             QMessageBox.warning(self, "Database Unavailable", "Database service is not available to load/save images.")
+            restore_scroll()
             return
 
         dialog = QDialog(self)
@@ -2029,6 +2047,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
         dialog.exec()
         self._update_image_button_state()
+        restore_scroll()
 
     def _copy_images_to_clipboard(self, kind: str) -> None:
         """Delegate copy to inner card if available."""
@@ -2723,6 +2742,10 @@ class QuestionCardWidget(QLabel):
             msg.setStyleSheet("QLabel{color: #0f172a;}")
             msg.exec()
             return
+        scroll_area = self._find_parent_scroll_area()
+        scroll_value = None
+        if scroll_area:
+            scroll_value = scroll_area.verticalScrollBar().value()
         from ui.dialogs import QuestionEditDialog  # local import to avoid circular
 
         data = self.question_data.copy()
@@ -2760,6 +2783,8 @@ class QuestionCardWidget(QLabel):
 
         dlg = QuestionEditDialog(data, self, lookups=lookups)
         if dlg.exec() != QDialog.Accepted:
+            if scroll_area and scroll_value is not None:
+                QTimer.singleShot(0, lambda: scroll_area.verticalScrollBar().setValue(scroll_value))
             return
 
         updates = dlg.get_updates()
@@ -2781,6 +2806,18 @@ class QuestionCardWidget(QLabel):
             self._build_card()
         except Exception as exc:
             QMessageBox.warning(self, "Save failed", f"Could not save changes:\n{exc}")
+        finally:
+            if scroll_area and scroll_value is not None:
+                QTimer.singleShot(0, lambda: scroll_area.verticalScrollBar().setValue(scroll_value))
+
+    def _find_parent_scroll_area(self) -> QScrollArea | None:
+        """Find the nearest parent scroll area to preserve position after edits."""
+        parent = self.parent()
+        while parent:
+            if isinstance(parent, QScrollArea):
+                return parent
+            parent = parent.parent()
+        return None
 
     def _update_image_button_state(self):
         """Switch icon to filled version when images exist."""
@@ -2799,12 +2836,21 @@ class QuestionCardWidget(QLabel):
 
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
+        scroll_area = self._find_parent_scroll_area()
+        scroll_value = scroll_area.verticalScrollBar().value() if scroll_area else None
+
+        def restore_scroll() -> None:
+            if scroll_area and scroll_value is not None:
+                QTimer.singleShot(0, lambda: scroll_area.verticalScrollBar().setValue(scroll_value))
+
         if not self.question_id:
             QMessageBox.information(self, "No Question ID", "Cannot manage images because this question is missing an ID.")
+            restore_scroll()
             return
 
         if not self.db_service:
             QMessageBox.warning(self, "Database Unavailable", "Database service is not available to load/save images.")
+            restore_scroll()
             return
 
         dialog = QDialog(self)
@@ -2894,6 +2940,7 @@ class QuestionCardWidget(QLabel):
 
         dialog.exec()
         self._update_image_button_state()
+        restore_scroll()
 
     def _add_images(self, kind: str, refresh_callback=None):
         """Open file picker and attach images of the given kind for this question."""

@@ -357,6 +357,7 @@ class TSVWatcherWindow(QMainWindow):
             "question_text",
             "page_range",
         ]
+        self.overwrite_duplicates_enabled = False
 
         # Backup DB before any reads on startup
         if hasattr(self, "_backup_current_database"):
@@ -1401,10 +1402,18 @@ class TSVWatcherWindow(QMainWindow):
         self.clipboard_import_button = QPushButton("Import TSV from Clipboard")
         self.clipboard_import_button.setToolTip("Paste TSV text from the clipboard and import it directly")
         self.clipboard_import_button.clicked.connect(self.import_tsv_from_clipboard)
+        self.overwrite_duplicates_checkbox = QCheckBox("Overwrite duplicates")
+        self.overwrite_duplicates_checkbox.setToolTip(
+            "Update existing questions when duplicates are found instead of failing the import."
+        )
+        self.overwrite_duplicates_checkbox.toggled.connect(
+            lambda checked: setattr(self, "overwrite_duplicates_enabled", checked)
+        )
         control_layout.addWidget(self.refresh_button)
         control_layout.addWidget(self.start_button)
         control_layout.addWidget(self.stop_button)
         control_layout.addWidget(self.clipboard_import_button)
+        control_layout.addWidget(self.overwrite_duplicates_checkbox)
         control_layout.addStretch()
         import_form_layout.addLayout(control_layout)
         import_layout.addWidget(import_form_card)
@@ -7359,7 +7368,13 @@ class TSVWatcherWindow(QMainWindow):
                 tmp_path = Path(tmp_file.name)
 
             self.set_status(f'Importing data from "{filename}"', "importing")
-            result_message = process_tsv(tmp_path, self.db_service, subject)
+            overwrite_duplicates = getattr(self, "overwrite_duplicates_enabled", False)
+            result_message = process_tsv(
+                tmp_path,
+                self.db_service,
+                subject,
+                overwrite_duplicates=overwrite_duplicates,
+            )
             self.update_file_status(filename, "Completed", result_message)
             self.log(f"Imported TSV ({filename}): {result_message}")
             self.set_status(f'TSV imported from "{filename}" {result_message}', "success")
@@ -7506,7 +7521,13 @@ class TSVWatcherWindow(QMainWindow):
                 self.event_queue.put(("status_importing", tsv_file.name))
                 try:
                     subject = self.current_subject or (self.subject_combo.currentText() if hasattr(self, "subject_combo") else "")
-                    result_message = process_tsv(tsv_file, self.db_service, subject)
+                    overwrite_duplicates = getattr(self, "overwrite_duplicates_enabled", False)
+                    result_message = process_tsv(
+                        tsv_file,
+                        self.db_service,
+                        subject,
+                        overwrite_duplicates=overwrite_duplicates,
+                    )
                 except Exception as exc:
                     self.event_queue.put(("status", tsv_file.name, "Error", str(exc)))
                     self.event_queue.put(("log", f"Error processing {tsv_file.name}: {exc}"))
