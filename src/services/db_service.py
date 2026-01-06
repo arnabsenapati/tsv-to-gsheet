@@ -219,7 +219,7 @@ class DatabaseService:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, question_number, page_range, question_set_name, magazine,
+                SELECT id, question_number, page_range, question_set_name, magazine, edition,
                        question_text, answer_text, chapter, high_level_chapter
                 FROM questions
                 WHERE id = ?

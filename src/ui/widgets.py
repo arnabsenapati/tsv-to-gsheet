@@ -41,6 +41,7 @@ This module contains all custom widget classes used throughout the application:
 import json
 import os
 import base64
+import hashlib
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
@@ -105,6 +106,87 @@ def _show_copy_success_dialog(parent: QWidget, message: str) -> None:
     msg.exec()
 
 
+
+
+class ScreenCaptureOverlay(QWidget):
+    """Full-screen overlay to capture a user-selected screen region."""
+
+    capture_completed = Signal(QImage)
+    capture_canceled = Signal()
+
+    def __init__(self, screen):
+        super().__init__(None)
+        self.screen = screen
+        self._origin = None
+        self._current = None
+
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setCursor(Qt.CrossCursor)
+
+        if self.screen:
+            self.setGeometry(self.screen.geometry())
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        self._origin = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        self._current = self._origin
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        if self._origin is None:
+            return
+        self._current = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton or self._origin is None or self._current is None:
+            self._cancel_capture()
+            return
+        rect = QRect(self._origin, self._current).normalized()
+        if rect.width() < 5 or rect.height() < 5:
+            self._cancel_capture()
+            return
+        if not self.screen:
+            self._cancel_capture()
+            return
+        pixmap = self.screen.grabWindow(0)
+        ratio = pixmap.devicePixelRatio()
+        scaled_rect = QRect(
+            int(rect.x() * ratio),
+            int(rect.y() * ratio),
+            int(rect.width() * ratio),
+            int(rect.height() * ratio),
+        )
+        image = pixmap.toImage().copy(scaled_rect)
+        image.setDevicePixelRatio(1.0)
+        self.capture_completed.emit(image)
+        self.close()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self._cancel_capture()
+            return
+        super().keyPressEvent(event)
+
+    def _cancel_capture(self):
+        self.capture_canceled.emit()
+        self.close()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 120))
+        if self._origin and self._current:
+            rect = QRect(self._origin, self._current).normalized()
+            painter.setCompositionMode(QPainter.CompositionMode_Clear)
+            painter.fillRect(rect, Qt.transparent)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            pen = QPen(QColor(255, 255, 255), 2)
+            painter.setPen(pen)
+            painter.drawRect(rect)
+        painter.end()
 
 
 class TagBadge(QLabel):
@@ -1965,6 +2047,7 @@ class QuestionCardWithRemoveButton(QWidget):
         root_layout = QVBoxLayout(dialog)
         tabs = QTabWidget(dialog)
         root_layout.addWidget(tabs)
+        cleanup_callbacks = []
 
         def build_tab(kind: str):
             tab = QWidget()
@@ -1973,25 +2056,117 @@ class QuestionCardWithRemoveButton(QWidget):
             layout.setSpacing(4)
 
             buttons = QHBoxLayout()
-            add_btn = QPushButton("Add from files")
-            add_btn.setIcon(load_icon("add.svg"))
-            add_btn.setIconSize(QSize(14, 14))
+
+            def make_icon_button(icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:
+                btn = QPushButton()
+                btn.setIcon(load_icon(icon_name))
+                btn.setIconSize(QSize(18, 18))
+                btn.setFixedSize(34, 34)
+                btn.setToolTip(tooltip)
+                btn.setCheckable(checkable)
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #e2e8f0; border: none; border-radius: 6px; }"
+                    "QPushButton:hover { background-color: #cbd5e1; }"
+                    "QPushButton:checked { background-color: #16a34a; color: white; }"
+                )
+                return btn
+
+            add_btn = make_icon_button("add_from_files.png", "Add from files")
             add_btn.clicked.connect(lambda: self._add_images(kind, refresh))
             buttons.addWidget(add_btn)
 
-            paste_btn = QPushButton("Paste from clipboard")
-            paste_btn.setToolTip("Paste an image currently in clipboard")
+            paste_btn = make_icon_button("paste_from_clipboard.png", "Paste from clipboard")
             paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
             buttons.addWidget(paste_btn)
 
-            copy_btn = QPushButton("Copy all")
-            copy_btn.setIcon(load_icon("copy.png"))
-            copy_btn.setToolTip("Copy all images to clipboard")
+            capture_btn = make_icon_button("capture_from_clipboard.png", "Toggle capture from clipboard", checkable=True)
+            buttons.addWidget(capture_btn)
+
+            capture_status = QLabel("")
+            capture_status.setStyleSheet("color: #0f172a;")
+            capture_status.setVisible(False)
+            buttons.addWidget(capture_status)
+
+            capture_state = {"active": False, "images": [], "last_hash": None}
+            clipboard = QGuiApplication.clipboard()
+
+            def handle_clipboard() -> None:
+                if not capture_state["active"]:
+                    return
+                image = clipboard.image()
+                if image.isNull():
+                    return
+                buffer = QBuffer()
+                buffer.open(QBuffer.WriteOnly)
+                image.save(buffer, "PNG")
+                data = buffer.data().data()
+                digest = hashlib.sha1(data).hexdigest()
+                if digest == capture_state["last_hash"]:
+                    return
+                capture_state["last_hash"] = digest
+                capture_state["images"].append(image)
+                capture_status.setText(f"Captured: {len(capture_state['images'])}")
+
+            def stop_capture() -> None:
+                if capture_state["active"]:
+                    try:
+                        clipboard.dataChanged.disconnect(handle_clipboard)
+                    except Exception:
+                        pass
+                capture_state["active"] = False
+                capture_btn.setToolTip("Toggle capture from clipboard")
+                capture_status.setVisible(False)
+                if not capture_state["images"]:
+                    QMessageBox.information(self, "Capture", "No screenshots captured.")
+                    return
+                combined = self._combine_images_vertical(capture_state["images"])
+                if combined is None:
+                    QMessageBox.warning(self, "Capture", "Unable to combine screenshots.")
+                    return
+                if not self._save_qimage_to_db(kind, combined):
+                    return
+                if refresh:
+                    refresh()
+                self._update_image_button_state()
+                capture_state["images"].clear()
+                capture_state["last_hash"] = None
+
+            def toggle_capture(checked: bool) -> None:
+                if checked:
+                    capture_state["active"] = True
+                    capture_state["images"].clear()
+                    capture_state["last_hash"] = None
+                    capture_status.setText("Captured: 0")
+                    capture_status.setVisible(True)
+                    capture_btn.setToolTip("Stop capture")
+                    clipboard.dataChanged.connect(handle_clipboard)
+                else:
+                    stop_capture()
+
+            capture_btn.toggled.connect(toggle_capture)
+
+            def cleanup_capture() -> None:
+                if capture_state["active"]:
+                    try:
+                        clipboard.dataChanged.disconnect(handle_clipboard)
+                    except Exception:
+                        pass
+                capture_state["active"] = False
+                capture_state["images"].clear()
+                capture_state["last_hash"] = None
+
+            cleanup_callbacks.append(cleanup_capture)
+
+            copy_btn = make_icon_button("copy_all.png", "Copy all images to clipboard")
             copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
             buttons.addWidget(copy_btn)
 
-            clear_btn = QPushButton("Clear all")
-            clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
+            clear_btn = make_icon_button("clear_all.png", "Clear all images")
+            clear_btn.setStyleSheet(
+                "QPushButton { background-color: #ef4444; color: white; border: none; border-radius: 6px; }"
+                "QPushButton:hover { background-color: #dc2626; }"
+            )
             clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
             buttons.addWidget(clear_btn)
 
@@ -2045,9 +2220,21 @@ class QuestionCardWithRemoveButton(QWidget):
         tabs.addTab(q_tab, "Question images")
         tabs.addTab(a_tab, "Answer images")
 
+        def handle_dialog_close() -> None:
+            for cleanup in cleanup_callbacks:
+                cleanup()
+
+        dialog.finished.connect(handle_dialog_close)
         dialog.exec()
         self._update_image_button_state()
         restore_scroll()
+
+    def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
+        """Delegate screen capture to inner card if available."""
+        if hasattr(self, "card") and hasattr(self.card, "_start_screen_capture"):
+            self.card._start_screen_capture(kind, refresh_callback)
+        else:
+            QMessageBox.information(self, "Screen capture", "Screen capture not available for this card.")
 
     def _copy_images_to_clipboard(self, kind: str) -> None:
         """Delegate copy to inner card if available."""
@@ -2252,6 +2439,252 @@ class SimilarQuestionCard(QWidget):
         if refresh_callback:
             refresh_callback()
         self._update_image_button_state()
+
+    def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
+        """Capture one or more screenshots and save as a single combined image."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Screen capture", "Question ID or database is not available.")
+            return
+
+        captured: list[QImage] = []
+
+        capture_dialog = QDialog(self)
+        capture_dialog.setWindowTitle("Screen capture")
+        capture_dialog.setWindowFlags(capture_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+        layout = QVBoxLayout(capture_dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        info = QLabel("Click Capture for each screenshot, then Done to save.")
+        layout.addWidget(info)
+
+        count_label = QLabel("Captured: 0")
+        layout.addWidget(count_label)
+
+        button_row = QHBoxLayout()
+        capture_btn = QPushButton("Capture")
+        done_btn = QPushButton("Done")
+        button_row.addWidget(capture_btn)
+        button_row.addWidget(done_btn)
+        layout.addLayout(button_row)
+
+        def update_count() -> None:
+            count_label.setText(f"Captured: {len(captured)}")
+
+        def start_capture() -> None:
+            capture_dialog.showMinimized()
+            capture_dialog.hide()
+            screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+            overlay = ScreenCaptureOverlay(screen)
+
+            def on_captured(image: QImage) -> None:
+                if not image.isNull():
+                    captured.append(image)
+                    update_count()
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            def on_canceled() -> None:
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            overlay.capture_completed.connect(on_captured)
+            overlay.capture_canceled.connect(on_canceled)
+            overlay.show()
+
+        def finish_capture() -> None:
+            if not captured:
+                QMessageBox.information(capture_dialog, "Screen capture", "No screenshots captured.")
+                capture_dialog.accept()
+                return
+            combined = self._combine_images_vertical(captured)
+            if combined is None:
+                QMessageBox.warning(capture_dialog, "Screen capture", "Unable to combine screenshots.")
+                return
+            if not self._save_qimage_to_db(kind, combined):
+                return
+            if refresh_callback:
+                refresh_callback()
+            self._update_image_button_state()
+            capture_dialog.accept()
+
+        capture_btn.clicked.connect(start_capture)
+        done_btn.clicked.connect(finish_capture)
+
+        capture_dialog.show()
+        self._capture_dialogs = getattr(self, "_capture_dialogs", [])
+        self._capture_dialogs.append(capture_dialog)
+
+        def cleanup_dialog() -> None:
+            if hasattr(self, "_capture_dialogs") and capture_dialog in self._capture_dialogs:
+                self._capture_dialogs.remove(capture_dialog)
+
+        capture_dialog.finished.connect(cleanup_dialog)
+
+    def _combine_images_vertical(self, images: list[QImage]) -> QImage | None:
+        """Concatenate images vertically, scaling widths to match the widest image."""
+        valid = [img for img in images if img is not None and not img.isNull()]
+        if not valid:
+            return None
+
+        target_width = max(img.width() for img in valid)
+        scaled: list[QImage] = []
+        for img in valid:
+            if img.width() == target_width:
+                scaled.append(img)
+            else:
+                scaled.append(img.scaledToWidth(target_width, Qt.SmoothTransformation))
+
+        total_height = sum(img.height() for img in scaled)
+        combined = QImage(target_width, total_height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in scaled:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
+        return combined
+
+    def _save_qimage_to_db(self, kind: str, image: QImage) -> bool:
+        """Persist a QImage to the DB as a PNG."""
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+        try:
+            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
+            return True
+        except Exception:
+            QMessageBox.warning(self, "Save Failed", "Could not save captured image.")
+            return False
+
+    def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
+        """Capture one or more screenshots and save as a single combined image."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Screen capture", "Question ID or database is not available.")
+            return
+
+        captured: list[QImage] = []
+
+        capture_dialog = QDialog(self)
+        capture_dialog.setWindowTitle("Screen capture")
+        capture_dialog.setWindowFlags(capture_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+        layout = QVBoxLayout(capture_dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        info = QLabel("Click Capture for each screenshot, then Done to save.")
+        layout.addWidget(info)
+
+        count_label = QLabel("Captured: 0")
+        layout.addWidget(count_label)
+
+        button_row = QHBoxLayout()
+        capture_btn = QPushButton("Capture")
+        done_btn = QPushButton("Done")
+        button_row.addWidget(capture_btn)
+        button_row.addWidget(done_btn)
+        layout.addLayout(button_row)
+
+        def update_count() -> None:
+            count_label.setText(f"Captured: {len(captured)}")
+
+        def start_capture() -> None:
+            capture_dialog.showMinimized()
+            capture_dialog.hide()
+            screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+            overlay = ScreenCaptureOverlay(screen)
+
+            def on_captured(image: QImage) -> None:
+                if not image.isNull():
+                    captured.append(image)
+                    update_count()
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            def on_canceled() -> None:
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            overlay.capture_completed.connect(on_captured)
+            overlay.capture_canceled.connect(on_canceled)
+            overlay.show()
+
+        def finish_capture() -> None:
+            if not captured:
+                QMessageBox.information(capture_dialog, "Screen capture", "No screenshots captured.")
+                capture_dialog.accept()
+                return
+            combined = self._combine_images_vertical(captured)
+            if combined is None:
+                QMessageBox.warning(capture_dialog, "Screen capture", "Unable to combine screenshots.")
+                return
+            if not self._save_qimage_to_db(kind, combined):
+                return
+            if refresh_callback:
+                refresh_callback()
+            self._update_image_button_state()
+            capture_dialog.accept()
+
+        capture_btn.clicked.connect(start_capture)
+        done_btn.clicked.connect(finish_capture)
+
+        capture_dialog.show()
+        self._capture_dialogs = getattr(self, "_capture_dialogs", [])
+        self._capture_dialogs.append(capture_dialog)
+
+        def cleanup_dialog() -> None:
+            if hasattr(self, "_capture_dialogs") and capture_dialog in self._capture_dialogs:
+                self._capture_dialogs.remove(capture_dialog)
+
+        capture_dialog.finished.connect(cleanup_dialog)
+
+    def _combine_images_vertical(self, images: list[QImage]) -> QImage | None:
+        """Concatenate images vertically, scaling widths to match the widest image."""
+        valid = [img for img in images if img is not None and not img.isNull()]
+        if not valid:
+            return None
+
+        target_width = max(img.width() for img in valid)
+        scaled: list[QImage] = []
+        for img in valid:
+            if img.width() == target_width:
+                scaled.append(img)
+            else:
+                scaled.append(img.scaledToWidth(target_width, Qt.SmoothTransformation))
+
+        total_height = sum(img.height() for img in scaled)
+        combined = QImage(target_width, total_height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in scaled:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
+        return combined
+
+    def _save_qimage_to_db(self, kind: str, image: QImage) -> bool:
+        """Persist a QImage to the DB as a PNG."""
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+        try:
+            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
+            return True
+        except Exception:
+            QMessageBox.warning(self, "Save Failed", "Could not save captured image.")
+            return False
 
     def _clear_images(self, kind: str, refresh_callback=None):
         """Delete all images for this kind."""
@@ -2522,7 +2955,9 @@ class QuestionCardWidget(QLabel):
 
         question_set = q.get("question_set_group") or q.get("question_set_name", "Unknown")
 
-        magazine = q.get("magazine", "Unknown")
+        magazine = q.get("magazine")
+        edition = q.get("edition")
+        magazine_display = self._format_magazine_display(magazine, edition)
 
         tags = list(q.get("tags", []) or [])
         group_tags = list(q.get("group_tags", []) or [])
@@ -2603,7 +3038,7 @@ class QuestionCardWidget(QLabel):
 
                 <span style="color: #475569;">{question_set}</span> | 
 
-                <span style="color: #475569;">{magazine}</span>
+                <span style="color: #475569;">{magazine_display}</span>
 
             </div>
 
@@ -2652,6 +3087,26 @@ class QuestionCardWidget(QLabel):
         truncated = " ".join(words[:max_words])
 
         return truncated + "..."
+
+    def _format_magazine_display(self, magazine: str | None, edition: str | None) -> str:
+        """Combine magazine + edition for display, avoiding duplicate prefixes."""
+        mag_text = str(magazine or "").strip()
+        ed_text = str(edition or "").strip()
+
+        if not mag_text and not ed_text:
+            return "Unknown"
+        if mag_text and "|" in mag_text:
+            return mag_text
+        if not ed_text:
+            return mag_text or "Unknown"
+
+        lower_mag = mag_text.lower()
+        lower_ed = ed_text.lower()
+        if not lower_mag or lower_mag == "unknown":
+            return ed_text
+        if lower_mag in lower_ed:
+            return ed_text
+        return f"{mag_text} | {ed_text}".strip(" |")
 
     def enterEvent(self, event):
         """Show image/edit buttons on hover."""
@@ -2765,6 +3220,7 @@ class QuestionCardWidget(QLabel):
                         "page": fresh.get("page_range", data.get("page", "")),
                         "question_set_name": fresh.get("question_set_name", data.get("question_set_name", "")),
                         "magazine": fresh.get("magazine", data.get("magazine", "")),
+                        "edition": fresh.get("edition", data.get("edition", "")),
                         "text": fresh.get("question_text", data.get("text", "")),
                         "answer_text": fresh.get("answer_text", data.get("answer_text", "")),
                         "chapter": fresh.get("chapter", data.get("chapter", "")),
@@ -2797,6 +3253,7 @@ class QuestionCardWidget(QLabel):
                     "page": updates.get("page_range", self.question_data.get("page")),
                     "question_set_name": updates.get("question_set_name", self.question_data.get("question_set_name")),
                     "magazine": updates.get("magazine", self.question_data.get("magazine")),
+                    "edition": data.get("edition", self.question_data.get("edition")),
                     "text": updates.get("question_text", self.question_data.get("text")),
                     "answer_text": updates.get("answer_text", self.question_data.get("answer_text")),
                     "chapter": updates.get("chapter", self.question_data.get("chapter")),
@@ -2860,6 +3317,7 @@ class QuestionCardWidget(QLabel):
         root_layout = QVBoxLayout(dialog)
         tabs = QTabWidget(dialog)
         root_layout.addWidget(tabs)
+        cleanup_callbacks = []
 
         def build_tab(kind: str):
             tab = QWidget()
@@ -2868,25 +3326,117 @@ class QuestionCardWidget(QLabel):
             layout.setSpacing(8)
 
             buttons = QHBoxLayout()
-            add_btn = QPushButton("Add from files")
-            add_btn.setIcon(load_icon("add.svg"))
-            add_btn.setIconSize(QSize(14, 14))
+
+            def make_icon_button(icon_name: str, tooltip: str, checkable: bool = False) -> QPushButton:
+                btn = QPushButton()
+                btn.setIcon(load_icon(icon_name))
+                btn.setIconSize(QSize(18, 18))
+                btn.setFixedSize(34, 34)
+                btn.setToolTip(tooltip)
+                btn.setCheckable(checkable)
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #e2e8f0; border: none; border-radius: 6px; }"
+                    "QPushButton:hover { background-color: #cbd5e1; }"
+                    "QPushButton:checked { background-color: #16a34a; color: white; }"
+                )
+                return btn
+
+            add_btn = make_icon_button("add_from_files.png", "Add from files")
             add_btn.clicked.connect(lambda: self._add_images(kind, refresh))
             buttons.addWidget(add_btn)
 
-            paste_btn = QPushButton("Paste from clipboard")
-            paste_btn.setToolTip("Paste an image currently in clipboard")
+            paste_btn = make_icon_button("paste_from_clipboard.png", "Paste from clipboard")
             paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
             buttons.addWidget(paste_btn)
 
-            copy_btn = QPushButton("Copy all")
-            copy_btn.setIcon(load_icon("copy.png"))
-            copy_btn.setToolTip("Copy all images to clipboard")
+            capture_btn = make_icon_button("capture_from_clipboard.png", "Toggle capture from clipboard", checkable=True)
+            buttons.addWidget(capture_btn)
+
+            capture_status = QLabel("")
+            capture_status.setStyleSheet("color: #0f172a;")
+            capture_status.setVisible(False)
+            buttons.addWidget(capture_status)
+
+            capture_state = {"active": False, "images": [], "last_hash": None}
+            clipboard = QGuiApplication.clipboard()
+
+            def handle_clipboard() -> None:
+                if not capture_state["active"]:
+                    return
+                image = clipboard.image()
+                if image.isNull():
+                    return
+                buffer = QBuffer()
+                buffer.open(QBuffer.WriteOnly)
+                image.save(buffer, "PNG")
+                data = buffer.data().data()
+                digest = hashlib.sha1(data).hexdigest()
+                if digest == capture_state["last_hash"]:
+                    return
+                capture_state["last_hash"] = digest
+                capture_state["images"].append(image)
+                capture_status.setText(f"Captured: {len(capture_state['images'])}")
+
+            def stop_capture() -> None:
+                if capture_state["active"]:
+                    try:
+                        clipboard.dataChanged.disconnect(handle_clipboard)
+                    except Exception:
+                        pass
+                capture_state["active"] = False
+                capture_btn.setToolTip("Toggle capture from clipboard")
+                capture_status.setVisible(False)
+                if not capture_state["images"]:
+                    QMessageBox.information(self, "Capture", "No screenshots captured.")
+                    return
+                combined = self._combine_images_vertical(capture_state["images"])
+                if combined is None:
+                    QMessageBox.warning(self, "Capture", "Unable to combine screenshots.")
+                    return
+                if not self._save_qimage_to_db(kind, combined):
+                    return
+                if refresh:
+                    refresh()
+                self._update_image_button_state()
+                capture_state["images"].clear()
+                capture_state["last_hash"] = None
+
+            def toggle_capture(checked: bool) -> None:
+                if checked:
+                    capture_state["active"] = True
+                    capture_state["images"].clear()
+                    capture_state["last_hash"] = None
+                    capture_status.setText("Captured: 0")
+                    capture_status.setVisible(True)
+                    capture_btn.setToolTip("Stop capture")
+                    clipboard.dataChanged.connect(handle_clipboard)
+                else:
+                    stop_capture()
+
+            capture_btn.toggled.connect(toggle_capture)
+
+            def cleanup_capture() -> None:
+                if capture_state["active"]:
+                    try:
+                        clipboard.dataChanged.disconnect(handle_clipboard)
+                    except Exception:
+                        pass
+                capture_state["active"] = False
+                capture_state["images"].clear()
+                capture_state["last_hash"] = None
+
+            cleanup_callbacks.append(cleanup_capture)
+
+            copy_btn = make_icon_button("copy_all.png", "Copy all images to clipboard")
             copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
             buttons.addWidget(copy_btn)
 
-            clear_btn = QPushButton("Clear all")
-            clear_btn.setStyleSheet("background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 6px 12px;")
+            clear_btn = make_icon_button("clear_all.png", "Clear all images")
+            clear_btn.setStyleSheet(
+                "QPushButton { background-color: #ef4444; color: white; border: none; border-radius: 6px; }"
+                "QPushButton:hover { background-color: #dc2626; }"
+            )
             clear_btn.clicked.connect(lambda: self._clear_images(kind, refresh))
             buttons.addWidget(clear_btn)
 
@@ -2938,6 +3488,11 @@ class QuestionCardWidget(QLabel):
         tabs.addTab(q_tab, "Question images")
         tabs.addTab(a_tab, "Answer images")
 
+        def handle_dialog_close() -> None:
+            for cleanup in cleanup_callbacks:
+                cleanup()
+
+        dialog.finished.connect(handle_dialog_close)
         dialog.exec()
         self._update_image_button_state()
         restore_scroll()
@@ -2992,6 +3547,129 @@ class QuestionCardWidget(QLabel):
         if refresh_callback:
             refresh_callback()
         self._update_image_button_state()
+
+    def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
+        """Capture one or more screenshots and save as a single combined image."""
+        if not self.question_id or not self.db_service:
+            QMessageBox.information(self, "Screen capture", "Question ID or database is not available.")
+            return
+
+        captured: list[QImage] = []
+
+        capture_dialog = QDialog(self)
+        capture_dialog.setWindowTitle("Screen capture")
+        capture_dialog.setWindowFlags(capture_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+        layout = QVBoxLayout(capture_dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        info = QLabel("Click Capture for each screenshot, then Done to save.")
+        layout.addWidget(info)
+
+        count_label = QLabel("Captured: 0")
+        layout.addWidget(count_label)
+
+        button_row = QHBoxLayout()
+        capture_btn = QPushButton("Capture")
+        done_btn = QPushButton("Done")
+        button_row.addWidget(capture_btn)
+        button_row.addWidget(done_btn)
+        layout.addLayout(button_row)
+
+        def update_count() -> None:
+            count_label.setText(f"Captured: {len(captured)}")
+
+        def start_capture() -> None:
+            capture_dialog.showMinimized()
+            capture_dialog.hide()
+            screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+            overlay = ScreenCaptureOverlay(screen)
+
+            def on_captured(image: QImage) -> None:
+                if not image.isNull():
+                    captured.append(image)
+                    update_count()
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            def on_canceled() -> None:
+                overlay.deleteLater()
+                capture_dialog.showNormal()
+                capture_dialog.raise_()
+                capture_dialog.activateWindow()
+
+            overlay.capture_completed.connect(on_captured)
+            overlay.capture_canceled.connect(on_canceled)
+            overlay.show()
+
+        def finish_capture() -> None:
+            if not captured:
+                QMessageBox.information(capture_dialog, "Screen capture", "No screenshots captured.")
+                capture_dialog.accept()
+                return
+            combined = self._combine_images_vertical(captured)
+            if combined is None:
+                QMessageBox.warning(capture_dialog, "Screen capture", "Unable to combine screenshots.")
+                return
+            if not self._save_qimage_to_db(kind, combined):
+                return
+            if refresh_callback:
+                refresh_callback()
+            self._update_image_button_state()
+            capture_dialog.accept()
+
+        capture_btn.clicked.connect(start_capture)
+        done_btn.clicked.connect(finish_capture)
+
+        capture_dialog.show()
+        self._capture_dialogs = getattr(self, "_capture_dialogs", [])
+        self._capture_dialogs.append(capture_dialog)
+
+        def cleanup_dialog() -> None:
+            if hasattr(self, "_capture_dialogs") and capture_dialog in self._capture_dialogs:
+                self._capture_dialogs.remove(capture_dialog)
+
+        capture_dialog.finished.connect(cleanup_dialog)
+
+    def _combine_images_vertical(self, images: list[QImage]) -> QImage | None:
+        """Concatenate images vertically, scaling widths to match the widest image."""
+        valid = [img for img in images if img is not None and not img.isNull()]
+        if not valid:
+            return None
+
+        target_width = max(img.width() for img in valid)
+        scaled: list[QImage] = []
+        for img in valid:
+            if img.width() == target_width:
+                scaled.append(img)
+            else:
+                scaled.append(img.scaledToWidth(target_width, Qt.SmoothTransformation))
+
+        total_height = sum(img.height() for img in scaled)
+        combined = QImage(target_width, total_height, QImage.Format_ARGB32)
+        combined.fill(Qt.transparent)
+        painter = QPainter(combined)
+        y = 0
+        for img in scaled:
+            painter.drawImage(0, y, img)
+            y += img.height()
+        painter.end()
+        return combined
+
+    def _save_qimage_to_db(self, kind: str, image: QImage) -> bool:
+        """Persist a QImage to the DB as a PNG."""
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+        try:
+            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
+            return True
+        except Exception:
+            QMessageBox.warning(self, "Save Failed", "Could not save captured image.")
+            return False
 
     def _clear_images(self, kind: str, refresh_callback=None):
         """Delete all images for this kind."""
@@ -3091,7 +3769,7 @@ class QuestionCardWidget(QLabel):
 
             question_set = q.get("question_set_name", "Unknown")
 
-            magazine = q.get("magazine", "Unknown")
+            magazine = self._format_magazine_display(q.get("magazine"), q.get("edition"))
 
             chapter = q.get("chapter", "Unknown")
 
