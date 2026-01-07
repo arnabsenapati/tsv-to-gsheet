@@ -280,6 +280,8 @@ class TSVWatcherWindow(QMainWindow):
         self.tag_colors: dict[str, str] = {}  # tag -> color
         self.copy_mode: str = "Copy: Text"  # Default copy mode for question cards
         self.list_copy_mode: str = "Copy: Text"  # Default copy mode for custom list cards
+        self.list_selected_cards: list[QWidget] = []
+        self._list_card_wrappers: list[QWidget] = []
         # Question analysis state
         self.analysis_presets: list[dict] = []
         self.analysis_filters: dict[str, str] = {}
@@ -854,6 +856,13 @@ class TSVWatcherWindow(QMainWindow):
         """)
         self.copy_mode_combo.currentTextChanged.connect(self._on_copy_mode_changed)
         action_layout.addWidget(self.copy_mode_combo)
+
+        self.question_selected_count_label = QLabel("Selected: 0")
+        self.question_selected_count_label.setStyleSheet(
+            "padding: 4px 8px; background-color: #fef9c3; border: 1px solid #f59e0b; "
+            "border-radius: 4px; color: #92400e; font-weight: 600;"
+        )
+        action_layout.addWidget(self.question_selected_count_label)
         
         search_layout.addWidget(action_container)
 
@@ -1286,6 +1295,13 @@ class TSVWatcherWindow(QMainWindow):
         """)
         self.list_copy_mode_combo.currentTextChanged.connect(self._on_list_copy_mode_changed)
         action_layout.addWidget(self.list_copy_mode_combo)
+
+        self.list_selected_count_label = QLabel("Selected: 0")
+        self.list_selected_count_label.setStyleSheet(
+            "padding: 4px 8px; background-color: #fef9c3; border: 1px solid #f59e0b; "
+            "border-radius: 4px; color: #92400e; font-weight: 600;"
+        )
+        action_layout.addWidget(self.list_selected_count_label)
         
         export_pdf_btn = QPushButton("Export PDF")
         export_pdf_btn.setToolTip("Create a PDF with metadata and question images for this list")
@@ -5113,6 +5129,7 @@ class TSVWatcherWindow(QMainWindow):
         if hasattr(self, "question_tree"):
             self.question_tree.clear()
         self.question_text_view.clear()
+        self._update_question_selection_count()
         
         if not filtered:
             return
@@ -5509,12 +5526,23 @@ class TSVWatcherWindow(QMainWindow):
     def _on_copy_mode_changed(self, mode: str) -> None:
         """Handle copy mode selection change."""
         self.copy_mode = mode
+
+    def _update_question_selection_count(self) -> None:
+        count = 0
+        if hasattr(self, "question_card_view"):
+            try:
+                count = len(self.question_card_view.get_selected_questions())
+            except Exception:
+                count = 0
+        if hasattr(self, "question_selected_count_label"):
+            self.question_selected_count_label.setText(f"Selected: {count}")
     
     def on_question_card_selected(self, question: dict) -> None:
         """Handle question card click in card view."""
         if not question:
             self.question_text_view.clear()
             return
+
         
         # Display question details in the bottom panel
         html = (
@@ -5529,6 +5557,7 @@ class TSVWatcherWindow(QMainWindow):
             f"</div>"
         )
         self.question_text_view.setHtml(html)
+        self._update_question_selection_count()
     
     def show_group_context_menu_for_card(self, group_key: str, position):
         """Show context menu for accordion group (from card view)."""
@@ -6306,6 +6335,9 @@ class TSVWatcherWindow(QMainWindow):
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
         """Populate card view with 2-column grid of question cards from custom list using QuestionCardWithRemoveButton wrapper."""
+        self._list_card_wrappers = []
+        self.list_selected_cards = []
+        self._update_list_selection_count()
         if not questions:
             return
         
@@ -6346,10 +6378,11 @@ class TSVWatcherWindow(QMainWindow):
                             except Exception:
                                 pass
             card_wrapper = QuestionCardWithRemoveButton(question, self)
-            card_wrapper.clicked.connect(lambda q=question: self.on_list_question_card_selected(q))
+            card_wrapper.clicked.connect(lambda q=question, w=card_wrapper: self.on_list_question_card_selected(q, w))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
             card_wrapper.find_similar_requested.connect(lambda q=question: self._open_similarity_from_question(q))
             card_wrapper.column_index = idx % 2
+            self._list_card_wrappers.append(card_wrapper)
 
             match = self._get_comparison_match(question)
             if match is not None:
@@ -6407,8 +6440,12 @@ class TSVWatcherWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         
-        if filtered:
-            self._populate_list_card_view(filtered)
+        if not filtered:
+            self.list_selected_cards = []
+            self._update_list_selection_count()
+            return
+
+        self._populate_list_card_view(filtered)
     
     def _refresh_compare_options(self) -> None:
         """Populate comparison dropdown with other available lists."""
@@ -7059,6 +7096,8 @@ class TSVWatcherWindow(QMainWindow):
             self.list_name_label.setText("Select a list to view questions")
             self.current_list_name = None
             self.list_filters_label.setVisible(False)
+            self.list_selected_cards = []
+            self._update_list_selection_count()
             if hasattr(self, "_list_card_grid_layout"):
                 while self._list_card_grid_layout.count():
                     item = self._list_card_grid_layout.takeAt(0)
@@ -7140,10 +7179,40 @@ class TSVWatcherWindow(QMainWindow):
         # This method is no longer used with card view, but kept for reference
         pass
     
-    def on_list_question_card_selected(self, question: dict) -> None:
+    def _update_list_selection_count(self) -> None:
+        count = len(self.list_selected_cards)
+        if hasattr(self, "list_selected_count_label"):
+            self.list_selected_count_label.setText(f"Selected: {count}")
+
+    def on_list_question_card_selected(self, question: dict, card_wrapper: QWidget | None = None) -> None:
         """Handle question card click in custom list card view."""
-        # Card selection used for information only - no separate text view needed
-        pass
+        from PySide6.QtWidgets import QApplication
+
+        if not card_wrapper or not hasattr(card_wrapper, "card"):
+            return
+
+        modifiers = QApplication.keyboardModifiers()
+        ctrl_pressed = bool(modifiers & Qt.ControlModifier)
+        card = card_wrapper.card
+
+        if ctrl_pressed:
+            if card.is_selected:
+                card.set_selected(False)
+                if card_wrapper in self.list_selected_cards:
+                    self.list_selected_cards.remove(card_wrapper)
+            else:
+                card.set_selected(True)
+                if card_wrapper not in self.list_selected_cards:
+                    self.list_selected_cards.append(card_wrapper)
+        else:
+            for wrapper in self._list_card_wrappers:
+                if wrapper != card_wrapper and hasattr(wrapper, "card"):
+                    wrapper.card.set_selected(False)
+            self.list_selected_cards.clear()
+            card.set_selected(True)
+            self.list_selected_cards.append(card_wrapper)
+
+        self._update_list_selection_count()
     
     def _get_active_filters(self) -> dict:
         """Get currently active filters in Question Analysis tab."""

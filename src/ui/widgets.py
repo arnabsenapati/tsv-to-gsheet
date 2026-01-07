@@ -4031,15 +4031,19 @@ class QuestionCardWidget(QLabel):
 
         if selected:
 
-            # Strong blue background with green accent border
+            if not hasattr(self, "_preselect_stylesheet"):
+                self._preselect_stylesheet = ""
+            self._preselect_stylesheet = self.styleSheet()
+
+            # Yellow glow selection
 
             self.setStyleSheet("""
 
                 QLabel {
 
-                    background-color: #bfdbfe;
+                    background-color: #fef9c3;
 
-                    border: 3px solid #10b981;
+                    border: 3px solid #f59e0b;
 
                     border-radius: 8px;
 
@@ -4053,7 +4057,9 @@ class QuestionCardWidget(QLabel):
 
         else:
 
-            self.setStyleSheet(self.original_stylesheet)
+            prior = getattr(self, "_preselect_stylesheet", "")
+            self.setStyleSheet(prior or self.original_stylesheet)
+            self._preselect_stylesheet = ""
 
 
 
@@ -4484,9 +4490,12 @@ class QuestionAccordionGroup(QWidget):
 
         # Forward to parent window for handling
 
-        if hasattr(self.parent(), 'on_question_card_clicked'):
-
-            self.parent().on_question_card_clicked(question_data)
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "on_question_card_clicked"):
+                parent.on_question_card_clicked(question_data)
+                return
+            parent = parent.parent() if hasattr(parent, "parent") else None
 
     
 
