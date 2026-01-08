@@ -2041,7 +2041,7 @@ class QuestionCardWithRemoveButton(QWidget):
             return
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Images")
+        dialog.setWindowTitle(self._get_image_dialog_title())
         dialog.setMinimumSize(520, 400)
 
         root_layout = QVBoxLayout(dialog)
@@ -2228,6 +2228,16 @@ class QuestionCardWithRemoveButton(QWidget):
         dialog.exec()
         self._update_image_button_state()
         restore_scroll()
+
+    def _get_image_dialog_title(self) -> str:
+        q = self.question_data or {}
+        qno = q.get("qno") or q.get("question_number") or "?"
+        page = q.get("page") or q.get("page_range") or "?"
+        if hasattr(self, "card") and hasattr(self.card, "_format_magazine_display"):
+            magazine = self.card._format_magazine_display(q.get("magazine"), q.get("edition"))
+        else:
+            magazine = q.get("magazine") or "Unknown"
+        return f"Q{qno} | P {page} | {magazine}"
 
     def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
         """Delegate screen capture to inner card if available."""
@@ -3311,7 +3321,7 @@ class QuestionCardWidget(QLabel):
             return
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Images")
+        dialog.setWindowTitle(self._get_image_dialog_title())
         dialog.setMinimumSize(520, 400)
 
         root_layout = QVBoxLayout(dialog)
@@ -3496,6 +3506,13 @@ class QuestionCardWidget(QLabel):
         dialog.exec()
         self._update_image_button_state()
         restore_scroll()
+
+    def _get_image_dialog_title(self) -> str:
+        q = self.question_data or {}
+        qno = q.get("qno") or q.get("question_number") or "?"
+        page = q.get("page") or q.get("page_range") or "?"
+        magazine = self._format_magazine_display(q.get("magazine"), q.get("edition"))
+        return f"Q{qno} | P {page} | {magazine}"
 
     def _add_images(self, kind: str, refresh_callback=None):
         """Open file picker and attach images of the given kind for this question."""
