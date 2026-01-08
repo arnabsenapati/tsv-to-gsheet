@@ -22,10 +22,12 @@ from services.cbt_package import load_cqt
 class DatabaseService:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
+        self._unique_values_cache: Dict[Tuple[str, ...], Dict[str, List[str]]] = {}
         self.ensure_question_embeddings_table()
 
     def set_db_path(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
+        self._unique_values_cache = {}
         self.ensure_question_embeddings_table()
 
     def ensure_question_embeddings_table(self) -> None:
@@ -231,6 +233,11 @@ class DatabaseService:
         return {k: row[k] for k in row.keys()}
 
     def get_unique_values(self, columns: list[str]) -> Dict[str, list[str]]:
+        cache_key = tuple(columns)
+        if self._unique_values_cache and cache_key in self._unique_values_cache:
+            cached = self._unique_values_cache[cache_key]
+            return {k: list(v) for k, v in cached.items()}
+
         result: Dict[str, list[str]] = {}
         with self._connect() as conn:
             for col in columns:
@@ -249,7 +256,32 @@ class DatabaseService:
                     result[col] = sorted(set(vals), key=lambda s: s.lower())
                 except Exception:
                     result[col] = []
+        self._unique_values_cache[cache_key] = {k: list(v) for k, v in result.items()}
         return result
+
+    def _update_unique_values_cache(self, updates: Dict[str, Any]) -> None:
+        """Merge new values into the cached unique values, if present."""
+        if not updates or not self._unique_values_cache:
+            return
+        for cache_key, cached in self._unique_values_cache.items():
+            updated = False
+            for col in cache_key:
+                if col not in updates:
+                    continue
+                value = updates.get(col)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if not text:
+                    continue
+                values = cached.get(col, [])
+                if text not in values:
+                    values.append(text)
+                    values.sort(key=lambda s: s.lower())
+                    cached[col] = values
+                    updated = True
+            if updated:
+                self._unique_values_cache[cache_key] = cached
 
     def get_questions_with_missing(self, required_columns: list[str]) -> list[Dict[str, Any]]:
         if not required_columns:
@@ -754,6 +786,7 @@ class DatabaseService:
                     if cur.rowcount:
                         pass
             conn.execute(f"UPDATE questions SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", values)
+        self._update_unique_values_cache(updates)
 
     def load_question_lists(self) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Dict[str, Any]]]:
         """

@@ -1797,7 +1797,7 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setToolTip("View / add question & answer images")
         self.image_btn.setStyleSheet(self._image_button_style(active=False))
         self.image_btn.setFixedSize(28, 28)
-        self.image_btn.clicked.connect(lambda: self.card._show_image_popover() if hasattr(self, "card") and hasattr(self.card, "_show_image_popover") else None)
+        self.image_btn.clicked.connect(self._on_image_clicked)
         self.image_btn.setVisible(False)
         self.image_btn.setCursor(Qt.PointingHandCursor)
 
@@ -1945,10 +1945,26 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_requested.emit(self.question_data)
 
+    def _select_for_list_action(self) -> None:
+        """Select this card in custom list view before performing an action."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "on_list_question_card_selected"):
+                parent.on_list_question_card_selected(self.question_data, self)
+                return
+            parent = parent.parent() if hasattr(parent, "parent") else None
+
     def _show_edit_dialog(self):
         """Forward edit to inner card to avoid duplicate logic."""
+        self._select_for_list_action()
         if hasattr(self.card, "_show_edit_dialog"):
             self.card._show_edit_dialog()
+
+    def _on_image_clicked(self) -> None:
+        """Select this card before opening the image dialog."""
+        self._select_for_list_action()
+        if hasattr(self, "card") and hasattr(self.card, "_show_image_popover"):
+            self.card._show_image_popover()
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
@@ -2023,6 +2039,7 @@ class QuestionCardWithRemoveButton(QWidget):
 
     def _show_image_popover(self):
         """Show dialog with tabs for question/answer images."""
+        self._select_for_action()
         scroll_area = self._find_parent_scroll_area()
         scroll_value = scroll_area.verticalScrollBar().value() if scroll_area else None
 
@@ -3141,6 +3158,15 @@ class QuestionCardWidget(QLabel):
         self.image_btn.move(self.width() - 32, 4)
         self.edit_btn.move(self.width() - 64, 4)
 
+    def _select_for_action(self) -> None:
+        """Select this card in question list view before performing an action."""
+        parent = self.parent()
+        while parent:
+            if hasattr(parent, "on_question_card_clicked"):
+                parent.on_question_card_clicked(self.question_data)
+                return
+            parent = parent.parent() if hasattr(parent, "parent") else None
+
     def _find_db_service(self):
         """Walk parents to find db_service if available."""
         parent = self.parent()
@@ -3199,6 +3225,7 @@ class QuestionCardWidget(QLabel):
 
     def _show_edit_dialog(self):
         """Open edit dialog and persist changes."""
+        self._select_for_action()
         if not (self.db_service and self.question_id):
             msg = QMessageBox(self)
             msg.setWindowTitle("Edit unavailable")
