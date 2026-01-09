@@ -6385,9 +6385,13 @@ class TSVWatcherWindow(QMainWindow):
             self._list_card_wrappers.append(card_wrapper)
 
             match = self._get_comparison_match(question)
+            compare_mode = bool(self.comparison_target)
             if match is not None:
                 score, matched_q = match
+                card_wrapper.set_comparison_mode(compare_mode, matched_q)
                 self._mark_card_similarity(card_wrapper, score, matched_q)
+            else:
+                card_wrapper.set_comparison_mode(compare_mode, None)
 
             row = idx // 2
             col = idx % 2

@@ -1764,6 +1764,8 @@ class QuestionCardWithRemoveButton(QWidget):
         self.question_data = question_data
         self.question_id = question_data.get("question_id")
         self.db_service = getattr(parent, "db_service", None) if parent else None
+        self.comparison_mode = False
+        self.comparison_match: dict | None = None
 
         self.setMinimumHeight(190)
         self.setMaximumHeight(190)
@@ -1839,6 +1841,17 @@ class QuestionCardWithRemoveButton(QWidget):
         self.edit_btn.setVisible(False)
         self.edit_btn.setCursor(Qt.PointingHandCursor)
 
+        # Compare images button (shown only in comparison mode)
+        self.compare_btn = QPushButton(self)
+        self.compare_btn.setIcon(load_icon("image.svg"))
+        self.compare_btn.setIconSize(QSize(16, 16))
+        self.compare_btn.setToolTip("Compare images")
+        self.compare_btn.setStyleSheet(self._image_button_style(active=False))
+        self.compare_btn.setFixedSize(28, 28)
+        self.compare_btn.clicked.connect(self._show_comparison_images_dialog)
+        self.compare_btn.setVisible(False)
+        self.compare_btn.setCursor(Qt.PointingHandCursor)
+
         # Create remove button (positioned absolutely in top-right corner)
 
         self.remove_btn = QPushButton(self)
@@ -1891,22 +1904,32 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.raise_()
         self.similar_btn.raise_()
         self.edit_btn.raise_()
+        self.compare_btn.raise_()
         self._update_image_button_state()
 
     def enterEvent(self, event):
 
         """Show remove button in top-right corner on hover."""
 
-        self.remove_btn.setVisible(True)
-        self.image_btn.setVisible(True)
-        self.similar_btn.setVisible(True)
-        self.edit_btn.setVisible(True)
+        if self.comparison_mode:
+            self.compare_btn.setVisible(True)
+            self.remove_btn.setVisible(False)
+            self.image_btn.setVisible(False)
+            self.similar_btn.setVisible(False)
+            self.edit_btn.setVisible(False)
+            self._position_compare_button()
+        else:
+            self.remove_btn.setVisible(True)
+            self.image_btn.setVisible(True)
+            self.similar_btn.setVisible(True)
+            self.edit_btn.setVisible(True)
+            self.compare_btn.setVisible(False)
 
-        # Position buttons in top-right corner
-        self.remove_btn.move(self.width() - 32, 4)
-        self.image_btn.move(self.width() - 64, 4)
-        self.similar_btn.move(self.width() - 96, 4)
-        self.edit_btn.move(self.width() - 124, 6)
+            # Position buttons in top-right corner
+            self.remove_btn.move(self.width() - 32, 4)
+            self.image_btn.move(self.width() - 64, 4)
+            self.similar_btn.move(self.width() - 96, 4)
+            self.edit_btn.move(self.width() - 124, 6)
 
         super().enterEvent(event)
 
@@ -1920,8 +1943,14 @@ class QuestionCardWithRemoveButton(QWidget):
         self.image_btn.setVisible(False)
         self.similar_btn.setVisible(False)
         self.edit_btn.setVisible(False)
+        self.compare_btn.setVisible(False)
 
         super().leaveEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.comparison_mode and self.compare_btn.isVisible():
+            self._position_compare_button()
 
     
 
@@ -1945,6 +1974,40 @@ class QuestionCardWithRemoveButton(QWidget):
 
         self.remove_requested.emit(self.question_data)
 
+    def _position_compare_button(self) -> None:
+        """Position compare button relative to the card, below comparison header."""
+        card_top = self.card.geometry().top() if hasattr(self, "card") else 0
+        self.compare_btn.move(self.width() - 32, card_top + 4)
+
+    def set_comparison_mode(self, enabled: bool, matched_question: dict | None = None) -> None:
+        """Enable comparison-only controls for list comparison mode."""
+        self.comparison_mode = bool(enabled)
+        self.comparison_match = matched_question
+        self._update_compare_button_state()
+        if not self.comparison_mode:
+            self.compare_btn.setVisible(False)
+
+    def _update_compare_button_state(self) -> None:
+        """Update compare button enabled state and tooltip."""
+        if not hasattr(self, "compare_btn"):
+            return
+        match_id = self._get_comparison_match_id()
+        if match_id is None:
+            self.compare_btn.setEnabled(True)
+            self.compare_btn.setToolTip("No matched question for comparison")
+        else:
+            self.compare_btn.setEnabled(True)
+            self.compare_btn.setToolTip("Compare images")
+
+    def _get_comparison_match_id(self) -> int | None:
+        if not self.comparison_match:
+            return None
+        match_id = self.comparison_match.get("question_id") or self.comparison_match.get("row_number")
+        try:
+            return int(match_id)
+        except Exception:
+            return None
+
     def _select_for_list_action(self) -> None:
         """Select this card in custom list view before performing an action."""
         parent = self.parent()
@@ -1965,6 +2028,100 @@ class QuestionCardWithRemoveButton(QWidget):
         self._select_for_list_action()
         if hasattr(self, "card") and hasattr(self.card, "_show_image_popover"):
             self.card._show_image_popover()
+
+    def _show_comparison_images_dialog(self) -> None:
+        """Show side-by-side images for current and matched questions."""
+        if not self.db_service or not self.question_id:
+            QMessageBox.information(self, "Compare images", "Question ID or database is not available.")
+            return
+        match_id = self._get_comparison_match_id()
+        if match_id is None:
+            QMessageBox.information(self, "Compare images", "No matched question available for comparison.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Compare images")
+        dialog.setMinimumSize(900, 520)
+
+        layout = QHBoxLayout(dialog)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        left = self._build_comparison_column("Current question", int(self.question_id), self.question_data)
+        right = self._build_comparison_column("Matched question", match_id, self.comparison_match or {})
+        layout.addWidget(left)
+        layout.addWidget(right)
+
+        dialog.exec()
+
+    def _build_comparison_column(self, title: str, question_id: int, question_data: dict) -> QScrollArea:
+        """Build a scrollable column with question/answer images."""
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(6)
+        vbox.setAlignment(Qt.AlignTop)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: 700; color: #0f172a;")
+        vbox.addWidget(title_label)
+
+        meta_label = QLabel(self._format_comparison_meta(question_data))
+        meta_label.setStyleSheet("color: #475569; font-size: 11px;")
+        vbox.addWidget(meta_label)
+
+        for kind, label in (("question", "Question images"), ("answer", "Answer images")):
+            section = QLabel(label)
+            section.setStyleSheet("margin-top: 6px; font-weight: 600; color: #1e293b;")
+            vbox.addWidget(section)
+
+            try:
+                images = self.db_service.get_images(int(question_id), kind)
+            except Exception as exc:
+                err = QLabel(f"Failed to load images: {exc}")
+                err.setStyleSheet("color: #dc2626;")
+                vbox.addWidget(err)
+                continue
+
+            if not images:
+                empty = QLabel("No images.")
+                empty.setStyleSheet("color: #94a3b8;")
+                vbox.addWidget(empty)
+                continue
+
+            for img in images:
+                pixmap = QPixmap()
+                pixmap.loadFromData(bytes(img["data"]))
+                if not pixmap.isNull():
+                    pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+                lbl = QLabel()
+                lbl.setPixmap(pixmap)
+                lbl.setStyleSheet("padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px;")
+                vbox.addWidget(lbl)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(container)
+        return scroll
+
+    def _format_comparison_meta(self, question_data: dict | None) -> str:
+        if not question_data:
+            return "Unknown"
+        qno = question_data.get("qno") or question_data.get("question_number") or question_data.get("QuestionID") or "?"
+        page = question_data.get("page") or question_data.get("page_range") or "?"
+        magazine = (
+            question_data.get("magazine")
+            or question_data.get("magazine_edition")
+            or question_data.get("Magazine Edition")
+            or ""
+        )
+        edition = question_data.get("edition") or ""
+        if hasattr(self, "card") and hasattr(self.card, "_format_magazine_display"):
+            magazine_display = self.card._format_magazine_display(magazine, edition)
+        else:
+            magazine_display = magazine or edition or "Unknown"
+        return f"Q{qno} | P{page} | {magazine_display}"
 
     def _image_button_style(self, active: bool) -> str:
         """Return stylesheet for image button; green when active, blue otherwise."""
@@ -3137,10 +3294,14 @@ class QuestionCardWidget(QLabel):
 
     def enterEvent(self, event):
         """Show image/edit buttons on hover."""
-        self.image_btn.setVisible(True)
-        # Always show edit button so user can see the affordance; dialog will guard missing IDs.
-        self.edit_btn.setVisible(True)
-        self._position_top_buttons()
+        if getattr(self.parent(), "comparison_mode", False):
+            self.image_btn.setVisible(False)
+            self.edit_btn.setVisible(False)
+        else:
+            self.image_btn.setVisible(True)
+            # Always show edit button so user can see the affordance; dialog will guard missing IDs.
+            self.edit_btn.setVisible(True)
+            self._position_top_buttons()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
