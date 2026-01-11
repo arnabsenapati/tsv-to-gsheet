@@ -333,7 +333,7 @@ class DatabaseService:
                 """
                 SELECT q.id, q.question_number, q.page_range, q.edition, q.question_set,
                        q.question_set_name, q.chapter, q.high_level_chapter,
-                       q.question_text, q.magazine
+                       q.question_text, q.magazine, q.issue_year, q.issue_month
                 FROM questions q
                 JOIN subjects s ON s.id = q.subject_id
                 WHERE lower(s.name) = lower(?)
@@ -352,6 +352,8 @@ class DatabaseService:
                     "Qno": row["question_number"] or "",
                     "PageNo": row["page_range"] or "",
                     "Magazine Edition": mag_edition,
+                    "Issue Year": row["issue_year"] or "",
+                    "Issue Month": row["issue_month"] or "",
                     "Name of Question Set": row["question_set_name"] or row["question_set"] or "",
                     "Full Question Text": row["question_text"] or "",
                     "High level chapter": row["high_level_chapter"] or row["chapter"] or "",
@@ -836,6 +838,8 @@ class DatabaseService:
                             "group_key": item["question_set_name"] or item["question_set"] or "",
                             "qno": item["question_number"] or "",
                             "page": item["page_range"] or "",
+                            "issue_year": item["issue_year"],
+                            "issue_month": item["issue_month"],
                             "magazine": mag_edition,
                             "text": item["question_text"] or "",
                             "row_number": item["id"],

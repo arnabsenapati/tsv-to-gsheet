@@ -4233,6 +4233,18 @@ class TSVWatcherWindow(QMainWindow):
         except ValueError as exc:
             warnings.append(str(exc))
 
+        issue_year_col = None
+        issue_month_col = None
+        for idx, value in enumerate(header_row, start=1):
+            if value is None:
+                continue
+            text = str(value).strip().lower()
+            if issue_year_col is None and (text == "issue_year" or ("issue" in text and "year" in text)):
+                issue_year_col = idx
+                continue
+            if issue_month_col is None and (text == "issue_month" or ("issue" in text and "month" in text)):
+                issue_month_col = idx
+
         id_col_idx = None
         for idx, value in enumerate(header_row, start=1):
             if value is None:
@@ -4262,6 +4274,8 @@ class TSVWatcherWindow(QMainWindow):
             question_text = normalize(values[question_text_col - 1]) if question_text_col else ""
             question_set_name = normalize(values[question_set_name_col - 1]) if question_set_name_col else raw_chapter_name
             magazine_value = normalize(values[magazine_col - 1]) if magazine_col else ""
+            issue_year_value = values[issue_year_col - 1] if issue_year_col else None
+            issue_month_value = values[issue_month_col - 1] if issue_month_col else None
             question_id = None
             if id_col_idx:
                 try:
@@ -4270,6 +4284,17 @@ class TSVWatcherWindow(QMainWindow):
                     question_id = values[id_col_idx - 1]
 
             effective_row_number = question_id if self.use_database and question_id is not None else row_number
+
+            def _to_int(value) -> int | None:
+                if value is None or pd.isna(value):
+                    return None
+                text = str(value).strip()
+                if not text:
+                    return None
+                try:
+                    return int(float(text))
+                except Exception:
+                    return None
             
             # Extract group_key for tag lookup (same key used for accordion headers)
             group_key = self._extract_group_key(question_set_name)
@@ -4283,6 +4308,8 @@ class TSVWatcherWindow(QMainWindow):
                     "qno": qno_value,
                     "page": page_value,
                     "magazine": magazine_value,
+                    "issue_year": _to_int(issue_year_value),
+                    "issue_month": _to_int(issue_month_value),
                     "text": question_text,
                     "row_number": effective_row_number,
                     "question_id": question_id,
@@ -5148,6 +5175,9 @@ class TSVWatcherWindow(QMainWindow):
         # Determine all question set names to compute Others
         all_qs_names = {q.get("question_set_name", "Unknown") for q in self.all_questions} if hasattr(self, "all_questions") else set()
         others_sets = all_qs_names - set(qs_to_group.keys())
+
+        # Sort questions by issue year/month then page/qno
+        filtered = sorted(filtered, key=self._get_question_sort_key)
 
         # Group questions using mapping; unmapped go to Others
         for question in filtered:
@@ -6714,7 +6744,18 @@ class TSVWatcherWindow(QMainWindow):
         magazine_raw = str(question.get("magazine", "")).strip()
         magazine_norm = self._normalize_label(magazine_raw)
 
-        year, month = self._parse_magazine_date(magazine_raw)
+        year = question.get("issue_year")
+        month = question.get("issue_month")
+        try:
+            year = int(year) if str(year).strip() else None
+        except Exception:
+            year = None
+        try:
+            month = int(month) if str(month).strip() else None
+        except Exception:
+            month = None
+        if year is None or month is None:
+            year, month = self._parse_magazine_date(magazine_raw)
 
         def _to_number(val, default=999999):
             text = str(val or "").strip()

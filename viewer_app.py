@@ -241,6 +241,68 @@ class SketchBoard(QWidget):
         pass
 
 
+class ReviewListItemWidget(QWidget):
+    """List row widget with review toggle and highlight."""
+
+    def __init__(self, label_text: str, toggle_cb, parent=None):
+        super().__init__(parent)
+        self._reviewed = False
+        self._list_widget = None
+        self._row_index = None
+
+        self.review_bar = QFrame()
+        self.review_bar.setFixedWidth(4)
+        self.review_bar.setStyleSheet("background-color: #f59e0b; border-radius: 2px;")
+        self.review_bar.setVisible(False)
+
+        self.label = QLabel(label_text)
+        self.label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+        self.review_btn = QPushButton("☆")
+        self.review_btn.setCursor(Qt.PointingHandCursor)
+        self.review_btn.setToolTip("Mark for review")
+        self.review_btn.setFixedSize(22, 22)
+        self.review_btn.setStyleSheet(
+            "QPushButton { border: none; background: transparent; }"
+            "QPushButton:hover { background-color: #1f2937; border-radius: 4px; }"
+        )
+        self.review_btn.setText("")
+        self.review_btn.setIcon(load_icon("mark_for_review_unmarked.png"))
+        self.review_btn.setIconSize(QSize(16, 16))
+        self.review_btn.clicked.connect(toggle_cb)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 2, 6, 2)
+        layout.setSpacing(6)
+        layout.addWidget(self.review_bar)
+        layout.addWidget(self.label, 1)
+        layout.addWidget(self.review_btn)
+        self.setFixedHeight(28)
+
+    def bind_list_context(self, list_widget: QListWidget, row_index: int) -> None:
+        self._list_widget = list_widget
+        self._row_index = row_index
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._list_widget is not None and self._row_index is not None:
+            self._list_widget.setCurrentRow(self._row_index)
+        super().mousePressEvent(event)
+
+    def set_reviewed(self, reviewed: bool) -> None:
+        self._reviewed = bool(reviewed)
+        self.review_bar.setVisible(self._reviewed)
+        if self._reviewed:
+            self.review_btn.setIcon(load_icon("mark_for_review_marked.png"))
+            self.review_btn.setToolTip("Unmark review")
+        else:
+            self.review_btn.setIcon(load_icon("mark_for_review_unmarked.png"))
+            self.review_btn.setToolTip("Mark for review")
+
+    def set_review_enabled(self, enabled: bool) -> None:
+        self.review_btn.setVisible(bool(enabled))
+        if not enabled:
+            self.review_bar.setVisible(False)
+
 class QuestionView(QWidget):
     def __init__(self, parent=None, on_answer_change=None):
         super().__init__(parent)
@@ -700,6 +762,10 @@ class ViewerWindow(QMainWindow):
         self.evaluated = bool(data.get("evaluated"))
         # Ensure responses dict exists and is shared
         self.responses = self.payload.setdefault("responses", {})
+        self.review_marks = self.payload.setdefault("review_marks", {})
+        if self.evaluated and self.review_marks:
+            self.review_marks = {}
+            self.payload["review_marks"] = {}
 
         self.setWindowTitle(f"CBT Viewer - {data.get('list_name', '')}")
         central = QWidget()
@@ -741,9 +807,17 @@ class ViewerWindow(QMainWindow):
     def _load_questions(self):
         self.questions = self.payload.get("questions", [])
         for idx, q in enumerate(self.questions, start=1):
-            item = QListWidgetItem(f"Q{idx}")
+            row_index = idx - 1
+            item = QListWidgetItem()
             item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            widget = ReviewListItemWidget(
+                f"Q{idx}",
+                toggle_cb=lambda checked=False, i=row_index: self._toggle_review_mark(i),
+            )
+            widget.bind_list_context(self.list_widget, row_index)
+            item.setSizeHint(widget.sizeHint())
             self.list_widget.addItem(item)
+            self.list_widget.setItemWidget(item, widget)
         if self.list_widget.count() > 0:
             self.list_widget.setCurrentRow(0)
         self._refresh_answer_markers()
@@ -767,9 +841,27 @@ class ViewerWindow(QMainWindow):
         except Exception as exc:
             print(f"[viewer] Failed to persist responses: {exc}", flush=True)
 
+    def _toggle_review_mark(self, row: int) -> None:
+        if self.evaluated:
+            return
+        if row < 0 or row >= len(self.questions):
+            return
+        key = str(self._qkey(self.questions[row], row))
+        if self.review_marks.get(key):
+            self.review_marks.pop(key, None)
+        else:
+            self.review_marks[key] = True
+        self.payload["review_marks"] = self.review_marks
+        self._refresh_answer_markers()
+        try:
+            save_cqt_payload(str(self.package_path), self.payload, self.password)
+        except Exception as exc:
+            print(f"[viewer] Failed to persist review marks: {exc}", flush=True)
+
     def closeEvent(self, event):
         # Persist responses
         self.payload["responses"] = self.responses
+        self.payload["review_marks"] = self.review_marks
         try:
             save_cqt_payload(str(self.package_path), self.payload, self.password)
         except Exception as exc:
@@ -782,6 +874,8 @@ class ViewerWindow(QMainWindow):
             item = self.list_widget.item(idx)
             if not item:
                 continue
+            widget = self.list_widget.itemWidget(item)
+            label = widget.label if isinstance(widget, ReviewListItemWidget) else None
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
             key = self._qkey(q, idx)
             resp_raw = responses.get(str(key), [])
@@ -802,25 +896,9 @@ class ViewerWindow(QMainWindow):
                 else:
                     resp_list = resp or []
                 answered = bool(resp_list)
-            base_label = f"Q{idx + 1}"
-            item.setText(base_label)
-            font = item.font()
-            font.setUnderline(answered and not self.evaluated)
-            item.setFont(font)
-            if not self.evaluated:
-                # answered -> blue with underline; unanswered -> light gray
-                item.setForeground(QColor("#2563eb") if answered else QColor("#94a3b8"))
-
-        if self.evaluated:
-            # Show correctness markers
-            for idx, q in enumerate(self.questions):
-                item = self.list_widget.item(idx)
-                if not item:
-                    continue
-                key = str(self._qkey(q, idx))
-                sel_raw = responses.get(key, [])
+            if self.evaluated:
+                sel_raw = responses.get(str(key), [])
                 sel, _ = self.question_view._extract_answer_and_sketch(sel_raw) if hasattr(self, "question_view") else (sel_raw, None)
-                qtype = q.get("question_type", "mcq_single") or "mcq_single"
                 correct = False
                 if qtype == "numerical":
                     answer_val = str(q.get("numerical_answer", "")).strip()
@@ -834,11 +912,30 @@ class ViewerWindow(QMainWindow):
                     correct = bool(correct_opts) and sel_set == correct_opts
                 marker = "✔" if correct else "✘"
                 color = QColor("#16a34a") if correct else QColor("#dc2626")
-                item.setText(f"Q{idx + 1}   {marker}")
-                item.setForeground(color)
+                text_value = f"Q{idx + 1}   {marker}"
+                underline = False
+            else:
+                color = QColor("#2563eb") if answered else QColor("#94a3b8")
+                text_value = f"Q{idx + 1}"
+                underline = answered
+
+            if label:
+                label.setText(text_value)
+                font = label.font()
+                font.setUnderline(underline and not self.evaluated)
+                label.setFont(font)
+                label.setStyleSheet(f"color: {color.name()};")
+            else:
+                item.setText(text_value)
                 font = item.font()
-                font.setUnderline(False)
+                font.setUnderline(underline and not self.evaluated)
                 item.setFont(font)
+                item.setForeground(color)
+
+            if isinstance(widget, ReviewListItemWidget):
+                reviewed = bool(self.review_marks.get(str(key)))
+                widget.set_review_enabled(not self.evaluated)
+                widget.set_reviewed(reviewed and not self.evaluated)
 
     def _on_evaluate(self):
         protection = self.payload.get("evaluation_protection", {})
@@ -860,6 +957,8 @@ class ViewerWindow(QMainWindow):
         self.evaluated = True
         self.payload["evaluated"] = True
         self.payload["evaluated_at"] = datetime.utcnow().isoformat() + "Z"
+        self.review_marks = {}
+        self.payload["review_marks"] = {}
         self.question_view.set_evaluated(True)
         self._refresh_answer_markers()
         # refresh current question to show answer images

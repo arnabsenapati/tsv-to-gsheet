@@ -273,7 +273,7 @@ def extract_file_metadata(
     row_signatures: list[tuple[str, str, str, str, str, str]] = []
     seen_row_signatures: set[tuple[str, str, str]] = set()
 
-    for row in rows:
+    for row_index, row in enumerate(rows, start=1):
         required_columns = max(magazine_col, question_set_col, qno_col, page_col)
         if len(row) < required_columns:
             raise ValueError("TSV row does not contain all required columns.")
@@ -283,6 +283,24 @@ def extract_file_metadata(
             raise ValueError("Magazine edition must be provided for every row.")
 
         normalized_magazine = normalize_magazine_edition(magazine_value)
+        issue_year = None
+        issue_month = None
+        if "|" in normalized_magazine:
+            edition_norm = normalized_magazine.split("|", 1)[1].strip()
+            if re.match(r"^\d{4}-\d{2}$", edition_norm):
+                try:
+                    issue_year = int(edition_norm[:4])
+                    issue_month = int(edition_norm[5:7])
+                except Exception:
+                    issue_year = None
+                    issue_month = None
+        if issue_year is None or issue_month is None:
+            line_no = row_index + 1
+            raise ValueError(
+                "Issue year/month missing for magazine edition "
+                f"'{magazine_value}' on line {line_no}. "
+                "Use format like \"Magazine Name | March '25\"."
+            )
 
         if magazine_identifier is None:
             magazine_identifier = normalized_magazine
