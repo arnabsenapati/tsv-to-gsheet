@@ -104,6 +104,7 @@ from ui.widgets import (
     QuestionTreeWidget,
     QuestionListCardView,
     TagBadge,
+    start_clipboard_image_buffer,
 )
 from utils.helpers import (
     _find_high_level_chapter_column,
@@ -381,6 +382,7 @@ class TSVWatcherWindow(QMainWindow):
         if not hasattr(self, "select_output_file"):
             self.select_output_file = lambda: None
         self._build_ui()
+        start_clipboard_image_buffer()
         self._load_last_selection()
         self._setup_timer()
         # Delay initial load to ensure UI is ready and timer is running

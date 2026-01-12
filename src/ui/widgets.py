@@ -68,6 +68,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QTabWidget,
     QGraphicsDropShadowEffect,
+    QFrame,
 )
 
 from ui.icon_utils import load_icon
@@ -104,6 +105,200 @@ def _show_copy_success_dialog(parent: QWidget, message: str) -> None:
         """
     )
     msg.exec()
+
+class ClipboardImageBuffer:
+    """Keep a rolling buffer of recent clipboard images."""
+
+    def __init__(self, max_images: int = 5) -> None:
+        self.max_images = max_images
+        self._items: list[dict] = []
+        self._last_hash: str | None = None
+        self._clipboard = None
+        self._started = False
+
+    def start(self) -> None:
+        if self._started:
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is None:
+            return
+        self._clipboard = clipboard
+        clipboard.dataChanged.connect(self._handle_clipboard)
+        self._started = True
+
+    def _hash_image(self, image: QImage) -> str | None:
+        if image.isNull():
+            return None
+        buffer = QBuffer()
+        buffer.open(QBuffer.WriteOnly)
+        image.save(buffer, "PNG")
+        data = buffer.data().data()
+        return hashlib.sha1(data).hexdigest()
+
+    def _handle_clipboard(self) -> None:
+        if self._clipboard is None:
+            return
+        image = self._clipboard.image()
+        if image.isNull():
+            return
+        digest = self._hash_image(image)
+        if not digest or digest == self._last_hash:
+            return
+        self._last_hash = digest
+        self._items.insert(0, {"image": image.copy(), "hash": digest})
+        if len(self._items) > self.max_images:
+            self._items = self._items[: self.max_images]
+
+    def get_images(self) -> list[QImage]:
+        return [item["image"] for item in self._items]
+
+
+_CLIPBOARD_IMAGE_BUFFER = ClipboardImageBuffer()
+
+
+def start_clipboard_image_buffer() -> ClipboardImageBuffer:
+    _CLIPBOARD_IMAGE_BUFFER.start()
+    return _CLIPBOARD_IMAGE_BUFFER
+
+
+def get_clipboard_image_buffer() -> ClipboardImageBuffer:
+    return _CLIPBOARD_IMAGE_BUFFER
+
+
+class ClipboardImageTile(QFrame):
+    """Clickable thumbnail tile with selection order badge."""
+
+    clicked = Signal(int)
+
+    def __init__(self, image: QImage, index: int, parent=None) -> None:
+        super().__init__(parent)
+        self._index = index
+        self._selected = False
+
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet("QFrame { border: 1px solid #e2e8f0; border-radius: 6px; }")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        self.image_label = QLabel()
+        pixmap = QPixmap.fromImage(image)
+        if not pixmap.isNull():
+            pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+        self.image_label.setPixmap(pixmap)
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("border: none;")
+        layout.addWidget(self.image_label)
+
+        self.order_badge = QLabel("", self.image_label)
+        self.order_badge.setVisible(False)
+        self.order_badge.setStyleSheet(
+            "background-color: #f59e0b; color: #0f172a; border-radius: 10px; "
+            "padding: 2px 6px; font-weight: 700;"
+        )
+        self.order_badge.raise_()
+        self._position_badge()
+
+    def _position_badge(self) -> None:
+        self.order_badge.move(6, 6)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_badge()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self._index)
+        super().mousePressEvent(event)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = bool(selected)
+        border = "#f59e0b" if self._selected else "#e2e8f0"
+        self.setStyleSheet(f"QFrame {{ border: 2px solid {border}; border-radius: 6px; }}")
+
+    def set_order(self, order_index: int | None) -> None:
+        if order_index is None:
+            self.order_badge.setVisible(False)
+            self.order_badge.setText("")
+            return
+        self.order_badge.setText(str(order_index))
+        self.order_badge.setVisible(True)
+
+
+class ClipboardImagePickerDialog(QDialog):
+    """Dialog to select images from clipboard buffer in click order."""
+
+    def __init__(self, images: list[QImage], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Clipboard images")
+        self.setMinimumSize(520, 520)
+        self._images = images
+        self._selected_indices: list[int] = []
+        self._tiles: list[ClipboardImageTile] = []
+        self.selected_images: list[QImage] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        info = QLabel("Click images in the order you want to combine them.")
+        info.setStyleSheet("color: #0f172a; font-weight: 600;")
+        layout.addWidget(info)
+
+        self.order_label = QLabel("Selection order: none")
+        self.order_label.setStyleSheet("color: #475569;")
+        layout.addWidget(self.order_label)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(4, 4, 4, 4)
+        content_layout.setSpacing(8)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+        for idx, image in enumerate(images):
+            tile = ClipboardImageTile(image, idx, self)
+            tile.clicked.connect(self._on_tile_clicked)
+            content_layout.addWidget(tile)
+            self._tiles.append(tile)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        done_btn = QPushButton("Done")
+        done_btn.clicked.connect(self._handle_done)
+        button_row.addWidget(cancel_btn)
+        button_row.addWidget(done_btn)
+        layout.addLayout(button_row)
+
+    def _on_tile_clicked(self, index: int) -> None:
+        if index in self._selected_indices:
+            self._selected_indices.remove(index)
+        else:
+            self._selected_indices.append(index)
+        self._refresh_order_badges()
+
+    def _refresh_order_badges(self) -> None:
+        order_map = {idx: pos + 1 for pos, idx in enumerate(self._selected_indices)}
+        for idx, tile in enumerate(self._tiles):
+            tile.set_selected(idx in self._selected_indices)
+            tile.set_order(order_map.get(idx))
+        if self._selected_indices:
+            order_text = " -> ".join(f"#{i + 1}" for i in self._selected_indices)
+            self.order_label.setText(f"Selection order: {order_text}")
+        else:
+            self.order_label.setText("Selection order: none")
+
+    def _handle_done(self) -> None:
+        if not self._selected_indices:
+            QMessageBox.information(self, "Clipboard images", "Select at least one image.")
+            return
+        self.selected_images = [self._images[idx] for idx in self._selected_indices]
+        self.accept()
 
 
 
@@ -2603,21 +2798,20 @@ class SimilarQuestionCard(QWidget):
         if not self.question_id or not self.db_service:
             return
 
-        clipboard = QGuiApplication.clipboard()
-        image: QImage = clipboard.image()
-        if image.isNull():
-            QMessageBox.information(self, "No Image", "Clipboard does not contain an image.")
+        images = get_clipboard_image_buffer().get_images()
+        if not images:
+            QMessageBox.information(self, "Clipboard images", "No clipboard images captured yet.")
             return
 
-        buffer = QBuffer()
-        buffer.open(QBuffer.WriteOnly)
-        image.save(buffer, "PNG")
-        data = buffer.data().data()
-
-        try:
-            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
-        except Exception:
-            QMessageBox.warning(self, "Save Failed", "Could not save image from clipboard.")
+        picker = ClipboardImagePickerDialog(images, self)
+        if picker.exec() != QDialog.Accepted:
+            return
+        selected_images = picker.selected_images
+        combined = self._combine_images_vertical(selected_images)
+        if combined is None:
+            QMessageBox.information(self, "Clipboard images", "No valid images selected.")
+            return
+        if not self._save_qimage_to_db(kind, combined):
             return
 
         if refresh_callback:
@@ -3732,21 +3926,20 @@ class QuestionCardWidget(QLabel):
         if not self.question_id or not self.db_service:
             return
 
-        clipboard = QGuiApplication.clipboard()
-        image: QImage = clipboard.image()
-        if image.isNull():
-            QMessageBox.information(self, "No Image", "Clipboard does not contain an image.")
+        images = get_clipboard_image_buffer().get_images()
+        if not images:
+            QMessageBox.information(self, "Clipboard images", "No clipboard images captured yet.")
             return
 
-        buffer = QBuffer()
-        buffer.open(QBuffer.WriteOnly)
-        image.save(buffer, "PNG")
-        data = buffer.data().data()
-
-        try:
-            self.db_service.add_question_image_bytes(int(self.question_id), kind, data, "image/png")
-        except Exception:
-            QMessageBox.warning(self, "Save Failed", "Could not save image from clipboard.")
+        picker = ClipboardImagePickerDialog(images, self)
+        if picker.exec() != QDialog.Accepted:
+            return
+        selected_images = picker.selected_images
+        combined = self._combine_images_vertical(selected_images)
+        if combined is None:
+            QMessageBox.information(self, "Clipboard images", "No valid images selected.")
+            return
+        if not self._save_qimage_to_db(kind, combined):
             return
 
         if refresh_callback:
