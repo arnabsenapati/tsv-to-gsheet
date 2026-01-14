@@ -40,10 +40,46 @@ class DatabaseService:
                     model TEXT NOT NULL,
                     dim INTEGER NOT NULL,
                     vector BLOB NOT NULL,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
                 )
                 """
             )
+            self._ensure_question_embeddings_fk(conn)
+
+    def _ensure_question_embeddings_fk(self, conn: sqlite3.Connection) -> None:
+        """Ensure question_embeddings has a foreign key to questions."""
+        try:
+            fk_rows = conn.execute("PRAGMA foreign_key_list(question_embeddings)").fetchall()
+        except Exception:
+            return
+        if fk_rows:
+            return
+        # Remove orphaned embeddings before migration
+        conn.execute(
+            "DELETE FROM question_embeddings WHERE question_id NOT IN (SELECT id FROM questions)"
+        )
+        conn.execute("ALTER TABLE question_embeddings RENAME TO question_embeddings_old")
+        conn.execute(
+            """
+            CREATE TABLE question_embeddings (
+                question_id INTEGER PRIMARY KEY,
+                model TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(question_id) REFERENCES questions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO question_embeddings (question_id, model, dim, vector, updated_at)
+            SELECT question_id, model, dim, vector, updated_at
+            FROM question_embeddings_old
+            """
+        )
+        conn.execute("DROP TABLE question_embeddings_old")
 
     def list_embedding_ids(self) -> List[int]:
         """Return question_ids that have stored embeddings."""
@@ -954,6 +990,15 @@ class DatabaseService:
                 "UPDATE questions SET high_level_chapter = ?, chapter = ? WHERE id = ?",
                 [(target_group, target_group, qid) for qid in question_ids],
             )
+
+    def delete_question(self, question_id: int) -> None:
+        """Delete a question and its related data."""
+        if not question_id:
+            return
+        self.snapshot_database(f"Delete question {question_id}")
+        with self._connect() as conn:
+            conn.execute("DELETE FROM question_embeddings WHERE question_id = ?", (question_id,))
+            conn.execute("DELETE FROM questions WHERE id = ?", (question_id,))
 
     # ------------------------------------------------------------------
     # Exams (.cqt import)

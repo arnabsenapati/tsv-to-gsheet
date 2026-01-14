@@ -106,6 +106,44 @@ def _show_copy_success_dialog(parent: QWidget, message: str) -> None:
     )
     msg.exec()
 
+
+_CHECK_ICON_CACHE: dict[int, QIcon] = {}
+
+
+def _get_check_icon(size: int) -> QIcon:
+    cached = _CHECK_ICON_CACHE.get(size)
+    if cached:
+        return cached
+    dim = max(12, int(size))
+    pixmap = QPixmap(dim, dim)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setBrush(QColor("#22c55e"))
+    painter.setPen(Qt.NoPen)
+    painter.drawEllipse(0, 0, dim - 1, dim - 1)
+    pen = QPen(QColor("#f8fafc"), max(2, dim // 6))
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.drawLine(int(dim * 0.25), int(dim * 0.55), int(dim * 0.45), int(dim * 0.72))
+    painter.drawLine(int(dim * 0.45), int(dim * 0.72), int(dim * 0.76), int(dim * 0.35))
+    painter.end()
+    icon = QIcon(pixmap)
+    _CHECK_ICON_CACHE[size] = icon
+    return icon
+
+
+def _flash_copy_button(button: QPushButton, duration_ms: int = 1500) -> None:
+    if not button:
+        return
+    original_icon = button.property("original_icon")
+    if original_icon is None:
+        original_icon = button.icon()
+        button.setProperty("original_icon", original_icon)
+    size = button.iconSize().width() or 18
+    button.setIcon(_get_check_icon(size))
+    QTimer.singleShot(duration_ms, lambda: button.setIcon(original_icon))
+
 class ClipboardImageBuffer:
     """Keep a rolling buffer of recent clipboard images."""
 
@@ -2528,7 +2566,7 @@ class QuestionCardWithRemoveButton(QWidget):
             cleanup_callbacks.append(cleanup_capture)
 
             copy_btn = make_icon_button("copy_all.png", "Copy all images to clipboard")
-            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
+            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind, copy_btn))
             buttons.addWidget(copy_btn)
 
             clear_btn = make_icon_button("clear_all.png", "Clear all images")
@@ -2615,14 +2653,14 @@ class QuestionCardWithRemoveButton(QWidget):
         else:
             QMessageBox.information(self, "Screen capture", "Screen capture not available for this card.")
 
-    def _copy_images_to_clipboard(self, kind: str) -> None:
+    def _copy_images_to_clipboard(self, kind: str, button: QPushButton | None = None) -> None:
         """Delegate copy to inner card if available."""
         if hasattr(self.card, "_copy_images_to_clipboard"):
-            self.card._copy_images_to_clipboard(kind)
+            self.card._copy_images_to_clipboard(kind, button)
         else:
             QMessageBox.information(self, "Copy images", "Copy not available for this card.")
 
-    def _copy_images_to_clipboard(self, kind: str) -> None:
+    def _copy_images_to_clipboard(self, kind: str, button: QPushButton | None = None) -> None:
         """Concatenate all images of a kind and copy to clipboard."""
         if not self.question_id or not self.db_service:
             QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
@@ -2660,7 +2698,8 @@ class QuestionCardWithRemoveButton(QWidget):
         painter.end()
 
         QGuiApplication.clipboard().setImage(combined)
-        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
+        if button is not None:
+            _flash_copy_button(button)
 
 
 class SimilarQuestionCard(QWidget):
@@ -3089,7 +3128,7 @@ class SimilarQuestionCard(QWidget):
             refresh_callback()
         self._update_image_button_state()
 
-    def _copy_images_to_clipboard(self, kind: str) -> None:
+    def _copy_images_to_clipboard(self, kind: str, button: QPushButton | None = None) -> None:
         """Concatenate all images of a kind and copy to clipboard."""
         if not self.question_id or not self.db_service:
             QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
@@ -3126,7 +3165,8 @@ class SimilarQuestionCard(QWidget):
         painter.end()
 
         QGuiApplication.clipboard().setImage(combined)
-        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
+        if button is not None:
+            _flash_copy_button(button)
 
 class QuestionCardWidget(QLabel):
 
@@ -3208,6 +3248,7 @@ class QuestionCardWidget(QLabel):
         self.original_stylesheet = ""
         self.is_custom_list_card = False  # Flag set by wrapper when used in custom list view
         self.has_images = False  # Tracks whether this question has any images
+        self.show_delete_button = False
 
         # Enable drag
         self.setAcceptDrops(False)  # Cards don't accept drops
@@ -3299,6 +3340,37 @@ class QuestionCardWidget(QLabel):
         self.edit_btn.setVisible(False)
         self.edit_btn.setCursor(Qt.PointingHandCursor)
         self.image_btn.raise_()
+        self.edit_btn.raise_()
+
+        # Delete button (question list only)
+        self.delete_btn = QPushButton(self)
+        self.delete_btn.setIcon(load_icon("close.svg"))
+        self.delete_btn.setIconSize(QSize(14, 14))
+        self.delete_btn.setToolTip("Delete question")
+        self.delete_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 12px;
+                qproperty-flat: true;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            """
+        )
+        self.delete_btn.setFixedSize(28, 28)
+        self.delete_btn.clicked.connect(self._request_delete_question)
+        self.delete_btn.setVisible(False)
+        self.delete_btn.setCursor(Qt.PointingHandCursor)
+        self.delete_btn.raise_()
 
         self._update_image_button_state()
 
@@ -3491,10 +3563,13 @@ class QuestionCardWidget(QLabel):
         if getattr(self.parent(), "comparison_mode", False):
             self.image_btn.setVisible(False)
             self.edit_btn.setVisible(False)
+            self.delete_btn.setVisible(False)
         else:
             self.image_btn.setVisible(True)
             # Always show edit button so user can see the affordance; dialog will guard missing IDs.
             self.edit_btn.setVisible(True)
+            if self.show_delete_button:
+                self.delete_btn.setVisible(True)
             self._position_top_buttons()
         super().enterEvent(event)
 
@@ -3502,6 +3577,7 @@ class QuestionCardWidget(QLabel):
         """Hide hover buttons when leaving."""
         self.image_btn.setVisible(False)
         self.edit_btn.setVisible(False)
+        self.delete_btn.setVisible(False)
         super().leaveEvent(event)
 
     def resizeEvent(self, event):
@@ -3510,8 +3586,28 @@ class QuestionCardWidget(QLabel):
         self._position_top_buttons()
 
     def _position_top_buttons(self):
-        self.image_btn.move(self.width() - 32, 4)
-        self.edit_btn.move(self.width() - 64, 4)
+        if self.show_delete_button:
+            self.delete_btn.move(self.width() - 32, 4)
+            self.image_btn.move(self.width() - 64, 4)
+            self.edit_btn.move(self.width() - 96, 4)
+        else:
+            self.image_btn.move(self.width() - 32, 4)
+            self.edit_btn.move(self.width() - 64, 4)
+
+    def set_delete_enabled(self, enabled: bool) -> None:
+        """Enable or disable delete button for this card."""
+        self.show_delete_button = bool(enabled)
+        if not self.show_delete_button:
+            self.delete_btn.setVisible(False)
+        self._position_top_buttons()
+
+    def _request_delete_question(self) -> None:
+        """Ask parent window to delete this question."""
+        parent_window = self._get_parent_window()
+        if not parent_window or not hasattr(parent_window, "delete_question_from_list"):
+            QMessageBox.information(self, "Delete question", "Delete action is not available.")
+            return
+        parent_window.delete_question_from_list(self.question_data)
 
     def _select_for_action(self) -> None:
         """Select this card in question list view before performing an action."""
@@ -3821,7 +3917,7 @@ class QuestionCardWidget(QLabel):
             cleanup_callbacks.append(cleanup_capture)
 
             copy_btn = make_icon_button("copy_all.png", "Copy all images to clipboard")
-            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind))
+            copy_btn.clicked.connect(lambda: self._copy_images_to_clipboard(kind, copy_btn))
             buttons.addWidget(copy_btn)
 
             clear_btn = make_icon_button("clear_all.png", "Clear all images")
@@ -4094,7 +4190,7 @@ class QuestionCardWidget(QLabel):
             refresh_callback()
         self._update_image_button_state()
 
-    def _copy_images_to_clipboard(self, kind: str) -> None:
+    def _copy_images_to_clipboard(self, kind: str, button: QPushButton | None = None) -> None:
         """Concatenate all images of a kind and copy to clipboard."""
         if not self.question_id or not self.db_service:
             QMessageBox.information(self, "Copy images", "Question ID or database is not available.")
@@ -4131,7 +4227,8 @@ class QuestionCardWidget(QLabel):
         painter.end()
 
         QGuiApplication.clipboard().setImage(combined)
-        _show_copy_success_dialog(self, f"Copied {len(q_images)} image(s) to clipboard.")
+        if button is not None:
+            _flash_copy_button(button)
 
     
 
@@ -4505,7 +4602,16 @@ class QuestionAccordionGroup(QWidget):
 
     
 
-    def __init__(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, parent=None, show_page_range: bool = True):
+    def __init__(
+        self,
+        group_key: str,
+        questions: list[dict],
+        tags: list[str] = None,
+        tag_colors: dict = None,
+        parent=None,
+        show_page_range: bool = True,
+        enable_delete: bool = False,
+    ):
 
         """
 
@@ -4586,6 +4692,7 @@ class QuestionAccordionGroup(QWidget):
         for i, question in enumerate(questions):
 
             card = QuestionCardWidget(question, self)
+            card.set_delete_enabled(enable_delete)
 
             card.clicked.connect(self._on_card_clicked)
 
@@ -5089,7 +5196,15 @@ class QuestionListCardView(QScrollArea):
 
     
 
-    def add_group(self, group_key: str, questions: list[dict], tags: list[str] = None, tag_colors: dict = None, show_page_range: bool = True):
+    def add_group(
+        self,
+        group_key: str,
+        questions: list[dict],
+        tags: list[str] = None,
+        tag_colors: dict = None,
+        show_page_range: bool = True,
+        enable_delete: bool = False,
+    ):
 
         """
 
@@ -5109,7 +5224,15 @@ class QuestionListCardView(QScrollArea):
 
         """
 
-        group = QuestionAccordionGroup(group_key, questions, tags, tag_colors, self, show_page_range)
+        group = QuestionAccordionGroup(
+            group_key,
+            questions,
+            tags,
+            tag_colors,
+            self,
+            show_page_range,
+            enable_delete=enable_delete,
+        )
 
         
 

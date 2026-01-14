@@ -4199,7 +4199,14 @@ class TSVWatcherWindow(QMainWindow):
         for group_key in ordered_keys:
             qlist = grouped.get(group_key, [])
             tags = self.question_set_group_tags.get(group_key, [])
-            self.mag_question_card_view.add_group(group_key, qlist, tags, self.tag_colors, show_page_range=True)
+            self.mag_question_card_view.add_group(
+                group_key,
+                qlist,
+                tags,
+                self.tag_colors,
+                show_page_range=True,
+                enable_delete=False,
+            )
 
     def _collect_question_analysis_data(
         self, df: pd.DataFrame
@@ -5217,7 +5224,14 @@ class TSVWatcherWindow(QMainWindow):
                 if not group_questions:
                     continue
                 tags = self.question_set_group_tags.get(group_key, [])
-                self.question_card_view.add_group(group_key, group_questions, tags, self.tag_colors, show_page_range=False)
+                self.question_card_view.add_group(
+                    group_key,
+                    group_questions,
+                    tags,
+                    self.tag_colors,
+                    show_page_range=False,
+                    enable_delete=True,
+                )
         
         # Restore scroll position if it was saved
         if scroll_value is not None and hasattr(self, "question_card_view"):
@@ -6364,6 +6378,30 @@ class TSVWatcherWindow(QMainWindow):
                 return
         
         QMessageBox.warning(self, "Not Found", f"Question Q{qno} not found in list.")
+
+    def delete_question_from_list(self, question: dict) -> None:
+        """Delete a question from the database and refresh views."""
+        if not question:
+            return
+        qid = question.get("question_id") or question.get("row_number") or question.get("id")
+        if not qid:
+            QMessageBox.information(self, "Delete question", "Question ID not available.")
+            return
+        qno = question.get("qno") or question.get("question_number") or "?"
+        page = question.get("page") or question.get("page_range") or "?"
+        mag = question.get("magazine") or ""
+        prompt = f"Delete question Q{qno} (Page {page}) from the database?\n\n{mag}"
+        if QMessageBox.question(self, "Confirm delete", prompt) != QMessageBox.Yes:
+            return
+        try:
+            self.db_service.delete_question(int(qid))
+        except Exception as exc:
+            QMessageBox.critical(self, "Delete failed", f"Could not delete question:\n{exc}")
+            return
+        self.log(f"Deleted question Q{qno} (ID {qid}). Reloading data...")
+        self.load_subject_from_db()
+        if hasattr(self, "_load_saved_question_lists"):
+            self._load_saved_question_lists()
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
         """Populate card view with 2-column grid of question cards from custom list using QuestionCardWithRemoveButton wrapper."""
