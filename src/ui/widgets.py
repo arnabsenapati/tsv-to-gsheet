@@ -4947,44 +4947,32 @@ class QuestionCardWidget(QLabel):
 
         """Update visual state for selection."""
 
-        self.is_selected = selected
-
-        
-
-        # Rebuild card HTML to show/hide checkmark
-
-        self._build_card()
-
-        
+        selected = bool(selected)
 
         if selected:
-
-            if not hasattr(self, "_preselect_stylesheet"):
-                self._preselect_stylesheet = ""
-            self._preselect_stylesheet = self.styleSheet()
+            if not self.is_selected:
+                self._preselect_stylesheet = self.styleSheet()
+                self.is_selected = True
+                # Rebuild card HTML to show/hide checkmark
+                self._build_card()
 
             # Yellow glow selection
-
-            self.setStyleSheet("""
-
+            self.setStyleSheet(
+                """
                 QLabel {
-
                     background-color: #fef9c3;
-
                     border: 3px solid #f59e0b;
-
                     border-radius: 8px;
-
                     padding: 12px;
-
                     margin: 4px;
-
                 }
-
-            """)
-
+                """
+            )
         else:
-
+            if self.is_selected:
+                self.is_selected = False
+                # Rebuild card HTML to show/hide checkmark
+                self._build_card()
             prior = getattr(self, "_preselect_stylesheet", "")
             self.setStyleSheet(prior or self.original_stylesheet)
             self._preselect_stylesheet = ""
@@ -5416,6 +5404,29 @@ class QuestionAccordionGroup(QWidget):
         mag = question.get("magazine", "")
         return f"sig:{qno}|{qset}|{mag}"
 
+    def _add_selected_card(self, card) -> None:
+        if card not in self.selected_cards:
+            self.selected_cards.append(card)
+
+    def _remove_selected_card(self, card) -> None:
+        try:
+            self.selected_cards.remove(card)
+        except ValueError:
+            pass
+
+    def _add_selected_question(self, question_data: dict) -> None:
+        key = self._question_key(question_data)
+        for q in self.selected_questions:
+            if self._question_key(q) == key:
+                return
+        self.selected_questions.append(question_data)
+
+    def _remove_selected_question(self, question_data: dict) -> None:
+        key = self._question_key(question_data)
+        self.selected_questions = [
+            q for q in self.selected_questions if self._question_key(q) != key
+        ]
+
     def _update_count_label(self) -> None:
         if not hasattr(self, "count_label") or self.count_label is None:
             return
@@ -5649,6 +5660,7 @@ class QuestionListCardView(QScrollArea):
         self.accordion_groups = []
 
         self.selected_questions = []  # Track selected question data
+        self.selected_cards = []  # Track selected card widgets for fast deselect
 
         
 
@@ -5687,6 +5699,7 @@ class QuestionListCardView(QScrollArea):
         self.accordion_groups.clear()
 
         self.selected_questions.clear()
+        self.selected_cards.clear()
 
     def _question_key(self, question: dict) -> str:
         qid = question.get("question_id") or question.get("id") or question.get("row_number")
@@ -5713,6 +5726,10 @@ class QuestionListCardView(QScrollArea):
             self.selected_questions = [
                 q for q in self.selected_questions if self._question_key(q) != key
             ]
+            for card in list(self.selected_cards):
+                if self._question_key(getattr(card, "question_data", {})) == key:
+                    self.selected_cards.remove(card)
+                    break
         return removed
 
     
@@ -5822,48 +5839,24 @@ class QuestionListCardView(QScrollArea):
         
 
         # Handle selection
-
         if ctrl_pressed:
-
             # Toggle selection (multi-select)
-
             if clicked_card.is_selected:
-
                 clicked_card.set_selected(False)
-
-                if question_data in self.selected_questions:
-
-                    self.selected_questions.remove(question_data)
-
+                self._remove_selected_question(question_data)
+                self._remove_selected_card(clicked_card)
             else:
-
                 clicked_card.set_selected(True)
-
-                if question_data not in self.selected_questions:
-
-                    self.selected_questions.append(question_data)
-
+                self._add_selected_question(question_data)
+                self._add_selected_card(clicked_card)
         else:
-
-            # Single selection - clear others
-
-            for group in self.accordion_groups:
-
-                for card in group.get_all_cards():
-
-                    if card != clicked_card:
-
-                        card.set_selected(False)
-
-            
-
-            # Clear selection list and add only this one
-
-            self.selected_questions.clear()
-
+            # Single selection - clear only previously selected cards
+            for card in list(self.selected_cards):
+                if card != clicked_card:
+                    card.set_selected(False)
             clicked_card.set_selected(True)
-
-            self.selected_questions.append(question_data)
+            self.selected_cards = [clicked_card]
+            self.selected_questions = [question_data]
 
         
 
