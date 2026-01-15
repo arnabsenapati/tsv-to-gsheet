@@ -30,7 +30,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QSize, QStringListModel, QThread, QObject, Signal
+from PySide6.QtCore import Qt, QTimer, QSize, QStringListModel, QThread, QObject, Signal, QRunnable, QThreadPool
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCursor, QPixmap, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -242,6 +242,30 @@ class EmbeddingWorker(QObject):
         self.finished.emit(done, total, self._stop)
 
 
+class DeleteQuestionTaskSignals(QObject):
+    started = Signal(int, str)
+    finished = Signal(int, str)
+    error = Signal(int, str, str)
+
+
+class DeleteQuestionTask(QRunnable):
+    def __init__(self, db_service: DatabaseService, question_id: int, qno: str):
+        super().__init__()
+        self.db_service = db_service
+        self.question_id = int(question_id)
+        self.qno = qno
+        self.signals = DeleteQuestionTaskSignals()
+
+    def run(self) -> None:
+        self.signals.started.emit(self.question_id, self.qno)
+        try:
+            self.db_service.delete_question(self.question_id)
+        except Exception as exc:
+            self.signals.error.emit(self.question_id, self.qno, str(exc))
+            return
+        self.signals.finished.emit(self.question_id, self.qno)
+
+
 class TSVWatcherWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -299,6 +323,9 @@ class TSVWatcherWindow(QMainWindow):
         self.current_db_path: Path = DEFAULT_DB_PATH
         self.current_subject: str | None = None
         self.use_database: bool = False
+        self.delete_thread_pool = QThreadPool(self)
+        self.delete_thread_pool.setMaxThreadCount(1)
+        self._delete_pending: int = 0
         # Embedding progress tracking
         self.sim_embed_base_done: int = 0
         self.sim_embed_total: int = 0
@@ -5127,6 +5154,39 @@ class TSVWatcherWindow(QMainWindow):
                 suggestions = fields + operators
         self.advanced_query_completer_model.setStringList(suggestions)
 
+    def _prefetch_question_image_counts(self, questions: list[dict]) -> None:
+        if not self.use_database or not self.db_service or not questions:
+            return
+        ids: list[int] = []
+        for q in questions:
+            qid = q.get("question_id") or q.get("id")
+            if isinstance(qid, bool):
+                continue
+            if isinstance(qid, int):
+                ids.append(qid)
+            else:
+                try:
+                    ids.append(int(qid))
+                except (TypeError, ValueError):
+                    continue
+        if not ids:
+            return
+        try:
+            counts_map = self.db_service.get_image_counts_bulk(ids)
+        except Exception:
+            return
+        for q in questions:
+            qid = q.get("question_id") or q.get("id")
+            if isinstance(qid, bool):
+                continue
+            try:
+                qid_int = int(qid)
+            except (TypeError, ValueError):
+                continue
+            counts = counts_map.get(qid_int, {})
+            q["image_counts"] = counts
+            q["has_images"] = bool(counts and any(v > 0 for v in counts.values()))
+
     def _apply_question_search(self, preserve_scroll: bool = False) -> None:
         """Apply advanced query + tag filters and update the question card view."""
         # Save scroll position if requested
@@ -5169,6 +5229,8 @@ class TSVWatcherWindow(QMainWindow):
         
         if not filtered:
             return
+
+        self._prefetch_question_image_counts(filtered)
         
         # Build mapping of question set -> group from QuestionSetGroup.json
         groups = {}
@@ -5219,19 +5281,24 @@ class TSVWatcherWindow(QMainWindow):
         # Populate card view with accordion groups
         if hasattr(self, "question_card_view"):
             total_questions = len(filtered)
-            for group_key in ordered_keys:
-                group_questions = groups.get(group_key, [])
-                if not group_questions:
-                    continue
-                tags = self.question_set_group_tags.get(group_key, [])
-                self.question_card_view.add_group(
-                    group_key,
-                    group_questions,
-                    tags,
-                    self.tag_colors,
-                    show_page_range=False,
-                    enable_delete=True,
-                )
+            self.question_card_view.setUpdatesEnabled(False)
+            try:
+                for group_key in ordered_keys:
+                    group_questions = groups.get(group_key, [])
+                    if not group_questions:
+                        continue
+                    tags = self.question_set_group_tags.get(group_key, [])
+                    self.question_card_view.add_group(
+                        group_key,
+                        group_questions,
+                        tags,
+                        self.tag_colors,
+                        show_page_range=False,
+                        enable_delete=True,
+                    )
+            finally:
+                self.question_card_view.setUpdatesEnabled(True)
+                self.question_card_view.viewport().update()
         
         # Restore scroll position if it was saved
         if scroll_value is not None and hasattr(self, "question_card_view"):
@@ -6379,12 +6446,79 @@ class TSVWatcherWindow(QMainWindow):
         
         QMessageBox.warning(self, "Not Found", f"Question Q{qno} not found in list.")
 
+    def _get_question_id_for_delete(self, question: dict) -> int | None:
+        qid = question.get("question_id") or question.get("row_number") or question.get("id")
+        if qid is None:
+            return None
+        try:
+            return int(qid)
+        except Exception:
+            return None
+
+    def _remove_question_from_state(self, question: dict) -> None:
+        ident = self._get_question_identity(question)
+
+        def _keep(q: dict) -> bool:
+            return self._get_question_identity(q) != ident
+
+        if self.all_questions:
+            self.all_questions = [q for q in self.all_questions if _keep(q)]
+        if self.current_questions:
+            self.current_questions = [q for q in self.current_questions if _keep(q)]
+
+        if self.chapter_questions:
+            for chapter_key, questions in list(self.chapter_questions.items()):
+                updated = [q for q in questions if _keep(q)]
+                if len(updated) != len(questions):
+                    self.chapter_questions[chapter_key] = updated
+                    if hasattr(self, "chapter_view"):
+                        self.chapter_view.update_chapter_count(chapter_key, len(updated))
+
+        qid = self._get_question_id_for_delete(question)
+        if (
+            qid is not None
+            and self.Database_df is not None
+            and not self.Database_df.empty
+            and "QuestionID" in self.Database_df.columns
+        ):
+            try:
+                self.Database_df = self.Database_df[self.Database_df["QuestionID"] != qid]
+            except Exception:
+                pass
+
+    def _queue_question_delete(self, question_id: int, qno: str) -> None:
+        task = DeleteQuestionTask(self.db_service, question_id, qno)
+        task.signals.started.connect(self._on_delete_task_started)
+        task.signals.finished.connect(self._on_delete_task_finished)
+        task.signals.error.connect(self._on_delete_task_error)
+        self._delete_pending += 1
+        self.log(f"Queued delete for Q{qno} (ID {question_id}). Pending: {self._delete_pending}")
+        self.delete_thread_pool.start(task)
+
+    def _on_delete_task_started(self, question_id: int, qno: str) -> None:
+        self.log(f"Deleting Q{qno} (ID {question_id})...")
+
+    def _on_delete_task_finished(self, question_id: int, qno: str) -> None:
+        self._delete_pending = max(0, self._delete_pending - 1)
+        self.log(f"Deleted Q{qno} (ID {question_id}). Pending: {self._delete_pending}")
+        if hasattr(self, "_load_saved_question_lists"):
+            self._load_saved_question_lists()
+
+    def _on_delete_task_error(self, question_id: int, qno: str, error: str) -> None:
+        self._delete_pending = max(0, self._delete_pending - 1)
+        self.log(f"Delete failed for Q{qno} (ID {question_id}): {error}")
+        if self.use_database:
+            self.load_subject_from_db()
+
     def delete_question_from_list(self, question: dict) -> None:
-        """Delete a question from the database and refresh views."""
+        """Remove a question from the UI and queue background deletion."""
         if not question:
             return
-        qid = question.get("question_id") or question.get("row_number") or question.get("id")
-        if not qid:
+        if not self.use_database or not self.db_service:
+            QMessageBox.information(self, "Delete question", "Database is not available.")
+            return
+        qid = self._get_question_id_for_delete(question)
+        if qid is None:
             QMessageBox.information(self, "Delete question", "Question ID not available.")
             return
         qno = question.get("qno") or question.get("question_number") or "?"
@@ -6393,15 +6527,15 @@ class TSVWatcherWindow(QMainWindow):
         prompt = f"Delete question Q{qno} (Page {page}) from the database?\n\n{mag}"
         if QMessageBox.question(self, "Confirm delete", prompt) != QMessageBox.Yes:
             return
-        try:
-            self.db_service.delete_question(int(qid))
-        except Exception as exc:
-            QMessageBox.critical(self, "Delete failed", f"Could not delete question:\n{exc}")
-            return
-        self.log(f"Deleted question Q{qno} (ID {qid}). Reloading data...")
-        self.load_subject_from_db()
-        if hasattr(self, "_load_saved_question_lists"):
-            self._load_saved_question_lists()
+        removed = False
+        if hasattr(self, "question_card_view"):
+            removed = self.question_card_view.remove_question(question)
+        self._remove_question_from_state(question)
+        if removed:
+            self._update_question_selection_count()
+            if hasattr(self, "question_text_view"):
+                self.question_text_view.clear()
+        self._queue_question_delete(qid, str(qno))
     
     def _populate_list_card_view(self, questions: list[dict]) -> None:
         """Populate card view with 2-column grid of question cards from custom list using QuestionCardWithRemoveButton wrapper."""

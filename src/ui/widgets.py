@@ -42,9 +42,10 @@ import json
 import os
 import base64
 import hashlib
+import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer
+from PySide6.QtCore import Qt, QMimeData, Signal, QRect, QPoint, QTimer, QSize, QByteArray, QBuffer, QObject, QThread, Slot
 from PySide6.QtGui import QColor, QDrag, QDragEnterEvent, QDropEvent, QPixmap, QPainter, QFont, QGuiApplication, QPen, QImage, QCursor, QIcon
 from PySide6.QtWidgets import (
     QLabel,
@@ -144,10 +145,213 @@ def _flash_copy_button(button: QPushButton, duration_ms: int = 1500) -> None:
     button.setIcon(_get_check_icon(size))
     QTimer.singleShot(duration_ms, lambda: button.setIcon(original_icon))
 
+
+_DEBUG_CLIPBOARD_IMAGES = os.environ.get("TSV_DEBUG_CLIPBOARD_IMAGES") == "1"
+
+
+def _clipboard_debug(message: str) -> None:
+    if _DEBUG_CLIPBOARD_IMAGES:
+        print(f"[clipboard-images] {message}")
+
+
+def _log_app_message(widget: QWidget, message: str) -> None:
+    if widget is None:
+        _clipboard_debug(message)
+        return
+    try:
+        window = widget.window()
+        if window is not None and hasattr(window, "log"):
+            window.log(message)
+            return
+    except Exception:
+        pass
+    parent = widget
+    while parent:
+        try:
+            if hasattr(parent, "log"):
+                parent.log(message)
+                return
+        except Exception:
+            pass
+        parent = parent.parent() if hasattr(parent, "parent") else None
+    _clipboard_debug(message)
+
+def _combine_images_vertical_worker(images: list[QImage]) -> QImage | None:
+    """Concatenate images vertically, scaling widths to match the widest image."""
+    valid = [img for img in images if img is not None and not img.isNull()]
+    if not valid:
+        return None
+
+    target_width = max(img.width() for img in valid)
+    scaled: list[QImage] = []
+    for img in valid:
+        if img.width() == target_width:
+            scaled.append(img)
+        else:
+            scaled.append(img.scaledToWidth(target_width, Qt.SmoothTransformation))
+
+    total_height = sum(img.height() for img in scaled)
+    combined = QImage(target_width, total_height, QImage.Format_ARGB32)
+    combined.fill(Qt.transparent)
+    painter = QPainter(combined)
+    y = 0
+    for img in scaled:
+        painter.drawImage(0, y, img)
+        y += img.height()
+    painter.end()
+    return combined
+
+
+class ClipboardImageSaveWorker(QObject):
+    preview_ready = Signal(QByteArray, float)
+    finished = Signal(bool, str, float, float, int)
+
+    def __init__(self, images: list[QImage], db_service, question_id: int, kind: str) -> None:
+        super().__init__()
+        self._images = images
+        self._db_service = db_service
+        self._question_id = int(question_id)
+        self._kind = kind
+
+    def run(self) -> None:
+        _clipboard_debug(
+            f"{self.objectName() or 'clipboard-worker'} start: count={len(self._images)} "
+            f"qid={self._question_id} kind={self._kind}"
+        )
+        combine_start = time.perf_counter()
+        try:
+            combined = _combine_images_vertical_worker(self._images)
+            if combined is None:
+                combine_ms = (time.perf_counter() - combine_start) * 1000
+                self.finished.emit(False, "No valid images selected.", combine_ms, 0.0, 0)
+                return
+            buffer = QBuffer()
+            buffer.open(QBuffer.WriteOnly)
+            combined.save(buffer, "PNG")
+            data_array = QByteArray(buffer.data())
+            data = bytes(data_array)
+            combine_ms = (time.perf_counter() - combine_start) * 1000
+            _clipboard_debug(
+                f"{self.objectName() or 'clipboard-worker'} combined {combined.width()}x{combined.height()} "
+                f"bytes={len(data)} in {combine_ms:.1f} ms"
+            )
+            self.preview_ready.emit(data_array, combine_ms)
+        except Exception as exc:
+            _clipboard_debug(f"Clipboard combine failed: {exc}")
+            combine_ms = (time.perf_counter() - combine_start) * 1000
+            self.finished.emit(False, "Failed to process clipboard images.", combine_ms, 0.0, 0)
+            return
+
+        save_start = time.perf_counter()
+        try:
+            _clipboard_debug(
+                f"{self.objectName() or 'clipboard-worker'} saving qid={self._question_id} kind={self._kind}"
+            )
+            self._db_service.add_question_image_bytes(self._question_id, self._kind, data, "image/png")
+        except Exception as exc:
+            _clipboard_debug(f"Clipboard save failed: {exc}")
+            save_ms = (time.perf_counter() - save_start) * 1000
+            self.finished.emit(False, "Could not save clipboard image.", combine_ms, save_ms, len(data))
+            return
+
+        save_ms = (time.perf_counter() - save_start) * 1000
+        _clipboard_debug(
+            f"{self.objectName() or 'clipboard-worker'} saved in {save_ms:.1f} ms"
+        )
+        self.finished.emit(True, "", combine_ms, save_ms, len(data))
+
+
+class ClipboardWorkerProxy(QObject):
+    def __init__(self, callback, preview_callback, name: str) -> None:
+        super().__init__()
+        self._callback = callback
+        self._preview_callback = preview_callback
+        self._name = name
+
+    @Slot(bool, str, float, float, int)
+    def handle_finished(self, success: bool, message: str, combine_ms: float, save_ms: float, bytes_len: int) -> None:
+        _clipboard_debug(
+            f"{self._name} finished: success={success} combine={combine_ms:.1f} ms "
+            f"save={save_ms:.1f} ms bytes={bytes_len} msg={message or 'ok'}"
+        )
+        self._callback(success, message, combine_ms, save_ms, bytes_len)
+
+    @Slot(QByteArray, float)
+    def handle_preview(self, data: QByteArray, combine_ms: float) -> None:
+        _clipboard_debug(f"{self._name} preview ready in {combine_ms:.1f} ms")
+        if self._preview_callback is None:
+            return
+        self._preview_callback(data, combine_ms)
+
+
+def _start_clipboard_image_worker(
+    owner,
+    images: list[QImage],
+    db_service,
+    question_id: int,
+    kind: str,
+    on_finished,
+    on_preview=None,
+) -> None:
+    thread = QThread()
+    thread_name = f"clipboard-image-{int(time.time() * 1000)}"
+    thread.setObjectName(thread_name)
+    worker = ClipboardImageSaveWorker(images, db_service, question_id, kind)
+    worker.setObjectName(f"{thread_name}-worker")
+    proxy = ClipboardWorkerProxy(on_finished, on_preview, thread_name)
+    proxy.setParent(owner)
+    worker.moveToThread(thread)
+    _clipboard_debug(f"{thread_name} created: count={len(images)} qid={question_id} kind={kind}")
+
+    thread.started.connect(lambda: _clipboard_debug(f"{thread_name} started"))
+    thread.started.connect(worker.run)
+    worker.finished.connect(proxy.handle_finished)
+    if on_preview is not None:
+        worker.preview_ready.connect(proxy.handle_preview)
+    worker.finished.connect(thread.quit)
+    worker.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+
+    threads = getattr(owner, "_clipboard_worker_threads", None)
+    if threads is None:
+        threads = []
+        owner._clipboard_worker_threads = threads
+    threads.append(thread)
+
+    workers = getattr(owner, "_clipboard_workers", None)
+    if workers is None:
+        workers = []
+        owner._clipboard_workers = workers
+    workers.append(worker)
+
+    proxies = getattr(owner, "_clipboard_worker_proxies", None)
+    if proxies is None:
+        proxies = []
+        owner._clipboard_worker_proxies = proxies
+    proxies.append(proxy)
+
+    def _cleanup() -> None:
+        try:
+            threads.remove(thread)
+        except ValueError:
+            pass
+        try:
+            workers.remove(worker)
+        except ValueError:
+            pass
+        try:
+            proxies.remove(proxy)
+        except ValueError:
+            pass
+
+    thread.finished.connect(_cleanup)
+    thread.start()
+
+
 class ClipboardImageBuffer:
     """Keep a rolling buffer of recent clipboard images."""
 
-    def __init__(self, max_images: int = 5) -> None:
+    def __init__(self, max_images: int = 10) -> None:
         self.max_images = max_images
         self._items: list[dict] = []
         self._last_hash: str | None = None
@@ -1040,6 +1244,14 @@ class ChapterCardWidget(QWidget):
 
         self._update_style()
 
+    def set_question_count(self, count: int) -> None:
+        """Update the badge count and repaint."""
+        try:
+            self.question_count = max(0, int(count))
+        except Exception:
+            self.question_count = 0
+        self.update()
+
     
 
     def paintEvent(self, event):
@@ -1297,6 +1509,12 @@ class ChapterCardView(QWidget):
         self.chapter_cards.clear()
 
         self.selected_chapter = None
+
+    def update_chapter_count(self, chapter_key: str, question_count: int) -> None:
+        """Update the count badge for a chapter card."""
+        card = self.chapter_cards.get(chapter_key)
+        if card:
+            card.set_question_count(question_count)
 
     
 
@@ -2484,7 +2702,7 @@ class QuestionCardWithRemoveButton(QWidget):
             buttons.addWidget(add_btn)
 
             paste_btn = make_icon_button("paste_from_clipboard.png", "Paste from clipboard")
-            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
+            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh, show_pending))
             buttons.addWidget(paste_btn)
 
             capture_btn = make_icon_button("capture_from_clipboard.png", "Toggle capture from clipboard", checkable=True)
@@ -2589,6 +2807,49 @@ class QuestionCardWithRemoveButton(QWidget):
             content_layout.setContentsMargins(0, 0, 0, 0)
             scroll.setWidget(content)
             layout.addWidget(scroll)
+
+            pending_widgets: list[QWidget] = []
+
+            def _remove_empty_state() -> None:
+                for idx in range(content_layout.count()):
+                    item = content_layout.itemAt(idx)
+                    widget = item.widget()
+                    if isinstance(widget, QLabel) and widget.text() == "No images yet.":
+                        content_layout.takeAt(idx)
+                        widget.deleteLater()
+                        return
+
+            def show_pending(png_data: QByteArray, _combine_ms: float | None = None) -> None:
+                try:
+                    _remove_empty_state()
+                    for w in pending_widgets:
+                        w.deleteLater()
+                    pending_widgets.clear()
+
+                    pixmap = QPixmap()
+                    if not pixmap.loadFromData(png_data):
+                        return
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+
+                    container = QFrame()
+                    container.setStyleSheet(
+                        "padding: 4px; border: 1px dashed #f59e0b; border-radius: 6px;"
+                    )
+                    vbox = QVBoxLayout(container)
+                    vbox.setContentsMargins(6, 6, 6, 6)
+                    vbox.setSpacing(4)
+                    status = QLabel("Saving to database...")
+                    status.setStyleSheet("color: #f59e0b; font-weight: 600;")
+                    img_label = QLabel()
+                    img_label.setPixmap(pixmap)
+                    img_label.setAlignment(Qt.AlignCenter)
+                    vbox.addWidget(status)
+                    vbox.addWidget(img_label)
+                    content_layout.insertWidget(0, container)
+                    pending_widgets.append(container)
+                except RuntimeError:
+                    return
 
             def refresh():
                 while content_layout.count():
@@ -2832,7 +3093,7 @@ class SimilarQuestionCard(QWidget):
             refresh_callback()
         self._update_image_button_state()
 
-    def _paste_image(self, kind: str, refresh_callback=None):
+    def _paste_image(self, kind: str, refresh_callback=None, preview_callback=None):
         """Save an image from clipboard."""
         if not self.question_id or not self.db_service:
             return
@@ -2846,16 +3107,76 @@ class SimilarQuestionCard(QWidget):
         if picker.exec() != QDialog.Accepted:
             return
         selected_images = picker.selected_images
-        combined = self._combine_images_vertical(selected_images)
-        if combined is None:
+        if not selected_images:
             QMessageBox.information(self, "Clipboard images", "No valid images selected.")
             return
-        if not self._save_qimage_to_db(kind, combined):
-            return
 
-        if refresh_callback:
-            refresh_callback()
-        self._update_image_button_state()
+        sender = self.sender()
+        if isinstance(sender, QPushButton):
+            sender.setEnabled(False)
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        _clipboard_debug(f"Start clipboard combine: kind={kind}, count={len(selected_images)}")
+
+        pending_shown = False
+
+        def on_preview(data: QByteArray, combine_ms: float) -> None:
+            nonlocal pending_shown
+            if preview_callback is not None:
+                try:
+                    preview_callback(data, combine_ms)
+                except RuntimeError:
+                    pass
+            pending_shown = True
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+
+        def on_finished(success: bool, message: str, combine_ms: float, save_ms: float, bytes_len: int) -> None:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+            if isinstance(sender, QPushButton):
+                try:
+                    sender.setEnabled(True)
+                except RuntimeError:
+                    pass
+
+            if not success:
+                if message == "No valid images selected.":
+                    QMessageBox.information(self, "Clipboard images", message)
+                else:
+                    QMessageBox.warning(self, "Clipboard images", message or "Unable to process clipboard images.")
+                _clipboard_debug(
+                    f"Clipboard pipeline failed after {combine_ms:.1f} ms: {message} (save {save_ms:.1f} ms)"
+                )
+                _log_app_message(
+                    self,
+                    f"Clipboard {kind} image save failed for Q{self.question_id}: {message}",
+                )
+                if pending_shown and refresh_callback:
+                    try:
+                        refresh_callback()
+                    except RuntimeError:
+                        pass
+                return
+
+            _clipboard_debug(
+                f"Clipboard combine {combine_ms:.1f} ms, save {save_ms:.1f} ms, bytes={bytes_len}"
+            )
+            _log_app_message(
+                self,
+                f"Clipboard {kind} image saved for Q{self.question_id} "
+                f"(combine {combine_ms:.0f} ms, save {save_ms:.0f} ms).",
+            )
+            if refresh_callback:
+                try:
+                    refresh_callback()
+                except RuntimeError:
+                    pass
+            self._update_image_button_state()
+
+        _start_clipboard_image_worker(
+            self, selected_images, self.db_service, self.question_id, kind, on_finished, on_preview
+        )
 
     def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
         """Capture one or more screenshots and save as a single combined image."""
@@ -3378,11 +3699,20 @@ class QuestionCardWidget(QLabel):
 
     def _compute_has_images(self) -> bool:
         """Determine if this question has any images stored."""
+        cached_flag = self.question_data.get("has_images")
+        if cached_flag is not None:
+            return bool(cached_flag)
+        cached_counts = self.question_data.get("image_counts")
+        if isinstance(cached_counts, dict):
+            return bool(cached_counts and any(v > 0 for v in cached_counts.values()))
         if not (self.db_service and self.question_id):
             return False
         try:
             counts = self.db_service.get_image_counts(int(self.question_id))
-            return bool(counts and any(v > 0 for v in counts.values()))
+            has_images = bool(counts and any(v > 0 for v in counts.values()))
+            self.question_data["image_counts"] = counts
+            self.question_data["has_images"] = has_images
+            return has_images
         except Exception:
             return False
 
@@ -3835,7 +4165,7 @@ class QuestionCardWidget(QLabel):
             buttons.addWidget(add_btn)
 
             paste_btn = make_icon_button("paste_from_clipboard.png", "Paste from clipboard")
-            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh))
+            paste_btn.clicked.connect(lambda: self._paste_image(kind, refresh, show_pending))
             buttons.addWidget(paste_btn)
 
             capture_btn = make_icon_button("capture_from_clipboard.png", "Toggle capture from clipboard", checkable=True)
@@ -3939,6 +4269,49 @@ class QuestionCardWidget(QLabel):
             scroll.setWidget(content)
             layout.addWidget(scroll)
 
+            pending_widgets: list[QWidget] = []
+
+            def _remove_empty_state() -> None:
+                for idx in range(content_layout.count()):
+                    item = content_layout.itemAt(idx)
+                    widget = item.widget()
+                    if isinstance(widget, QLabel) and widget.text() == "No images yet.":
+                        content_layout.takeAt(idx)
+                        widget.deleteLater()
+                        return
+
+            def show_pending(png_data: QByteArray, _combine_ms: float | None = None) -> None:
+                try:
+                    _remove_empty_state()
+                    for w in pending_widgets:
+                        w.deleteLater()
+                    pending_widgets.clear()
+
+                    pixmap = QPixmap()
+                    if not pixmap.loadFromData(png_data):
+                        return
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaledToWidth(360, Qt.SmoothTransformation)
+
+                    container = QFrame()
+                    container.setStyleSheet(
+                        "padding: 4px; border: 1px dashed #f59e0b; border-radius: 6px;"
+                    )
+                    vbox = QVBoxLayout(container)
+                    vbox.setContentsMargins(6, 6, 6, 6)
+                    vbox.setSpacing(4)
+                    status = QLabel("Saving to database...")
+                    status.setStyleSheet("color: #f59e0b; font-weight: 600;")
+                    img_label = QLabel()
+                    img_label.setPixmap(pixmap)
+                    img_label.setAlignment(Qt.AlignCenter)
+                    vbox.addWidget(status)
+                    vbox.addWidget(img_label)
+                    content_layout.insertWidget(0, container)
+                    pending_widgets.append(container)
+                except RuntimeError:
+                    return
+
             def refresh():
                 while content_layout.count():
                     item = content_layout.takeAt(0)
@@ -4017,7 +4390,7 @@ class QuestionCardWidget(QLabel):
             refresh_callback()
         self._update_image_button_state()
 
-    def _paste_image(self, kind: str, refresh_callback=None):
+    def _paste_image(self, kind: str, refresh_callback=None, preview_callback=None):
         """Save an image from clipboard."""
         if not self.question_id or not self.db_service:
             return
@@ -4031,16 +4404,76 @@ class QuestionCardWidget(QLabel):
         if picker.exec() != QDialog.Accepted:
             return
         selected_images = picker.selected_images
-        combined = self._combine_images_vertical(selected_images)
-        if combined is None:
+        if not selected_images:
             QMessageBox.information(self, "Clipboard images", "No valid images selected.")
             return
-        if not self._save_qimage_to_db(kind, combined):
-            return
 
-        if refresh_callback:
-            refresh_callback()
-        self._update_image_button_state()
+        sender = self.sender()
+        if isinstance(sender, QPushButton):
+            sender.setEnabled(False)
+
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        _clipboard_debug(f"Start clipboard combine: kind={kind}, count={len(selected_images)}")
+
+        pending_shown = False
+
+        def on_preview(data: QByteArray, combine_ms: float) -> None:
+            nonlocal pending_shown
+            if preview_callback is not None:
+                try:
+                    preview_callback(data, combine_ms)
+                except RuntimeError:
+                    pass
+            pending_shown = True
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+
+        def on_finished(success: bool, message: str, combine_ms: float, save_ms: float, bytes_len: int) -> None:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+            if isinstance(sender, QPushButton):
+                try:
+                    sender.setEnabled(True)
+                except RuntimeError:
+                    pass
+
+            if not success:
+                if message == "No valid images selected.":
+                    QMessageBox.information(self, "Clipboard images", message)
+                else:
+                    QMessageBox.warning(self, "Clipboard images", message or "Unable to process clipboard images.")
+                _clipboard_debug(
+                    f"Clipboard pipeline failed after {combine_ms:.1f} ms: {message} (save {save_ms:.1f} ms)"
+                )
+                _log_app_message(
+                    self,
+                    f"Clipboard {kind} image save failed for Q{self.question_id}: {message}",
+                )
+                if pending_shown and refresh_callback:
+                    try:
+                        refresh_callback()
+                    except RuntimeError:
+                        pass
+                return
+
+            _clipboard_debug(
+                f"Clipboard combine {combine_ms:.1f} ms, save {save_ms:.1f} ms, bytes={bytes_len}"
+            )
+            _log_app_message(
+                self,
+                f"Clipboard {kind} image saved for Q{self.question_id} "
+                f"(combine {combine_ms:.0f} ms, save {save_ms:.0f} ms).",
+            )
+            if refresh_callback:
+                try:
+                    refresh_callback()
+                except RuntimeError:
+                    pass
+            self._update_image_button_state()
+
+        _start_clipboard_image_worker(
+            self, selected_images, self.db_service, self.question_id, kind, on_finished, on_preview
+        )
 
     def _start_screen_capture(self, kind: str, refresh_callback=None) -> None:
         """Capture one or more screenshots and save as a single combined image."""
@@ -4894,9 +5327,9 @@ class QuestionAccordionGroup(QWidget):
 
             count_text += f" | {page_range}"
 
-        count_label = QLabel(count_text)
+        self.count_label = QLabel(count_text)
 
-        count_label.setStyleSheet("""
+        self.count_label.setStyleSheet("""
 
             QLabel {
 
@@ -4918,7 +5351,7 @@ class QuestionAccordionGroup(QWidget):
 
         """)
 
-        header_layout.addWidget(count_label)
+        header_layout.addWidget(self.count_label)
 
         # Make entire header clickable
 
@@ -4973,6 +5406,67 @@ class QuestionAccordionGroup(QWidget):
             return f"p{_fmt(min_p)}"
 
         return f"p{_fmt(min_p)}-{_fmt(max_p)}"
+
+    def _question_key(self, question: dict) -> str:
+        qid = question.get("question_id") or question.get("id") or question.get("row_number")
+        if qid is not None:
+            return f"id:{qid}"
+        qno = question.get("qno", question.get("question_no", ""))
+        qset = question.get("question_set_name", question.get("question_set", ""))
+        mag = question.get("magazine", "")
+        return f"sig:{qno}|{qset}|{mag}"
+
+    def _update_count_label(self) -> None:
+        if not hasattr(self, "count_label") or self.count_label is None:
+            return
+        page_range = self._compute_page_range() if self.show_page_range else ""
+        count_text = f"{len(self.questions)} q"
+        if page_range:
+            count_text += f" | {page_range}"
+        self.count_label.setText(count_text)
+
+    def _remove_card_widget(self, card: QWidget) -> None:
+        for row_idx in range(self.content_layout.count()):
+            row_item = self.content_layout.itemAt(row_idx)
+            row_layout = row_item.layout() if row_item else None
+            if not row_layout:
+                continue
+            for item_idx in range(row_layout.count()):
+                item = row_layout.itemAt(item_idx)
+                if item and item.widget() is card:
+                    row_layout.takeAt(item_idx)
+                    card.setParent(None)
+                    card.deleteLater()
+                    has_widget = any(
+                        row_layout.itemAt(k).widget()
+                        for k in range(row_layout.count())
+                    )
+                    if not has_widget:
+                        self.content_layout.takeAt(row_idx)
+                        row_layout.deleteLater()
+                    return
+
+    def remove_question(self, question_data: dict) -> bool:
+        """Remove a question card from this group."""
+        key = self._question_key(question_data)
+        idx = None
+        for i, q in enumerate(self.questions):
+            if self._question_key(q) == key:
+                idx = i
+                break
+        if idx is None:
+            return False
+        self.questions.pop(idx)
+        target_card = None
+        for card in self.question_cards:
+            if self._question_key(card.question_data) == key:
+                target_card = card
+                break
+        if target_card:
+            self.question_cards.remove(target_card)
+            self._remove_card_widget(target_card)
+        self._update_count_label()
+        return True
 
     
 
@@ -5193,6 +5687,33 @@ class QuestionListCardView(QScrollArea):
         self.accordion_groups.clear()
 
         self.selected_questions.clear()
+
+    def _question_key(self, question: dict) -> str:
+        qid = question.get("question_id") or question.get("id") or question.get("row_number")
+        if qid is not None:
+            return f"id:{qid}"
+        qno = question.get("qno", question.get("question_no", ""))
+        qset = question.get("question_set_name", question.get("question_set", ""))
+        mag = question.get("magazine", "")
+        return f"sig:{qno}|{qset}|{mag}"
+
+    def remove_question(self, question_data: dict) -> bool:
+        """Remove a question card from the view."""
+        key = self._question_key(question_data)
+        removed = False
+        for group in list(self.accordion_groups):
+            if group.remove_question(question_data):
+                removed = True
+                if not group.questions:
+                    self.container_layout.removeWidget(group)
+                    self.accordion_groups.remove(group)
+                    group.deleteLater()
+                break
+        if removed:
+            self.selected_questions = [
+                q for q in self.selected_questions if self._question_key(q) != key
+            ]
+        return removed
 
     
 

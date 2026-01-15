@@ -23,11 +23,13 @@ class DatabaseService:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
         self._unique_values_cache: Dict[Tuple[str, ...], Dict[str, List[str]]] = {}
+        self._image_counts_cache: Dict[int, Dict[str, int]] = {}
         self.ensure_question_embeddings_table()
 
     def set_db_path(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
         self._unique_values_cache = {}
+        self._image_counts_cache = {}
         self.ensure_question_embeddings_table()
 
     def ensure_question_embeddings_table(self) -> None:
@@ -714,6 +716,10 @@ class DatabaseService:
                 """,
                 (question_id, kind, mime_type, sqlite3.Binary(data)),
             )
+            try:
+                self._image_counts_cache.pop(int(question_id), None)
+            except Exception:
+                pass
             return cur.lastrowid or 0
 
     def add_question_image_bytes(self, question_id: int, kind: str, data: bytes, mime_type: str = "application/octet-stream") -> int:
@@ -727,16 +733,62 @@ class DatabaseService:
                 """,
                 (question_id, kind, mime_type, sqlite3.Binary(data)),
             )
+            try:
+                self._image_counts_cache.pop(int(question_id), None)
+            except Exception:
+                pass
             return cur.lastrowid or 0
+
+    def get_image_counts_bulk(self, question_ids: List[int]) -> Dict[int, Dict[str, int]]:
+        """Return image counts grouped by kind for multiple questions."""
+        if not question_ids:
+            return {}
+        ids: List[int] = []
+        for qid in question_ids:
+            if isinstance(qid, bool):
+                continue
+            try:
+                ids.append(int(qid))
+            except (TypeError, ValueError):
+                continue
+        if not ids:
+            return {}
+        unique_ids = sorted(set(ids))
+        results: Dict[int, Dict[str, int]] = {qid: {} for qid in unique_ids}
+        with self._connect() as conn:
+            chunk_size = 900
+            for start in range(0, len(unique_ids), chunk_size):
+                chunk = unique_ids[start : start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = conn.execute(
+                    f"""
+                    SELECT question_id, kind, COUNT(*) as cnt
+                    FROM images
+                    WHERE question_id IN ({placeholders})
+                    GROUP BY question_id, kind
+                    """,
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    qid = int(row["question_id"])
+                    results.setdefault(qid, {})[row["kind"]] = int(row["cnt"])
+        self._image_counts_cache.update(results)
+        return results
 
     def get_image_counts(self, question_id: int) -> Dict[str, int]:
         """Return a dict of image counts grouped by kind for a question."""
+        qid = int(question_id)
+        cached = self._image_counts_cache.get(qid)
+        if cached is not None:
+            return dict(cached)
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT kind, COUNT(*) as cnt FROM images WHERE question_id = ? GROUP BY kind",
-                (question_id,),
+                (qid,),
             ).fetchall()
-        return {row["kind"]: int(row["cnt"]) for row in rows}
+        result = {row["kind"]: int(row["cnt"]) for row in rows}
+        self._image_counts_cache[qid] = dict(result)
+        return result
 
     def get_images(self, question_id: int, kind: str) -> List[Dict[str, Any]]:
         """Return images for a question/kind."""
@@ -779,7 +831,12 @@ class DatabaseService:
                     "DELETE FROM images WHERE question_id = ?",
                     (question_id,),
                 )
-            return cur.rowcount or 0
+            deleted = cur.rowcount or 0
+        try:
+            self._image_counts_cache.pop(int(question_id), None)
+        except Exception:
+            pass
+        return deleted
 
     # ------------------------------------------------------------------
     # Question updates
@@ -999,6 +1056,10 @@ class DatabaseService:
         with self._connect() as conn:
             conn.execute("DELETE FROM question_embeddings WHERE question_id = ?", (question_id,))
             conn.execute("DELETE FROM questions WHERE id = ?", (question_id,))
+        try:
+            self._image_counts_cache.pop(int(question_id), None)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Exams (.cqt import)
