@@ -2435,10 +2435,16 @@ class QuestionCardWithRemoveButton(QWidget):
         card_top = self.card.geometry().top() if hasattr(self, "card") else 0
         self.compare_btn.move(self.width() - 32, card_top + 4)
 
-    def set_comparison_mode(self, enabled: bool, matched_question: dict | None = None) -> None:
+    def set_comparison_mode(
+        self,
+        enabled: bool,
+        matched_question: dict | None = None,
+        matched_questions: list[tuple[float, dict]] | None = None,
+    ) -> None:
         """Enable comparison-only controls for list comparison mode."""
         self.comparison_mode = bool(enabled)
         self.comparison_match = matched_question
+        self.comparison_matches = list(matched_questions or [])
         self._update_compare_button_state()
         if not self.comparison_mode:
             self.compare_btn.setVisible(False)
@@ -2456,9 +2462,12 @@ class QuestionCardWithRemoveButton(QWidget):
             self.compare_btn.setToolTip("Compare images")
 
     def _get_comparison_match_id(self) -> int | None:
-        if not self.comparison_match:
+        match = self.comparison_match
+        if not match and self.comparison_matches:
+            match = self.comparison_matches[0][1]
+        if not match:
             return None
-        match_id = self.comparison_match.get("question_id") or self.comparison_match.get("row_number")
+        match_id = match.get("question_id") or match.get("row_number")
         try:
             return int(match_id)
         except Exception:
@@ -2490,8 +2499,10 @@ class QuestionCardWithRemoveButton(QWidget):
         if not self.db_service or not self.question_id:
             QMessageBox.information(self, "Compare images", "Question ID or database is not available.")
             return
-        match_id = self._get_comparison_match_id()
-        if match_id is None:
+        matches = list(self.comparison_matches or [])
+        if not matches and self.comparison_match:
+            matches = [(1.0, self.comparison_match)]
+        if not matches:
             QMessageBox.information(self, "Compare images", "No matched question available for comparison.")
             return
 
@@ -2504,38 +2515,23 @@ class QuestionCardWithRemoveButton(QWidget):
         layout.setSpacing(8)
 
         left = self._build_comparison_column("Current question", int(self.question_id), self.question_data)
-        right = self._build_comparison_column("Matched question", match_id, self.comparison_match or {})
+        right = self._build_comparison_matches_column("Top matches", matches)
         layout.addWidget(left)
         layout.addWidget(right)
 
         dialog.exec()
 
-    def _build_comparison_column(self, title: str, question_id: int, question_data: dict) -> QScrollArea:
-        """Build a scrollable column with question/answer images."""
-        container = QWidget()
-        vbox = QVBoxLayout(container)
-        vbox.setContentsMargins(8, 8, 8, 8)
-        vbox.setSpacing(6)
-        vbox.setAlignment(Qt.AlignTop)
-
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: 700; color: #0f172a;")
-        vbox.addWidget(title_label)
-
-        meta_label = QLabel(self._format_comparison_meta(question_data))
-        meta_label.setStyleSheet("color: #475569; font-size: 11px;")
-        vbox.addWidget(meta_label)
-
-        for kind, label in (("question", "Question images"), ("answer", "Answer images")):
+    def _add_comparison_images(self, vbox: QVBoxLayout, question_id: int) -> None:
+        for kind, label in (("question", "Question images"),):
             section = QLabel(label)
-            section.setStyleSheet("margin-top: 6px; font-weight: 600; color: #1e293b;")
+            section.setStyleSheet("margin-top: 6px; font-weight: 600; color: #cbd5e1;")
             vbox.addWidget(section)
 
             try:
                 images = self.db_service.get_images(int(question_id), kind)
             except Exception as exc:
                 err = QLabel(f"Failed to load images: {exc}")
-                err.setStyleSheet("color: #dc2626;")
+                err.setStyleSheet("color: #f87171;")
                 vbox.addWidget(err)
                 continue
 
@@ -2554,6 +2550,65 @@ class QuestionCardWithRemoveButton(QWidget):
                 lbl.setPixmap(pixmap)
                 lbl.setStyleSheet("padding: 4px; border: 1px solid #e2e8f0; border-radius: 6px;")
                 vbox.addWidget(lbl)
+
+    def _build_comparison_column(self, title: str, question_id: int, question_data: dict) -> QScrollArea:
+        """Build a scrollable column with question/answer images."""
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(6)
+        vbox.setAlignment(Qt.AlignTop)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: 700; color: #e2e8f0;")
+        vbox.addWidget(title_label)
+
+        meta_label = QLabel(self._format_comparison_meta(question_data))
+        meta_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        vbox.addWidget(meta_label)
+
+        self._add_comparison_images(vbox, int(question_id))
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(container)
+        return scroll
+
+    def _build_comparison_matches_column(
+        self, title: str, matches: list[tuple[float, dict]]
+    ) -> QScrollArea:
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(8, 8, 8, 8)
+        vbox.setSpacing(6)
+        vbox.setAlignment(Qt.AlignTop)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: 700; color: #e2e8f0;")
+        vbox.addWidget(title_label)
+
+        if not matches:
+            empty = QLabel("No matches.")
+            empty.setStyleSheet("color: #94a3b8;")
+            vbox.addWidget(empty)
+        else:
+            for idx, (score, question) in enumerate(matches, start=1):
+                heading = QLabel(f"Match {idx} ({score * 100:.1f}%)")
+                heading.setStyleSheet("margin-top: 6px; font-weight: 600; color: #38bdf8;")
+                vbox.addWidget(heading)
+
+                meta_label = QLabel(self._format_comparison_meta(question))
+                meta_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+                vbox.addWidget(meta_label)
+
+                match_id = question.get("question_id") or question.get("row_number")
+                if match_id is None:
+                    missing = QLabel("Missing question ID.")
+                    missing.setStyleSheet("color: #f87171;")
+                    vbox.addWidget(missing)
+                    continue
+                self._add_comparison_images(vbox, int(match_id))
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

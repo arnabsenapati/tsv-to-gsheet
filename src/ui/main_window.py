@@ -333,6 +333,8 @@ class TSVWatcherWindow(QMainWindow):
         # Custom list search variables
         self.list_question_set_search_term: str = ""
         self.comparison_target: str | None = None  # List name selected for comparison
+        self.comparison_top_n: int = 3  # Top matches to show in compare view
+        self.comparison_top_matches: dict[str, list[tuple[float, dict]]] = {}
         self.comparison_common_ids: set[str] = set()
         self.comparison_similarity: dict[str, tuple[float, dict]] = {}  # identity -> (max similarity, matched question)
         
@@ -1196,7 +1198,17 @@ class TSVWatcherWindow(QMainWindow):
         """)
         self.compare_list_combo.currentIndexChanged.connect(self.on_compare_list_changed)
         compare_layout.addWidget(self.compare_list_combo, 1)
-        
+
+        top_label = QLabel("Top:")
+        top_label.setStyleSheet("color: #475569; font-weight: 600;")
+        compare_layout.addWidget(top_label)
+        self.compare_top_n_spin = QSpinBox()
+        self.compare_top_n_spin.setRange(1, 5)
+        self.compare_top_n_spin.setValue(self.comparison_top_n)
+        self.compare_top_n_spin.setFixedWidth(52)
+        self.compare_top_n_spin.valueChanged.connect(self.on_compare_top_n_changed)
+        compare_layout.addWidget(self.compare_top_n_spin)
+
         self.compare_status_label = QLabel("Select another list to highlight common questions.")
         self.compare_status_label.setWordWrap(True)
         self.compare_status_label.setStyleSheet(
@@ -6433,11 +6445,32 @@ class TSVWatcherWindow(QMainWindow):
             return
         
         # Find and remove the question by qno
-        qno = question.get('qno')
+        qno = question.get("qno")
+        qid = question.get("question_id") or question.get("row_number")
         questions = self.question_lists[self.current_list_name]
+        try:
+            self.log(
+                f"[ListDeleteDebug] Request list='{self.current_list_name}' qno='{qno}' qid='{qid}' total={len(questions)}"
+            )
+        except Exception:
+            pass
+
+        matches = [idx for idx, q in enumerate(questions) if q.get("qno") == qno]
+        if len(matches) > 1:
+            try:
+                ids = [questions[i].get("question_id") or questions[i].get("row_number") for i in matches]
+                self.log(f"[ListDeleteDebug] Multiple qno matches: qno='{qno}' idx={matches} ids={ids}")
+            except Exception:
+                pass
         
         for idx, q in enumerate(questions):
             if q.get('qno') == qno:
+                try:
+                    self.log(
+                        f"[ListDeleteDebug] Deleting idx={idx} qno='{qno}' qid='{q.get('question_id') or q.get('row_number')}'"
+                    )
+                except Exception:
+                    pass
                 del questions[idx]
                 self._save_question_list(self.current_list_name)
                 self.on_saved_list_selected()  # Refresh display
@@ -6576,11 +6609,6 @@ class TSVWatcherWindow(QMainWindow):
                         question["group_tags"] = tags
                         colors = {t: self.tag_service.get_or_assign_tag_color(t) for t in tags}
                         question["group_tag_colors"] = colors
-                        if hasattr(self, "log"):
-                            try:
-                                self.log(f"[TagsDebug] CustomList: {group_name} tags={tags}")
-                            except Exception:
-                                pass
             card_wrapper = QuestionCardWithRemoveButton(question, self)
             card_wrapper.set_list_position(idx)
             card_wrapper.clicked.connect(lambda q=question, w=card_wrapper: self.on_list_question_card_selected(q, w))
@@ -6590,13 +6618,14 @@ class TSVWatcherWindow(QMainWindow):
             self._list_card_wrappers.append(card_wrapper)
 
             match = self._get_comparison_match(question)
+            matches = self._get_comparison_matches(question)
             compare_mode = bool(self.comparison_target)
             if match is not None:
                 score, matched_q = match
-                card_wrapper.set_comparison_mode(compare_mode, matched_q)
+                card_wrapper.set_comparison_mode(compare_mode, matched_q, matches)
                 self._mark_card_similarity(card_wrapper, score, matched_q)
             else:
-                card_wrapper.set_comparison_mode(compare_mode, None)
+                card_wrapper.set_comparison_mode(compare_mode, None, matches)
 
             row = idx // 2
             col = idx % 2
@@ -6671,6 +6700,9 @@ class TSVWatcherWindow(QMainWindow):
         for name in sorted(self.question_lists.keys()):
             if name == current_list:
                 continue
+            meta = self.question_lists_metadata.get(name, {}) if hasattr(self, "question_lists_metadata") else {}
+            if bool(meta.get("archived")):
+                continue
             self.compare_list_combo.addItem(name, name)
         
         # Restore previous target if still valid
@@ -6697,11 +6729,21 @@ class TSVWatcherWindow(QMainWindow):
         
         self.comparison_target = self.compare_list_combo.itemData(index)
         self._update_comparison_results()
+
+    def on_compare_top_n_changed(self, value: int) -> None:
+        """Handle change in number of top matches shown."""
+        try:
+            self.comparison_top_n = int(value)
+        except Exception:
+            self.comparison_top_n = 3
+        if self.comparison_target:
+            self._update_comparison_results()
     
     def _update_comparison_results(self) -> None:
         """Compute and highlight questions common with the comparison list."""
         self.comparison_common_ids.clear()
         self.comparison_similarity = {}
+        self.comparison_top_matches = {}
 
         if (
             not self.current_list_name
@@ -6770,8 +6812,9 @@ class TSVWatcherWindow(QMainWindow):
             self._apply_list_search()
             return
 
-        # Compute max similarity for each base question
+        # Compute top similarity for each base question
         self.comparison_similarity = {}
+        top_n = max(1, int(self.comparison_top_n or 1))
         target_ids = list(target_vecs.keys())
         target_matrix = np.stack([target_vecs[i] for i in target_ids], axis=0)
 
@@ -6783,12 +6826,24 @@ class TSVWatcherWindow(QMainWindow):
             scores = base_norm @ target_matrix.T
             if not scores.size:
                 continue
-            best_idx = int(np.argmax(scores))
-            max_score = float(scores[best_idx])
-            if max_score >= 0.5:  # only keep if at least moderate similarity
-                best_target_id = target_ids[best_idx]
-                matched_question = target_map.get(best_target_id, {})
-                self.comparison_similarity[ident] = (max_score, matched_question)
+            if scores.size <= top_n:
+                top_idx = np.argsort(scores)[::-1]
+            else:
+                top_idx = np.argpartition(scores, -top_n)[-top_n:]
+                top_idx = top_idx[np.argsort(scores[top_idx])[::-1]]
+
+            matches: list[tuple[float, dict]] = []
+            for idx in top_idx:
+                score = float(scores[int(idx)])
+                if score < 0.5:
+                    continue
+                target_id = target_ids[int(idx)]
+                matched_question = target_map.get(target_id, {})
+                matches.append((score, matched_question))
+
+            if matches:
+                self.comparison_top_matches[ident] = matches
+                self.comparison_similarity[ident] = matches[0]
 
         count_sim = len(self.comparison_similarity)
         if count_sim == 0:
@@ -6817,6 +6872,13 @@ class TSVWatcherWindow(QMainWindow):
             return None
         ident = self._get_question_identity(question)
         return self.comparison_similarity.get(ident)
+
+    def _get_comparison_matches(self, question: dict) -> list[tuple[float, dict]]:
+        """Return top matches for current comparison target if available."""
+        if not self.comparison_top_matches:
+            return []
+        ident = self._get_question_identity(question)
+        return self.comparison_top_matches.get(ident, [])
 
     def _similarity_color(self, score: float) -> str:
         """Map score in [0.5,1.0] to a gradient from yellow (50%) to red (100%)."""
