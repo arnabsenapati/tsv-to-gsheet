@@ -2358,6 +2358,11 @@ class QuestionCardWithRemoveButton(QWidget):
         self.compare_btn.raise_()
         self._update_image_button_state()
 
+    def set_list_position(self, position: int | None) -> None:
+        """Set custom list position badge for this card."""
+        if hasattr(self, "card") and hasattr(self.card, "set_list_position"):
+            self.card.set_list_position(position)
+
     def enterEvent(self, event):
 
         """Show remove button in top-right corner on hover."""
@@ -3568,11 +3573,23 @@ class QuestionCardWidget(QLabel):
         self.is_selected = False
         self.original_stylesheet = ""
         self.is_custom_list_card = False  # Flag set by wrapper when used in custom list view
+        self.list_position = None  # Custom list position (0-based)
         self.has_images = False  # Tracks whether this question has any images
         self.show_delete_button = False
 
         # Enable drag
         self.setAcceptDrops(False)  # Cards don't accept drops
+
+        # Custom list position badge (top-left, always visible)
+        self.list_position_badge = QLabel(self)
+        self.list_position_badge.setFixedSize(24, 24)
+        self.list_position_badge.setAlignment(Qt.AlignCenter)
+        self.list_position_badge.setStyleSheet(
+            "background-color: #2563eb; color: #f8fafc; border-radius: 12px; "
+            "font-size: 11px; font-weight: 700; padding: 0px; margin: 0px; border: none;"
+        )
+        self.list_position_badge.setVisible(False)
+        self.list_position_badge.raise_()
 
         # Build card HTML
         self.has_images = self._compute_has_images()
@@ -3781,6 +3798,11 @@ class QuestionCardWidget(QLabel):
 
         
 
+        badge_visible = self._should_show_list_badge()
+        header_style = "margin-bottom: 8px;"
+        if badge_visible:
+            header_style = "margin-bottom: 8px; padding-left: 30px;"
+
         # Add checkmark if selected
         selection_icon = ""
         if self.is_selected:
@@ -3796,7 +3818,7 @@ class QuestionCardWidget(QLabel):
 
         <div style="line-height: 1.4;">
 
-            <div style="margin-bottom: 8px;">
+            <div style="{header_style}">
 
                 {selection_icon}<span style="color: #1e40af; font-size: 16px; font-weight: bold;">{qno}</span>
 
@@ -3831,6 +3853,21 @@ class QuestionCardWidget(QLabel):
         
 
         self.setText(html)
+        self._update_list_badge()
+
+    def set_list_position(self, position: int | None) -> None:
+        """Set custom list position (0-based) for badge display."""
+        if position is None:
+            pos_value = None
+        else:
+            try:
+                pos_value = int(position)
+            except Exception:
+                pos_value = None
+        if pos_value == self.list_position:
+            return
+        self.list_position = pos_value
+        self._build_card()
 
     
 
@@ -3914,6 +3951,7 @@ class QuestionCardWidget(QLabel):
         """Keep hover buttons anchored top-right on resize."""
         super().resizeEvent(event)
         self._position_top_buttons()
+        self._position_list_badge()
 
     def _position_top_buttons(self):
         if self.show_delete_button:
@@ -3923,6 +3961,32 @@ class QuestionCardWidget(QLabel):
         else:
             self.image_btn.move(self.width() - 32, 4)
             self.edit_btn.move(self.width() - 64, 4)
+
+    def _position_list_badge(self) -> None:
+        if not self.list_position_badge.isVisible():
+            return
+        self.list_position_badge.move(6, 6)
+        self.list_position_badge.raise_()
+
+    def _should_show_list_badge(self) -> bool:
+        return self.is_custom_list_card and self.list_position is not None
+
+    def _update_list_badge(self) -> None:
+        if not hasattr(self, "list_position_badge"):
+            return
+        if self._should_show_list_badge():
+            try:
+                display_value = int(self.list_position) + 1
+            except Exception:
+                display_value = None
+            if display_value is None:
+                self.list_position_badge.setVisible(False)
+                return
+            self.list_position_badge.setText(str(display_value))
+            self.list_position_badge.setVisible(True)
+            self._position_list_badge()
+        else:
+            self.list_position_badge.setVisible(False)
 
     def set_delete_enabled(self, enabled: bool) -> None:
         """Enable or disable delete button for this card."""

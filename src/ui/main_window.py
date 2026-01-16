@@ -6582,6 +6582,7 @@ class TSVWatcherWindow(QMainWindow):
                             except Exception:
                                 pass
             card_wrapper = QuestionCardWithRemoveButton(question, self)
+            card_wrapper.set_list_position(idx)
             card_wrapper.clicked.connect(lambda q=question, w=card_wrapper: self.on_list_question_card_selected(q, w))
             card_wrapper.remove_requested.connect(lambda q=question: self._remove_question_from_list(q))
             card_wrapper.find_similar_requested.connect(lambda q=question: self._open_similarity_from_question(q))
