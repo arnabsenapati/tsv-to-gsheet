@@ -1180,6 +1180,7 @@ class DatabaseService:
         answered_cnt = 0
         correct_cnt = 0
         wrong_cnt = 0
+        score_sum = 0
         question_rows: List[Tuple] = []
 
         for idx, q in enumerate(questions):
@@ -1196,7 +1197,13 @@ class DatabaseService:
                     correct_cnt += 1
                 elif is_ans:
                     wrong_cnt += 1
-            q_score = 4 if is_correct else (-1 if evaluated and is_ans and not is_correct else 0)
+            if is_correct:
+                q_score = 4
+            elif evaluated and is_ans:
+                q_score = 0 if qtype == "numerical" else -1
+            else:
+                q_score = 0
+            score_sum += q_score
             correct_opts = q.get("correct_options", [])
             numerical_answer = q.get("numerical_answer")
             qid = q.get("question_id")
@@ -1213,8 +1220,8 @@ class DatabaseService:
                 )
             )
 
-        score = correct_cnt * 4 - wrong_cnt
-        percent = (correct_cnt * 4 / (total * 4)) * 100 if total else 0.0
+        score = score_sum
+        percent = (score / (total * 4)) * 100 if total else 0.0
         imported_at = datetime.utcnow().isoformat() + "Z"
 
         exam_id = None
@@ -1345,8 +1352,28 @@ class DatabaseService:
         self.snapshot_database(f"Exam {exam_id} eval override q{q_index} -> {status}")
         correct = 1 if status == "correct" else 0
         answered = 0 if status == "unanswered" else 1
-        score = 4 if status == "correct" else (-1 if status == "incorrect" else 0)
         with self._connect() as conn:
+            qtype = "mcq_single"
+            row = conn.execute(
+                """
+                SELECT question_json
+                FROM exam_questions
+                WHERE exam_id = ? AND q_index = ?
+                """,
+                (exam_id, q_index),
+            ).fetchone()
+            if row and row["question_json"]:
+                try:
+                    qdata = json.loads(row["question_json"])
+                    qtype = qdata.get("question_type", "mcq_single") or "mcq_single"
+                except Exception:
+                    qtype = "mcq_single"
+            if status == "correct":
+                score = 4
+            elif status == "incorrect":
+                score = 0 if qtype == "numerical" else -1
+            else:
+                score = 0
             conn.execute(
                 """
                 UPDATE exam_questions
@@ -1382,6 +1409,150 @@ class DatabaseService:
                 """,
                 (correct_cnt, answered_cnt, wrong_cnt, score_sum, percent, evaluated_at, exam_id),
             )
+        return {
+            "correct": correct_cnt,
+            "answered": answered_cnt,
+            "wrong": wrong_cnt,
+            "score": score_sum,
+            "percent": percent,
+            "evaluated_at": evaluated_at,
+        }
+
+    def rescore_exam(self, exam_id: int) -> Dict[str, Any]:
+        """Recalculate exam scores using current scoring rules."""
+        self._ensure_exam_tables()
+        self.snapshot_database(f"Rescore exam {exam_id}")
+
+        def _extract_answer(resp: Any) -> Any:
+            if isinstance(resp, dict):
+                return resp.get("answer")
+            return resp
+
+        def _normalize_mcq_response(resp_val: Any) -> list[str]:
+            if resp_val is None:
+                return []
+            if isinstance(resp_val, str):
+                text = resp_val.strip()
+                if not text:
+                    return []
+                if "," in text:
+                    return [part.strip() for part in text.split(",") if part.strip()]
+                return [text]
+            if isinstance(resp_val, (list, tuple, set)):
+                items: list[str] = []
+                for item in resp_val:
+                    text = str(item).strip()
+                    if text:
+                        items.append(text)
+                return items
+            return []
+
+        def _normalize_numerical_response(resp_val: Any) -> str:
+            if resp_val is None:
+                return ""
+            if isinstance(resp_val, (int, float)):
+                return str(resp_val).strip()
+            return str(resp_val).strip()
+
+        def _answered(qtype: str, resp_val: Any) -> bool:
+            if qtype == "numerical":
+                return bool(_normalize_numerical_response(resp_val))
+            return bool(_normalize_mcq_response(resp_val))
+
+        def _is_correct(q: Dict[str, Any], resp_val: Any) -> bool:
+            qtype = q.get("question_type", "mcq_single") or "mcq_single"
+            if qtype == "numerical":
+                answer_val = str(q.get("numerical_answer", "")).strip()
+                sel_val = _normalize_numerical_response(resp_val)
+                return bool(answer_val) and sel_val == answer_val
+            sel_list = _normalize_mcq_response(resp_val)
+            correct_opts_raw = q.get("correct_options", []) or []
+            if isinstance(correct_opts_raw, str):
+                correct_opts = [correct_opts_raw]
+            else:
+                correct_opts = [str(opt).strip() for opt in correct_opts_raw if str(opt).strip()]
+            return bool(correct_opts) and set(sel_list) == set(correct_opts)
+
+        with self._connect() as conn:
+            exam_row = conn.execute("SELECT evaluated, evaluated_at FROM exams WHERE id = ?", (exam_id,)).fetchone()
+            if not exam_row:
+                raise ValueError("Exam not found.")
+            evaluated = bool(exam_row["evaluated"])
+            rows = conn.execute(
+                """
+                SELECT id, q_index, question_json, response_json, eval_status
+                FROM exam_questions
+                WHERE exam_id = ?
+                ORDER BY q_index
+                """,
+                (exam_id,),
+            ).fetchall()
+
+            answered_cnt = 0
+            correct_cnt = 0
+            wrong_cnt = 0
+            score_sum = 0
+
+            for row in rows:
+                q = {}
+                resp = None
+                if row["question_json"]:
+                    try:
+                        q = json.loads(row["question_json"])
+                    except Exception:
+                        q = {}
+                if row["response_json"]:
+                    try:
+                        resp = json.loads(row["response_json"])
+                    except Exception:
+                        resp = None
+                qtype = q.get("question_type", "mcq_single") or "mcq_single"
+                resp_val = _extract_answer(resp)
+                is_ans = _answered(qtype, resp_val)
+                is_correct = _is_correct(q, resp_val) if evaluated else False
+
+                status = (row["eval_status"] or "").lower()
+                if status in ("correct", "incorrect", "unanswered"):
+                    is_correct = status == "correct"
+                    is_ans = status != "unanswered"
+
+                if is_ans:
+                    answered_cnt += 1
+                if evaluated:
+                    if is_correct:
+                        correct_cnt += 1
+                    elif is_ans:
+                        wrong_cnt += 1
+
+                if is_correct:
+                    q_score = 4
+                elif evaluated and is_ans:
+                    q_score = 0 if qtype == "numerical" else -1
+                else:
+                    q_score = 0
+                score_sum += q_score
+
+                conn.execute(
+                    """
+                    UPDATE exam_questions
+                    SET correct = ?, answered = ?, score = ?
+                    WHERE id = ?
+                    """,
+                    (1 if is_correct else 0, 1 if is_ans else 0, q_score, row["id"]),
+                )
+
+            total = len(rows)
+            percent = (score_sum / (total * 4)) * 100 if total else 0.0
+            evaluated_at = datetime.utcnow().isoformat() + "Z" if evaluated else exam_row["evaluated_at"]
+            conn.execute(
+                """
+                UPDATE exams
+                SET correct = ?, answered = ?, wrong = ?, score = ?, percent = ?, evaluated_at = ?
+                WHERE id = ?
+                """,
+                (correct_cnt, answered_cnt, wrong_cnt, score_sum, percent, evaluated_at, exam_id),
+            )
+
         return {
             "correct": correct_cnt,
             "answered": answered_cnt,

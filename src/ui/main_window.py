@@ -1710,7 +1710,21 @@ class TSVWatcherWindow(QMainWindow):
         self.exam_summary_label = QLabel("")
         self.exam_summary_label.setStyleSheet("color: #475569; padding: 2px 0;")
         self.exam_summary_label.setWordWrap(True)
-        right_layout.addWidget(self.exam_summary_label)
+        self.exam_summary_label.setTextFormat(Qt.RichText)
+        self.exam_summary_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.exam_summary_label.setOpenExternalLinks(False)
+        self.exam_summary_label.linkActivated.connect(self._on_exam_summary_link)
+
+        self.exam_rescore_btn = QPushButton("Rescore")
+        self.exam_rescore_btn.setToolTip("Recalculate exam scoring with current rules")
+        self.exam_rescore_btn.setFixedHeight(28)
+        self.exam_rescore_btn.setEnabled(False)
+        self.exam_rescore_btn.clicked.connect(self._rescore_current_exam)
+
+        summary_row = QHBoxLayout()
+        summary_row.addWidget(self.exam_summary_label, 1)
+        summary_row.addWidget(self.exam_rescore_btn, 0, Qt.AlignTop)
+        right_layout.addLayout(summary_row)
 
         # Question detail scroll
         self.exam_detail_container = QWidget()
@@ -1734,6 +1748,8 @@ class TSVWatcherWindow(QMainWindow):
         layout.addWidget(splitter)
 
         self.content_stack.addWidget(exams_page)
+        self.exam_questions_all: List[Dict[str, Any]] = []
+        self.exam_questions_evaluated: bool = False
 
     # ------------------------------------------------------------------
     # Data Quality page
@@ -2685,12 +2701,14 @@ class TSVWatcherWindow(QMainWindow):
         btns.accepted.connect(dialog.accept)
         btns.rejected.connect(dialog.reject)
 
-        # Build selectable entries from saved lists metadata
-        entries = self._filtered_saved_list_entries_for_dialog("", "")
+        # Build selectable entries from saved lists metadata (exclude archived)
+        entries = self._filtered_saved_list_entries_for_dialog("", "", include_archived=False)
 
         def refresh():
             entries_local = self._filtered_saved_list_entries_for_dialog(
-                mag_edit.text().strip().lower(), created_edit.text().strip().lower()
+                mag_edit.text().strip().lower(),
+                created_edit.text().strip().lower(),
+                include_archived=False,
             )
             list_widget.clear()
             for entry in entries_local:
@@ -2701,10 +2719,18 @@ class TSVWatcherWindow(QMainWindow):
 
         # Completers
         mags = sorted(
-            {e.get("magazine", "").lower() for e in self.saved_list_entries_all if e.get("magazine")}
+            {
+                e.get("magazine", "").lower()
+                for e in self.saved_list_entries_all
+                if e.get("magazine") and not e.get("archived")
+            }
         )
         months = sorted(
-            {e.get("created_month_tag", "").lower() for e in self.saved_list_entries_all if e.get("created_month_tag")}
+            {
+                e.get("created_month_tag", "").lower()
+                for e in self.saved_list_entries_all
+                if e.get("created_month_tag") and not e.get("archived")
+            }
         )
         mag_edit.setCompleter(QCompleter(mags))
         created_edit.setCompleter(QCompleter(months))
@@ -2720,12 +2746,18 @@ class TSVWatcherWindow(QMainWindow):
         list_name = item.data(Qt.UserRole)
         self._add_question_to_list_by_name(list_name, question)
 
-    def _filtered_saved_list_entries_for_dialog(self, mag: str, created: str) -> list[dict]:
+    def _filtered_saved_list_entries_for_dialog(
+        self, mag: str, created: str, include_archived: bool = False
+    ) -> list[dict]:
         """Filter saved list entries without mutating UI filters."""
         result = []
         mag = (mag or "").lower()
         created = (created or "").lower()
         for entry in getattr(self, "saved_list_entries_all", []):
+            if include_archived and not entry.get("archived"):
+                continue
+            if not include_archived and entry.get("archived"):
+                continue
             if mag:
                 mags = entry.get("magazine_names", [])
                 if not any(mag in m.lower() for m in mags):
@@ -2990,15 +3022,65 @@ class TSVWatcherWindow(QMainWindow):
         self.exam_header_label.setText(f"{header} | {list_name}")
         stats = f"Imported: {imported} | Evaluated: {evaluated_at}"
         self.exam_stats_label.setText(stats)
-        summary = f"Questions: {exam.get('total_questions',0)} | Answered: {exam.get('answered',0)} | Correct: {exam.get('correct',0)} | Wrong: {exam.get('wrong',0)} | Score: {exam.get('score',0)} | Percent: {round(exam.get('percent') or 0,2)}%"
-        self.exam_summary_label.setText(summary)
+        self.exam_summary_label.setText(self._format_exam_summary(exam))
         try:
             questions = self.db_service.get_exam_questions(int(exam_id))
         except Exception as exc:
             QMessageBox.warning(self, "Load Failed", f"Could not load exam questions:\n{exc}")
             return
         evaluated = bool(exam.get("evaluated"))
-        self._render_exam_questions(questions, evaluated)
+        self.exam_questions_all = questions
+        self.exam_questions_evaluated = evaluated
+        if hasattr(self, "exam_rescore_btn"):
+            self.exam_rescore_btn.setEnabled(True)
+        self._apply_exam_question_filter("all")
+
+    def _format_exam_summary(self, exam: Dict[str, Any]) -> str:
+        link_style = "color:#2563eb; text-decoration:none;"
+        total = exam.get("total_questions", 0)
+        answered = exam.get("answered", 0)
+        correct = exam.get("correct", 0)
+        wrong = exam.get("wrong", 0)
+        score = exam.get("score", 0)
+        percent = round(exam.get("percent") or 0, 2)
+        counts = (
+            f'Questions: <a href="all" style="{link_style}">{total}</a>'
+            f' | Answered: <a href="answered" style="{link_style}">{answered}</a>'
+            f' | Correct: <a href="correct" style="{link_style}">{correct}</a>'
+            f' | Wrong: <a href="wrong" style="{link_style}">{wrong}</a>'
+        )
+        scoring = "Scoring: +4 correct, -1 wrong (MCQ), 0 wrong (numerical)"
+        percent_formula = "Percent = score / (total * 4) * 100"
+        return f"{counts} | Score: {score} | Percent: {percent}%<br>{scoring} | {percent_formula}"
+
+    def _on_exam_summary_link(self, link: str) -> None:
+        if link not in ("all", "answered", "correct", "wrong"):
+            return
+        self._apply_exam_question_filter(link)
+
+    def _apply_exam_question_filter(self, filter_key: str) -> None:
+        questions = list(self.exam_questions_all or [])
+        if filter_key == "answered":
+            filtered = [q for q in questions if q.get("answered")]
+        elif filter_key == "correct":
+            filtered = [q for q in questions if q.get("correct")]
+        elif filter_key == "wrong":
+            filtered = [q for q in questions if q.get("answered") and not q.get("correct")]
+        else:
+            filtered = questions
+        self._render_exam_questions(filtered, self.exam_questions_evaluated)
+
+    def _rescore_current_exam(self) -> None:
+        if not self.current_exam_id:
+            QMessageBox.information(self, "No Exam Selected", "Select an exam to rescore.")
+            return
+        try:
+            self.db_service.rescore_exam(int(self.current_exam_id))
+        except Exception as exc:
+            QMessageBox.warning(self, "Rescore Failed", f"Could not rescore exam:\n{exc}")
+            return
+        self._refresh_current_exam_view()
+        self.statusBar().showMessage("Exam rescored with current rules.", 4000)
 
     def _refresh_current_exam_view(self):
         if not self.current_exam_id:
@@ -3054,6 +3136,10 @@ class TSVWatcherWindow(QMainWindow):
         self.exam_header_label.setText("Select an exam to view details")
         self.exam_stats_label.setText("")
         self.exam_summary_label.setText("")
+        self.exam_questions_all = []
+        self.exam_questions_evaluated = False
+        if hasattr(self, "exam_rescore_btn"):
+            self.exam_rescore_btn.setEnabled(False)
         self.current_exam_id = None
 
     def _render_exam_questions(self, questions: List[Dict[str, Any]], evaluated: bool):

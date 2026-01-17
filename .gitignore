@@ -1,4 +1,5 @@
 .venv/
+.venv_viewer/
 
 # Python cache files
 __pycache__/
@@ -15,6 +16,7 @@ create_sample_jee_excel.py
 TSVWatcher.spec
 build/
 dist/
+dist_viewer/
 *.spec
 !TSV-to-Excel-Watcher.spec
 !viewer_app.spec
