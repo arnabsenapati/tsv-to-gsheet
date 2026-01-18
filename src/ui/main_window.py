@@ -6530,9 +6530,9 @@ class TSVWatcherWindow(QMainWindow):
             QMessageBox.information(self, "No List Selected", "Please select a list first.")
             return
         
-        # Find and remove the question by qno
+        # Find and remove the question by ID when available; fallback to qno
         qno = question.get("qno")
-        qid = question.get("question_id") or question.get("row_number")
+        qid = self._get_question_id_for_delete(question)
         questions = self.question_lists[self.current_list_name]
         try:
             self.log(
@@ -6548,12 +6548,32 @@ class TSVWatcherWindow(QMainWindow):
                 self.log(f"[ListDeleteDebug] Multiple qno matches: qno='{qno}' idx={matches} ids={ids}")
             except Exception:
                 pass
-        
+
+        if qid is not None:
+            for idx, q in enumerate(questions):
+                qid_row = q.get("question_id") or q.get("row_number")
+                try:
+                    qid_row = int(qid_row)
+                except Exception:
+                    pass
+                if qid_row == qid:
+                    try:
+                        self.log(
+                            f"[ListDeleteDebug] Deleting by qid idx={idx} qno='{q.get('qno')}' qid='{qid_row}'"
+                        )
+                    except Exception:
+                        pass
+                    del questions[idx]
+                    self._save_question_list(self.current_list_name)
+                    self.on_saved_list_selected()  # Refresh display
+                    self.log(f"Removed question Q{q.get('qno') or qno} from '{self.current_list_name}'")
+                    return
+
         for idx, q in enumerate(questions):
-            if q.get('qno') == qno:
+            if q.get("qno") == qno:
                 try:
                     self.log(
-                        f"[ListDeleteDebug] Deleting idx={idx} qno='{qno}' qid='{q.get('question_id') or q.get('row_number')}'"
+                        f"[ListDeleteDebug] Deleting by qno idx={idx} qno='{qno}' qid='{q.get('question_id') or q.get('row_number')}'"
                     )
                 except Exception:
                     pass
@@ -6776,16 +6796,13 @@ class TSVWatcherWindow(QMainWindow):
         if not hasattr(self, "compare_list_combo"):
             return
         
-        current_list = self.current_list_name
-        previous_target = self.comparison_target if self.comparison_target != current_list else None
+        previous_target = self.comparison_target
         
         self.compare_list_combo.blockSignals(True)
         self.compare_list_combo.clear()
         self.compare_list_combo.addItem("No comparison", None)
         
         for name in sorted(self.question_lists.keys()):
-            if name == current_list:
-                continue
             meta = self.question_lists_metadata.get(name, {}) if hasattr(self, "question_lists_metadata") else {}
             if bool(meta.get("archived")):
                 continue
@@ -6902,6 +6919,8 @@ class TSVWatcherWindow(QMainWindow):
         self.comparison_similarity = {}
         top_n = max(1, int(self.comparison_top_n or 1))
         target_ids = list(target_vecs.keys())
+        compare_same_list = self.comparison_target == self.current_list_name
+        target_id_index = {qid: idx for idx, qid in enumerate(target_ids)} if compare_same_list else {}
         target_matrix = np.stack([target_vecs[i] for i in target_ids], axis=0)
 
         for ident, base_qid in base_map.items():
@@ -6910,6 +6929,10 @@ class TSVWatcherWindow(QMainWindow):
                 continue
             base_norm = base_vec / (np.linalg.norm(base_vec) + 1e-9)
             scores = base_norm @ target_matrix.T
+            if compare_same_list:
+                self_idx = target_id_index.get(base_qid)
+                if self_idx is not None:
+                    scores[int(self_idx)] = -1.0
             if not scores.size:
                 continue
             if scores.size <= top_n:
