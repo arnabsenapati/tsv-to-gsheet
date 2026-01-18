@@ -2526,7 +2526,7 @@ class TSVWatcherWindow(QMainWindow):
 
     def _compute_missing_embeddings(self):
         """Compute embeddings for questions missing vectors (runs in background thread)."""
-        if hasattr(self, "sim_embed_thread") and self.sim_embed_thread and self.sim_embed_thread.isRunning():
+        if self._is_embed_thread_running():
             QMessageBox.information(self, "In Progress", "Embedding computation is already running.")
             return
         if not self.db_service:
@@ -2573,6 +2573,7 @@ class TSVWatcherWindow(QMainWindow):
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_embed_thread_finished)
 
         self.sim_embed_thread = thread
         self.sim_embed_worker = worker
@@ -2623,6 +2624,21 @@ class TSVWatcherWindow(QMainWindow):
         # refresh counts from DB in case they changed outside
         self._refresh_embed_counts_display()
         self.sim_embed_snapshot_on_finish = False
+
+    def _is_embed_thread_running(self) -> bool:
+        thread = getattr(self, "sim_embed_thread", None)
+        if not thread:
+            return False
+        try:
+            return thread.isRunning()
+        except RuntimeError:
+            self.sim_embed_thread = None
+            self.sim_embed_worker = None
+            return False
+
+    def _on_embed_thread_finished(self) -> None:
+        self.sim_embed_thread = None
+        self.sim_embed_worker = None
 
     def _on_embed_error(self, msg: str):
         self.sim_embed_stop_btn.setEnabled(False)
