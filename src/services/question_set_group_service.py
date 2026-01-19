@@ -8,7 +8,9 @@ This module handles all operations related to question set grouping:
 - Auto-generating "Others" group for ungrouped question sets
 """
 
+import copy
 import json
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -69,6 +71,11 @@ class QuestionSetGroupService:
         self.db_service = db_service
         self.groups: dict[str, dict] = {}  # group_name -> {display_name, question_sets, color}
         self._question_set_to_group: dict[str, str] = {}
+        self._save_lock = threading.Lock()
+        self._save_event = threading.Event()
+        self._save_thread: threading.Thread | None = None
+        self._pending_payload: dict | None = None
+        self._log_queue = None
         
         # Load existing groups from file
         self.load_groups()
@@ -103,6 +110,17 @@ class QuestionSetGroupService:
             }
         self._rebuild_reverse_map()
 
+    def set_log_queue(self, log_queue) -> None:
+        self._log_queue = log_queue
+
+    def _enqueue_log(self, message: str) -> None:
+        if not self._log_queue:
+            return
+        try:
+            self._log_queue.put(("log", message))
+        except Exception:
+            pass
+
     def _rebuild_reverse_map(self) -> None:
         """Build reverse lookup from question set -> display name."""
         self._question_set_to_group = {}
@@ -120,13 +138,8 @@ class QuestionSetGroupService:
             return data.get("groups", {})
         except:
             return {}
-    
-    def save_groups(self) -> None:
-        """
-        Save groups to configuration file.
-        """
-        payload = {"groups": self.groups}
 
+    def _persist_groups(self, payload: dict, rebuild: bool = True) -> None:
         if self.db_service:
             self.db_service.save_config("QuestionSetGroup", payload)
 
@@ -137,7 +150,42 @@ class QuestionSetGroupService:
                 json.dumps(payload, indent=2),
                 encoding="utf-8",
             )
+
+        if rebuild:
+            self._rebuild_reverse_map()
+        self._enqueue_log("Question set groups saved.")
+
+    def _save_worker(self) -> None:
+        while True:
+            self._save_event.wait()
+            while True:
+                with self._save_lock:
+                    payload = self._pending_payload
+                    self._pending_payload = None
+                    self._save_event.clear()
+                if payload is None:
+                    break
+                self._persist_groups(payload, rebuild=False)
+                with self._save_lock:
+                    if self._pending_payload is None:
+                        break
+
+    def save_groups_async(self) -> None:
+        payload = {"groups": copy.deepcopy(self.groups)}
         self._rebuild_reverse_map()
+        with self._save_lock:
+            self._pending_payload = payload
+            self._save_event.set()
+            if not self._save_thread or not self._save_thread.is_alive():
+                self._save_thread = threading.Thread(target=self._save_worker, daemon=True)
+                self._save_thread.start()
+
+    def save_groups(self) -> None:
+        """
+        Save groups to configuration file.
+        """
+        payload = {"groups": self.groups}
+        self._persist_groups(payload, rebuild=True)
     
     def get_all_groups(self) -> dict[str, dict]:
         """
@@ -283,6 +331,53 @@ class QuestionSetGroupService:
         moved = self.add_question_set_to_group(to_group, question_set_name)
         if moved:
             self._rebuild_reverse_map()
+        return moved
+
+    def move_question_sets_bulk(self, question_set_names: list[str], from_group: str, to_group: str) -> list[str]:
+        """
+        Move multiple question sets in a single save operation.
+        Returns the list of question set names that were moved.
+        """
+        if not question_set_names:
+            return []
+        if to_group == from_group:
+            return []
+
+        moved: list[str] = []
+
+        if to_group == "Others":
+            if from_group and from_group != "Others":
+                group = self.groups.get(from_group)
+                if not group:
+                    return []
+                question_sets = group.get("question_sets", [])
+                for qs_name in question_set_names:
+                    if qs_name in question_sets:
+                        question_sets.remove(qs_name)
+                        moved.append(qs_name)
+        else:
+            if to_group not in self.groups:
+                return []
+            from_sets = None
+            if from_group and from_group != "Others":
+                from_group_data = self.groups.get(from_group)
+                if from_group_data:
+                    from_sets = from_group_data.get("question_sets", [])
+            to_sets = self.groups[to_group].get("question_sets", [])
+            for qs_name in question_set_names:
+                removed = False
+                if from_sets is not None and qs_name in from_sets:
+                    from_sets.remove(qs_name)
+                    removed = True
+                added = False
+                if qs_name not in to_sets:
+                    to_sets.append(qs_name)
+                    added = True
+                if removed or added:
+                    moved.append(qs_name)
+
+        if moved:
+            self.save_groups_async()
         return moved
     
     def create_group(self, group_name: str) -> bool:

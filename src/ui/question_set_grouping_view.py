@@ -325,7 +325,7 @@ class QuestionSetGroupingView(QWidget):
         """Refresh the groups list with current groups and counts."""
         if not self.group_service:
             return
-        
+
         self.groups_list.clear()
         entries: list[dict] = []
 
@@ -465,23 +465,18 @@ class QuestionSetGroupingView(QWidget):
             return
 
         current_group = self.selected_group
-        moved_any = False
-
-        if target_group == "Others":
-            if from_group and from_group != "Others":
-                for qs_name in qs_names:
-                    if self.group_service.remove_question_set_from_group(from_group, qs_name):
-                        self.question_set_moved.emit(qs_name, from_group, target_group)
-                        moved_any = True
-        else:
-            for qs_name in qs_names:
-                if self.group_service.move_question_set(qs_name, from_group, target_group):
-                    self.question_set_moved.emit(qs_name, from_group, target_group)
-                    moved_any = True
+        moved_names = self.group_service.move_question_sets_bulk(qs_names, from_group, target_group)
+        for qs_name in moved_names:
+            self.question_set_moved.emit(qs_name, from_group, target_group)
+        moved_any = bool(moved_names)
 
         if moved_any:
-            self._refresh_groups_list()
-            # Restore selection to the original group to keep its list visible
+            affected = [target_group]
+            if from_group:
+                affected.append(from_group)
+            if target_group == "Others" or from_group == "Others":
+                affected.append("Others")
+            self._refresh_group_items(affected)
             if current_group:
                 for idx in range(self.groups_list.count()):
                     item = self.groups_list.item(idx)
@@ -517,6 +512,37 @@ class QuestionSetGroupingView(QWidget):
             if magazine:
                 item.setToolTip(f"Magazine: {magazine}")
             self.question_sets_list.addItem(item)
+
+    def _refresh_group_items(self, group_names: list[str]) -> None:
+        if not group_names or not self.group_service:
+            return
+        names = set(name for name in group_names if name)
+        if not names:
+            return
+
+        others_group = None
+        if "Others" in names:
+            others_group = self.group_service.get_others_group(self.all_question_sets)
+
+        for idx in range(self.groups_list.count()):
+            item = self.groups_list.item(idx)
+            if not item:
+                continue
+            name = item.data(Qt.UserRole)
+            if name not in names:
+                continue
+            if name == "Others":
+                group_data = others_group or self.group_service.get_others_group(self.all_question_sets)
+                count = len(group_data.get("question_sets", []))
+                color = group_data.get("color", "#94a3b8")
+            else:
+                group_data = self.group_service.get_group(name) or {}
+                count = len(group_data.get("question_sets", []))
+                color = group_data.get("color", "#3b82f6")
+            self._style_group_item(item, name, count, color)
+
+        self._update_group_item_selection()
+        self.groups_list._sync_item_widths()
     
     def _on_question_sets_dropped_internal(self, qs_names: list[str], from_group: str, event):
         """Handle drop event when dragging question sets onto the current list."""
@@ -529,14 +555,18 @@ class QuestionSetGroupingView(QWidget):
             event.ignore()
             return
 
-        moved_any = False
-        for qs_name in qs_names:
-            if self.group_service.move_question_set(qs_name, from_group, self.selected_group):
-                self.question_set_moved.emit(qs_name, from_group, self.selected_group)
-                moved_any = True
+        moved_names = self.group_service.move_question_sets_bulk(qs_names, from_group, self.selected_group)
+        for qs_name in moved_names:
+            self.question_set_moved.emit(qs_name, from_group, self.selected_group)
+        moved_any = bool(moved_names)
 
         if moved_any:
-            self._refresh_groups_list()
+            affected = [self.selected_group]
+            if from_group:
+                affected.append(from_group)
+            if from_group == "Others":
+                affected.append("Others")
+            self._refresh_group_items(affected)
             self._refresh_question_sets_list()
             event.acceptProposedAction()
             return

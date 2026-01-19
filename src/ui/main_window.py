@@ -1524,6 +1524,7 @@ class TSVWatcherWindow(QMainWindow):
         
         # Initialize the Question Set Group Service (DB-backed)
         self.question_set_group_service = QuestionSetGroupService(db_service=self.db_service)
+        self.question_set_group_service.set_log_queue(self.event_queue)
         self.tag_service = TagService(db_service=self.db_service)
         
         # Create the Question Set Grouping View
