@@ -760,6 +760,7 @@ class ViewerWindow(QMainWindow):
         self.payload = data
         self.password = password
         self.evaluated = bool(data.get("evaluated"))
+        self.show_answer_images = bool(self.evaluated)
         # Ensure responses dict exists and is shared
         self.responses = self.payload.setdefault("responses", {})
         self.review_marks = self.payload.setdefault("review_marks", {})
@@ -785,8 +786,14 @@ class ViewerWindow(QMainWindow):
         eval_btn = QPushButton("Evaluate")
         eval_btn.setStyleSheet("background-color: #2563eb; color: white; padding: 6px 12px; border-radius: 4px;")
         eval_btn.clicked.connect(self._on_evaluate)
+        self.show_answers_cb = QCheckBox("Show answer images")
+        self.show_answers_cb.setChecked(self.show_answer_images)
+        self.show_answers_cb.setVisible(self.evaluated)
+        self.show_answers_cb.setEnabled(self.evaluated)
+        self.show_answers_cb.toggled.connect(self._on_toggle_answer_images)
         eval_row = QHBoxLayout()
         eval_row.addStretch()
+        eval_row.addWidget(self.show_answers_cb)
         eval_row.addWidget(eval_btn)
         root.addLayout(eval_row)
 
@@ -829,7 +836,7 @@ class ViewerWindow(QMainWindow):
             return
         q = self.questions[row]
         key = self._qkey(q, row)
-        self.question_view.set_question(q, self.responses, row + 1, key, self.evaluated)
+        self.question_view.set_question(q, self.responses, row + 1, key, self.show_answer_images)
         self._refresh_answer_markers()
 
     def _on_answer_change(self):
@@ -955,18 +962,22 @@ class ViewerWindow(QMainWindow):
             backup_path = None
 
         self.evaluated = True
+        self.show_answer_images = True
         self.payload["evaluated"] = True
         self.payload["evaluated_at"] = datetime.utcnow().isoformat() + "Z"
         self.review_marks = {}
         self.payload["review_marks"] = {}
         self.question_view.set_evaluated(True)
+        self.show_answers_cb.setChecked(True)
+        self.show_answers_cb.setVisible(True)
+        self.show_answers_cb.setEnabled(True)
         self._refresh_answer_markers()
         # refresh current question to show answer images
         row = self.list_widget.currentRow()
         if row >= 0:
             q = self.questions[row]
             key = self._qkey(q, row)
-            self.question_view.set_question(q, self.responses, row + 1, key, show_answers=True)
+            self.question_view.set_question(q, self.responses, row + 1, key, show_answers=self.show_answer_images)
         # Persist immediately so evaluated flag is saved
         try:
             save_cqt_payload(str(self.package_path), self.payload, self.password)
@@ -974,6 +985,17 @@ class ViewerWindow(QMainWindow):
             QMessageBox.warning(self, "Save Failed", f"Could not save evaluated state:\n{exc}")
         if backup_path:
             QMessageBox.information(self, "Evaluation Complete", f"Evaluation done. Backup saved to:\n{backup_path}")
+
+    def _on_toggle_answer_images(self, checked: bool) -> None:
+        if not self.evaluated:
+            return
+        self.show_answer_images = bool(checked)
+        row = self.list_widget.currentRow()
+        if row < 0 or row >= len(self.questions):
+            return
+        q = self.questions[row]
+        key = self._qkey(q, row)
+        self.question_view.set_question(q, self.responses, row + 1, key, show_answers=self.show_answer_images)
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
