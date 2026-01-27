@@ -791,9 +791,13 @@ class ViewerWindow(QMainWindow):
         self.show_answers_cb.setVisible(self.evaluated)
         self.show_answers_cb.setEnabled(self.evaluated)
         self.show_answers_cb.toggled.connect(self._on_toggle_answer_images)
+        self.score_label = QLabel("")
+        self.score_label.setStyleSheet("color: #cbd5e1; font-weight: 600;")
+        self.score_label.setVisible(self.evaluated)
         eval_row = QHBoxLayout()
         eval_row.addStretch()
         eval_row.addWidget(self.show_answers_cb)
+        eval_row.addWidget(self.score_label)
         eval_row.addWidget(eval_btn)
         root.addLayout(eval_row)
 
@@ -830,6 +834,7 @@ class ViewerWindow(QMainWindow):
         self._refresh_answer_markers()
         # Apply evaluated lock if already evaluated
         self.question_view.set_evaluated(self.evaluated)
+        self._update_score_label()
 
     def _on_question_selected(self, row: int):
         if row < 0 or row >= len(self.questions):
@@ -971,7 +976,9 @@ class ViewerWindow(QMainWindow):
         self.show_answers_cb.setChecked(True)
         self.show_answers_cb.setVisible(True)
         self.show_answers_cb.setEnabled(True)
+        self.score_label.setVisible(True)
         self._refresh_answer_markers()
+        self._update_score_label()
         # refresh current question to show answer images
         row = self.list_widget.currentRow()
         if row >= 0:
@@ -996,6 +1003,87 @@ class ViewerWindow(QMainWindow):
         q = self.questions[row]
         key = self._qkey(q, row)
         self.question_view.set_question(q, self.responses, row + 1, key, show_answers=self.show_answer_images)
+
+    def _normalize_mcq_response(self, resp_val: Any) -> list[str]:
+        if resp_val is None:
+            return []
+        if isinstance(resp_val, str):
+            text = resp_val.strip()
+            if not text:
+                return []
+            if "," in text:
+                return [part.strip() for part in text.split(",") if part.strip()]
+            return [text]
+        if isinstance(resp_val, (list, tuple, set)):
+            items: list[str] = []
+            for item in resp_val:
+                text = str(item).strip()
+                if text:
+                    items.append(text)
+            return items
+        return []
+
+    def _normalize_numerical_response(self, resp_val: Any) -> str:
+        if resp_val is None:
+            return ""
+        if isinstance(resp_val, (int, float)):
+            return str(resp_val).strip()
+        return str(resp_val).strip()
+
+    def _compute_score_summary(self) -> str:
+        total = len(self.questions)
+        score = 0
+        for idx, q in enumerate(self.questions):
+            qtype = q.get("question_type", "mcq_single") or "mcq_single"
+            key = self._qkey(q, idx)
+            resp_raw = self.responses.get(str(key), [])
+            sel, _ = (
+                self.question_view._extract_answer_and_sketch(resp_raw)
+                if hasattr(self, "question_view")
+                else (resp_raw, None)
+            )
+            if qtype == "numerical":
+                sel_val = self._normalize_numerical_response(sel)
+                answered = bool(sel_val)
+                answer_val = str(q.get("numerical_answer", "")).strip()
+                correct = bool(answer_val) and sel_val == answer_val
+                if not answered:
+                    q_score = 0
+                elif correct:
+                    q_score = 4
+                else:
+                    q_score = 0
+            else:
+                sel_list = self._normalize_mcq_response(sel)
+                answered = bool(sel_list)
+                correct_opts_raw = q.get("correct_options", []) or []
+                if isinstance(correct_opts_raw, str):
+                    correct_opts = [correct_opts_raw]
+                else:
+                    correct_opts = [str(opt).strip() for opt in correct_opts_raw if str(opt).strip()]
+                correct = bool(correct_opts) and set(sel_list) == set(correct_opts)
+                if not answered:
+                    q_score = 0
+                elif correct:
+                    q_score = 4
+                else:
+                    if qtype == "mcq_multiple":
+                        has_wrong = bool(set(sel_list) - set(correct_opts))
+                        q_score = -2 if has_wrong else 0
+                    else:
+                        q_score = -1
+            score += q_score
+        max_score = total * 4
+        return (
+            f"Score: {score}/{max_score} | "
+            "Single +4/-1, Multiple +4/-2/0, Numerical +4/0"
+        )
+
+    def _update_score_label(self) -> None:
+        if not self.evaluated:
+            self.score_label.setText("")
+            return
+        self.score_label.setText(self._compute_score_summary())
 
 
 def prompt_file_and_password() -> tuple[Path, str] | tuple[None, None]:
