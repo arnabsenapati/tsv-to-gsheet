@@ -3066,7 +3066,7 @@ class TSVWatcherWindow(QMainWindow):
             f' | Correct: <a href="correct" style="{link_style}">{correct}</a>'
             f' | Wrong: <a href="wrong" style="{link_style}">{wrong}</a>'
         )
-        scoring = "Scoring: +4 correct, -1 wrong (MCQ), 0 wrong (numerical)"
+        scoring = "Scoring: +4 correct; MCQ single -1 wrong; MCQ multiple -2 if any wrong option; numerical 0 wrong"
         percent_formula = "Percent = score / (total * 4) * 100"
         return f"{counts} | Score: {score} | Percent: {percent}%<br>{scoring} | {percent_formula}"
 
@@ -6427,21 +6427,44 @@ class TSVWatcherWindow(QMainWindow):
             except Exception as exc:
                 QMessageBox.warning(self, "Write Failed", f"Could not write temp .tex:\n{exc}")
                 return
+            pdf_path = tex_path.with_suffix(".pdf")
+            log_path = tex_path.with_suffix(".log")
+            pdf_ok = False
             try:
-                subprocess.run(
+                result = subprocess.run(
                     [latex_path, "-interaction=nonstopmode", tex_path.name],
                     cwd=tex_path.parent,
                     check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
                 )
-            except Exception as exc:
-                QMessageBox.warning(self, "PDF Failed", f"pdflatex failed:\n{exc}")
-                return
-            pdf_path = tex_path.with_suffix(".pdf")
-            if not pdf_path.exists():
+                pdf_ok = pdf_path.exists()
+            except subprocess.CalledProcessError as exc:
+                stdout = exc.stdout or ""
+                stderr = exc.stderr or ""
+                log_excerpt = ""
+                if log_path.exists():
+                    try:
+                        log_text = log_path.read_text(encoding="utf-8", errors="ignore")
+                        log_excerpt = log_text[-2000:]
+                    except Exception:
+                        log_excerpt = ""
+                pdf_ok = pdf_path.exists()
+                if not pdf_ok:
+                    QMessageBox.warning(self, "PDF Failed", f"pdflatex failed:\n{exc}")
+                    return
+                QMessageBox.warning(
+                    self,
+                    "PDF Generated With Errors",
+                    "LaTeX reported errors, but a PDF was generated.\n"
+                    "You can save it, but it may be incomplete.",
+                )
+
+            if not pdf_ok:
                 QMessageBox.warning(self, "PDF Failed", "PDF was not generated.")
                 return
+
             save_path, _ = QFileDialog.getSaveFileName(self, "Save Theory PDF", f"{list_name}.pdf", "PDF files (*.pdf)")
             if not save_path:
                 return
@@ -6450,6 +6473,20 @@ class TSVWatcherWindow(QMainWindow):
                 QMessageBox.information(self, "Saved", f"Saved PDF to:\n{save_path}")
             except Exception as exc:
                 QMessageBox.warning(self, "Save Failed", f"Could not save PDF:\n{exc}")
+                return
+
+            if log_path.exists():
+                log_save, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Save LaTeX Log",
+                    f"{list_name}.log",
+                    "Log files (*.log)",
+                )
+                if log_save:
+                    try:
+                        shutil.copy2(log_path, log_save)
+                    except Exception as exc:
+                        QMessageBox.warning(self, "Save Failed", f"Could not save log:\n{exc}")
     
     def add_selected_to_list(self) -> None:
         """Toggle the drag-drop panel for adding questions to a list."""

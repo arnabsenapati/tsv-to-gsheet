@@ -1190,6 +1190,7 @@ class DatabaseService:
             qtype = q.get("question_type", "mcq_single") or "mcq_single"
             is_ans = _answered(qtype, resp_val)
             is_correct = _is_correct(q, resp_val) if evaluated else False
+            has_wrong = _has_wrong_option(q, resp_val)
             if is_ans:
                 answered_cnt += 1
             if evaluated:
@@ -1197,12 +1198,17 @@ class DatabaseService:
                     correct_cnt += 1
                 elif is_ans:
                     wrong_cnt += 1
-            if is_correct:
-                q_score = 4
-            elif evaluated and is_ans:
-                q_score = 0 if qtype == "numerical" else -1
-            else:
+            if not evaluated or not is_ans:
                 q_score = 0
+            elif is_correct:
+                q_score = 4
+            else:
+                if qtype == "numerical":
+                    q_score = 0
+                elif qtype == "mcq_multiple":
+                    q_score = -2 if has_wrong else 0
+                else:
+                    q_score = -1
             score_sum += q_score
             correct_opts = q.get("correct_options", [])
             numerical_answer = q.get("numerical_answer")
@@ -1371,7 +1377,12 @@ class DatabaseService:
             if status == "correct":
                 score = 4
             elif status == "incorrect":
-                score = 0 if qtype == "numerical" else -1
+                if qtype == "numerical":
+                    score = 0
+                elif qtype == "mcq_multiple":
+                    score = -2
+                else:
+                    score = -1
             else:
                 score = 0
             conn.execute(
@@ -1473,6 +1484,18 @@ class DatabaseService:
                 correct_opts = [str(opt).strip() for opt in correct_opts_raw if str(opt).strip()]
             return bool(correct_opts) and set(sel_list) == set(correct_opts)
 
+        def _has_wrong_option(q: Dict[str, Any], resp_val: Any) -> bool:
+            qtype = q.get("question_type", "mcq_single") or "mcq_single"
+            if qtype != "mcq_multiple":
+                return False
+            sel_list = _normalize_mcq_response(resp_val)
+            correct_opts_raw = q.get("correct_options", []) or []
+            if isinstance(correct_opts_raw, str):
+                correct_opts = [correct_opts_raw]
+            else:
+                correct_opts = [str(opt).strip() for opt in correct_opts_raw if str(opt).strip()]
+            return bool(set(sel_list) - set(correct_opts))
+
         with self._connect() as conn:
             exam_row = conn.execute("SELECT evaluated, evaluated_at FROM exams WHERE id = ?", (exam_id,)).fetchone()
             if not exam_row:
@@ -1510,11 +1533,14 @@ class DatabaseService:
                 resp_val = _extract_answer(resp)
                 is_ans = _answered(qtype, resp_val)
                 is_correct = _is_correct(q, resp_val) if evaluated else False
+                has_wrong = _has_wrong_option(q, resp_val)
 
                 status = (row["eval_status"] or "").lower()
                 if status in ("correct", "incorrect", "unanswered"):
                     is_correct = status == "correct"
                     is_ans = status != "unanswered"
+                    if status == "incorrect" and qtype == "mcq_multiple":
+                        has_wrong = True
 
                 if is_ans:
                     answered_cnt += 1
@@ -1524,12 +1550,17 @@ class DatabaseService:
                     elif is_ans:
                         wrong_cnt += 1
 
-                if is_correct:
-                    q_score = 4
-                elif evaluated and is_ans:
-                    q_score = 0 if qtype == "numerical" else -1
-                else:
+                if not evaluated or not is_ans:
                     q_score = 0
+                elif is_correct:
+                    q_score = 4
+                else:
+                    if qtype == "numerical":
+                        q_score = 0
+                    elif qtype == "mcq_multiple":
+                        q_score = -2 if has_wrong else 0
+                    else:
+                        q_score = -1
                 score_sum += q_score
 
                 conn.execute(

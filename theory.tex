@@ -16,619 +16,599 @@
 % -------------------------
 % Module A
 % -------------------------
-\section*{\textbf{Module A: Vector Algebra \& Direction Cosines (Dot/Cross/Trig)}}
+\section*{\textbf{Module A: Base-Mediated Carbonyl Chemistry (Aldol \& Cannizzaro)}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Dot product} measures alignment; used for \textbf{angles, projections, perpendicularity}.
-  \item \textbf{Cross product} gives a perpendicular vector; used for \textbf{area}, \textbf{normals}, and \textbf{line/plane directions}.
-  \item \textbf{Direction cosines/ratios} convert geometry of a line/vector into algebra.
-  \item Trig multiple-angle identities convert expressions like \(\cos 6\alpha\) into functions of \(\cos 3\alpha\).
+  \item Aldol reaction: combines two carbonyl units via \(\alpha\)-enolate \(\rightarrow\) \(\beta\)-hydroxy carbonyl (addition) and possibly \(\alpha,\beta\)-unsaturated carbonyl (condensation).
+  \item Cannizzaro reaction: disproportionation of \textbf{non-enolizable aldehydes} (no \(\alpha\)-H) in strong base \(\rightarrow\) one alcohol + one carboxylate.
+  \item Decide quickly by checking \(\alpha\)-hydrogens: \(\alpha\)-H present \(\Rightarrow\) aldol possible; \(\alpha\)-H absent \(\Rightarrow\) Cannizzaro possible (for aldehydes).
+  \item Intramolecular/Polyfunctional cases: multiple \(-CHO\) groups can give mixtures of \(-CH_2OH\) and \(-COO^-\) substitutions on the same aromatic ring.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Dot product:}
-  \[
-    \vec a\cdot \vec b = a_x b_x + a_y b_y + a_z b_z = |\vec a||\vec b|\cos\theta.
-  \]
-  \item \textbf{Perpendicularity:} \(\vec a\perp \vec b \iff \vec a\cdot \vec b = 0.\)
-  \item \textbf{Projection:}
-  \[
-    \text{scalar proj of }\vec a\text{ on }\vec b = \frac{\vec a\cdot \vec b}{|\vec b|},\quad
-    \text{vector proj} = \frac{\vec a\cdot \vec b}{|\vec b|^2}\,\vec b.
-  \]
-  \item \textbf{Cross product magnitude:}
-  \[
-    |\vec a\times \vec b| = |\vec a||\vec b|\sin\theta.
-  \]
-  \item \textbf{Cross product (determinant form):}
-  \[
-    \vec a\times \vec b =
-    \begin{vmatrix}
-      \hat i & \hat j & \hat k\\
-      a_x & a_y & a_z\\
-      b_x & b_y & b_z
-    \end{vmatrix}.
-  \]
-  \item \textbf{Direction ratios/cosines:} if DRs are \((l,m,n)\), then DCs are
-  \[
-    \left(\frac{l}{\sqrt{l^2+m^2+n^2}},\frac{m}{\sqrt{l^2+m^2+n^2}},\frac{n}{\sqrt{l^2+m^2+n^2}}\right),
-    \quad l^2+m^2+n^2=1\text{ for DCs}.
-  \]
-  \item \textbf{Angle between vectors:}
-  \[
-    \cos\theta=\frac{\vec a\cdot \vec b}{|\vec a||\vec b|}.
-  \]
-  \item \textbf{Multiple-angle tools (useful for \(\cos 6\alpha\) style):}
-  \[
-    \cos 2\theta = 2\cos^2\theta - 1,\quad
-    \cos 3\theta = 4\cos^3\theta - 3\cos\theta,
-  \]
-  \[
-    \cos 6\theta = 2\cos^2 3\theta - 1 = 32\cos^6\theta - 48\cos^4\theta + 18\cos^2\theta - 1.
-  \]
+  \item \textbf{Enolate formation (base):} \(\ce{R-CO-CH2-R' + OH^- <=> R-CO-CH^- -R' + H2O}\) (rate/extent depends on acidity and base strength).
+  \item \textbf{Aldol addition (general):} \(\ce{Enolate + C=O -> \beta\text{-}hydroxy\ carbonyl}\).
+  \item \textbf{Aldol condensation (dehydration):} \(\beta\)-hydroxy carbonyl \(\xrightarrow[\Delta]{\text{base or acid}}\) \(\alpha,\beta\)-unsaturated carbonyl \(+\ce{H2O}\).
+  \item \textbf{Cannizzaro (self):} \(2\,\ce{RCHO} + \ce{OH^-} \rightarrow \ce{RCH2OH} + \ce{RCOO^-}\) (then \(\ce{H3O^+}\) workup gives \(\ce{RCOOH}\)).
+  \item \textbf{Cannizzaro (cross, key special case):} \(\ce{HCHO}\) is the best hydride donor; with another non-enolizable aldehyde \(\ce{RCHO}\): \(\ce{RCHO -> RCH2OH}\) and \(\ce{HCHO -> HCOO^-}\).
+  \item \textbf{Eligibility rule (fast):} Cannizzaro needs aldehyde \(\ce{RCHO}\) with \(\alpha\)-carbon having \(\textbf{no H}\). Ketones generally do \emph{not} Cannizzaro.
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item \(\pi\) radians \(=180^\circ\).
-  \item Unit vectors: \(\hat i,\hat j,\hat k\) along \(x,y,z\) axes.
+  \item Typical base conditions: concentrated \(\ce{NaOH}\) or \(\ce{KOH}\) for Cannizzaro; dilute base often used for aldol \emph{addition} control.
+  \item Common workup: \(\ce{H3O^+}\) converts \(\ce{-COO^-}\) to \(\ce{-COOH}\).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Coordinates carry a length unit; dot product has \((\text{length})^2\); cross product magnitude has \((\text{length})^2\).
-  \item Angles are unitless; ensure you do not mix degrees and radians.
+  \item Not unit-heavy; main trap is \textbf{stoichiometry}: Cannizzaro consumes \(\textbf{2 mol aldehyde}\) per \(\textbf{1 mol alcohol}\) formed (self-reaction).
+  \item For cross-Cannizzaro with formaldehyde: count each aldehyde separately; base is catalytic but must be present strongly.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Convert geometric statements into vectors (direction vectors, normals).
-  \item Use \(\cdot\) for angles/perpendicularity; use \(\times\) for normals/areas.
-  \item Normalize only at the end (avoid early messy radicals).
-  \item For trig sums like \(\cos 6\alpha+\cos 6\beta+\cos 6\gamma\), rewrite using \(\cos 3\alpha\) and \(l^2+m^2+n^2=1\).
+  \item Identify carbonyl type(s): aldehyde vs ketone; check for \(\alpha\)-H next to \(-CHO\).
+  \item If aldehyde has \(\alpha\)-H: expect aldol/related enolate pathways under base.
+  \item If aldehyde has no \(\alpha\)-H: expect Cannizzaro under strong base.
+  \item For polyaldehydes: assign some \(-CHO \rightarrow -CH_2OH\) and some \(-CHO \rightarrow -COO^-\) (often on same ring).
+  \item Apply workup (\(\ce{H3O^+}\) if present) to convert salts to acids.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Dropping absolute value in angle formulas (cos uses magnitude).
-  \item Confusing direction ratios with direction cosines.
-  \item Mixing radians and degrees (the oldest trap in the book).
+  \item Assuming aldehydes \emph{with} \(\alpha\)-H do Cannizzaro (it is the opposite).
+  \item Forgetting that self-Cannizzaro needs \(\textbf{2 equivalents}\) of the aldehyde.
+  \item Confusing aldol \(\beta\)-hydroxy product (addition) with dehydrated enone (condensation) without checking \(\Delta\) or conditions.
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Dot:  a · b = |a||b|cosθ  (alignment meter)
-Cross: a × b  ⟂ to both, magnitude = area of parallelogram
+Aldol (simplified):
+  O                 O-
+  ||    base        |
+R-C-CH2-R'  ->  R-C-CH-R'   (enolate)
+                    |
+                    attacks another C=O -> beta-hydroxy carbonyl
+
+Cannizzaro (key idea: hydride transfer):
+  R-CHO   +   R-CHO   + OH-  ->  R-CH2OH  +  R-COO-
+          (one reduced)         (one oxidized)
 \end{verbatim}
 
 % -------------------------
 % Module B
 % -------------------------
-\section*{\textbf{Module B: 3D Lines (Forms, Parallel/Perpendicular, Distances)}}
+\section*{\textbf{Module B: Carbonyl \& Carboxylic Acid Interconversions (Ox/Red, Derivatives, Protecting Groups)}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item A line is determined by a \textbf{point} and a \textbf{direction vector}.
-  \item \textbf{Skew lines} (non-parallel, non-intersecting) need vector methods for distance.
-  \item \textbf{Foot of perpendicular} comes from projection/orthogonality conditions.
+  \item Oxidation ladder and derivative interconversion enable multi-step synthesis: alkylbenzene \(\rightarrow\) benzoic acid; acid \(\leftrightarrow\) acyl chloride \(\rightarrow\) aldehyde.
+  \item Selective reduction to aldehydes: Rosenmund (acyl chloride \(\rightarrow\) aldehyde), DIBAL-H (ester/nitrile \(\rightarrow\) aldehyde under controlled conditions).
+  \item Strong oxidants over-oxidize primary alcohols/aldehydes \(\rightarrow\) acids (important trap).
+  \item Protecting groups: acetals protect aldehydes/ketones from base/nucleophiles; acid hydrolysis regenerates carbonyl.
+  \item Organometallic: Grignard + \(\ce{CO2}\) gives carboxylic acids after workup.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Vector/parametric form:} \(\vec r=\vec r_0 + t\vec d\).
-  \item \textbf{Cartesian form:} \(\dfrac{x-x_0}{l}=\dfrac{y-y_0}{m}=\dfrac{z-z_0}{n}\) (direction ratios \((l,m,n)\)).
-  \item \textbf{Parallel lines:} \(\vec d_1 \parallel \vec d_2 \iff \vec d_1\times \vec d_2=\vec 0.\)
-  \item \textbf{Perpendicular lines:} \(\vec d_1\perp \vec d_2 \iff \vec d_1\cdot \vec d_2=0.\)
-  \item \textbf{Shortest distance between skew lines}
-  \[
-    L_1:\vec r=\vec a+t\vec d_1,\quad L_2:\vec r=\vec b+u\vec d_2
-  \]
-  \[
-    \text{S.D.}=\frac{|(\vec b-\vec a)\cdot(\vec d_1\times \vec d_2)|}{|\vec d_1\times \vec d_2|}\quad (\vec d_1\times \vec d_2\neq 0).
-  \]
-  \item \textbf{Condition for intersection (non-parallel):} solve \(\vec a+t\vec d_1=\vec b+u\vec d_2\).
-  \item \textbf{Foot of perpendicular from point \(P\) to line \(L\):}
-  \[
-    L:\vec r=\vec a+t\vec d,\quad \text{foot }F=\vec a+t_0\vec d,
-  \]
-  \[
-    (\vec P-\vec F)\cdot \vec d=0 \ \Rightarrow\ t_0=\frac{(\vec P-\vec a)\cdot \vec d}{|\vec d|^2}.
-  \]
-  \item \textbf{Distance from point \(P\) to line \(L\):}
-  \[
-    d(P,L)=\frac{|(\vec P-\vec a)\times \vec d|}{|\vec d|}.
-  \]
+  \item \textbf{Benzylic side-chain oxidation:} \(\ce{Ar-CH3/CH2R ->[KMnO4,\ OH^-,\ \Delta][H3O^+] Ar-COOH}\) (requires at least one benzylic H).
+  \item \textbf{Acid \(\rightarrow\) acyl chloride:} \(\ce{RCOOH + SOCl2 -> RCOCl + SO2 + HCl}\).
+  \item \textbf{Rosenmund reduction:} \(\ce{RCOCl ->[H2,\ Pd/BaSO4] RCHO}\) (poisoned catalyst limits over-reduction).
+  \item \textbf{DIBAL-H (controlled):}
+    \begin{itemize}[leftmargin=*]
+      \item \(\ce{RCOOR' ->[1\ eq\ DIBAL-H,\ -78^{\circ}C][H2O] RCHO}\)
+      \item \(\ce{RCN ->[DIBAL-H][H2O] RCHO}\) (careful control; excess/warmer can go further).
+    \end{itemize}
+  \item \textbf{Jones/Chromic acid oxidation (typical outcomes):}
+    \begin{itemize}[leftmargin=*]
+      \item \(\ce{1^{\circ}\ alcohol ->[Cr(VI),\ H2SO4] carboxylic\ acid}\)
+      \item \(\ce{2^{\circ}\ alcohol ->[Cr(VI)] ketone}\)
+      \item \(\ce{aldehyde ->[Cr(VI)] carboxylic\ acid}\)
+    \end{itemize}
+  \item \textbf{Hydrolysis of derivatives:}
+    \begin{itemize}[leftmargin=*]
+      \item \(\ce{RCOCl + H2O -> RCOOH + HCl}\) (very fast)
+      \item \(\ce{RCOOR' ->[OH^-] RCOO^- + R'OH;\ [H3O^+] RCOOH}\)
+      \item \(\ce{RCN ->[H3O^+,\ \Delta] RCOOH}\) or \(\ce{RCN ->[OH^-,\ \Delta] RCOO^-}\)
+    \end{itemize}
+  \item \textbf{Grignard carboxylation:} \(\ce{RMgX + CO2 -> RCOO^-MgX ->[H3O^+] RCOOH}\).
+  \item \textbf{Acetal protection (conceptual):} \(\ce{RCHO + 2ROH <=>[H^+] RCH(OR)2 + H2O}\) (acidic); deprotect \(\ce{RCH(OR)2 ->[H3O^+] RCHO}\).
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None beyond standard vector operations.
+  \item Typical oxidant identifiers: \(\ce{KMnO4}\) (strong), \(\ce{H2CrO4}\)/\(\ce{Na2Cr2O7,H2SO4}\) (Jones).
+  \item Rosenmund catalyst: \(\ce{Pd/BaSO4}\) (poisoned Pd).
+  \item DIBAL-H is \(\ce{(i\text{-}Bu)2AlH}\) (selective at low temperature, \(\sim 1\) equivalent for aldehyde stop).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Distances have same unit as coordinates.
-  \item Cross-product numerator in distance formulas has \((\text{length})^2\); divide by \(|\vec d|\) to return length.
+  \item Track \textbf{equivalents} (especially DIBAL-H): \(1\) eq at low \(T\) aims for aldehyde; excess often leads to alcohol.
+  \item Oxidation state check: aldehyde \(\rightarrow\) acid is a \(2e^{-}\) oxidation; primary alcohol \(\rightarrow\) acid is \(4e^{-}\) overall.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Rewrite each line as \(\vec r=\vec a+t\vec d\).
-  \item For shortest distance, compute \(\vec d_1\times\vec d_2\) and apply the triple-product formula.
-  \item For feet/perpendiculars, use dot-product orthogonality.
-  \item For division by a coordinate plane (e.g., \(x=0\)), use section formula on endpoints.
+  \item Identify functional group: acid, acyl chloride, ester, nitrile, aldehyde, alcohol, protected carbonyl.
+  \item Choose the \textbf{mildest} reagent that achieves the target without overreaction.
+  \item For aldehyde as target: prefer Rosenmund (from acyl chloride) or DIBAL-H (from ester/nitrile) with tight control.
+  \item For benzylic oxidation: ensure benzylic H exists; then \(\ce{KMnO4}\) gives \(\ce{ArCOOH}\).
+  \item For Grignard: ensure no protic groups; add \(\ce{CO2}\), then acidic workup.
+  \item If an acetal is present: expect stability in base; plan acid deprotection to reveal aldehyde.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Using skew-line distance formula when lines are parallel (\(\vec d_1\times\vec d_2=0\)).
-  \item Forgetting \(\pm\) sign conventions in ratios (directed division).
+  \item Expecting Jones oxidation to stop at aldehyde for primary alcohols (it usually goes to acid).
+  \item Forgetting \(\ce{SOCl2}\) produces gaseous byproducts; reaction driven by loss of \(\ce{SO2}\) and \(\ce{HCl}\).
+  \item Using DIBAL-H without temperature/stoichiometry control and accidentally reducing to alcohol.
+  \item Missing that \(\ce{KMnO4}\) side-chain oxidation needs at least one benzylic hydrogen.
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Skew lines:  L1  ///////      L2  \\\\\\\
-Common perpendicular direction = d1 × d2
+RCOOH --SOCl2--> RCOCl --H2/Pd-BaSO4--> RCHO
+RCOOR' --DIBAL(-78°C,1eq)--> RCHO
+RMgX --CO2--> RCOO(-) --H3O+--> RCOOH
 \end{verbatim}
 
 % -------------------------
 % Module C
 % -------------------------
-\section*{\textbf{Module C: 3D Planes (Equations, Families, Angles, Rotation, Intercepts)}}
+\section*{\textbf{Module C: Key Organic Qualitative Tests \& Reagent Compositions}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item Plane is determined by a \textbf{point} and a \textbf{normal}, or by \textbf{three non-collinear points}.
-  \item \textbf{Family of planes through intersection of two planes} is a standard JEE weapon.
-  \item \textbf{Angle between planes} comes from angle between their normals.
-  \item Rotations about a fixed line often reduce to: \textbf{planes through same line} + \textbf{angle condition}.
+  \item Use tests to detect functional groups: carbonyls, alcohols/phenols, C=C, aldehydes vs ketones, methyl ketones.
+  \item Many questions reduce to: \textbf{test outcome} \(\Rightarrow\) \textbf{functional group present/absent}.
+  \item Learn the \textbf{minimum set}: 2,4-DNP, \(\ce{Na}\) metal, \(\ce{Br2/CCl4}\), neutral \(\ce{FeCl3}\), Tollens, Fehling, iodoform.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Normal form:} \(\vec n\cdot(\vec r-\vec r_0)=0\).
-  \item \textbf{Cartesian:} \(ax+by+cz+d=0\) with normal \(\vec n=(a,b,c)\).
-  \item \textbf{Plane through 3 points \(A,B,C\):}
-  \[
-    \vec n=(\overrightarrow{AB})\times(\overrightarrow{AC}),\quad \vec n\cdot(\vec r-\vec r_A)=0.
-  \]
-  \item \textbf{Plane through line joining two points \(U,V\) and a third point \(P\):}
-  \[
-    \vec n=(\overrightarrow{UV})\times(\overrightarrow{UP}),\quad \vec n\cdot(\vec r-\vec r_U)=0.
-  \]
-  \item \textbf{Intercept form (when intercepts exist):}
-  \[
-    \frac{x}{a}+\frac{y}{b}+\frac{z}{c}=1,\quad \text{intercepts }=a,b,c.
-  \]
-  \item \textbf{Plane through intersection of planes \(P_1=0\) and \(P_2=0\):}
-  \[
-    P_1+\lambda P_2=0\quad(\lambda\in\mathbb R).
-  \]
-  \item \textbf{Angle between planes \(a_1x+b_1y+c_1z+d_1=0\) and \(a_2x+b_2y+c_2z+d_2=0\):}
-  \[
-    \cos\theta=\frac{|a_1a_2+b_1b_2+c_1c_2|}{\sqrt{a_1^2+b_1^2+c_1^2}\ \sqrt{a_2^2+b_2^2+c_2^2}}.
-  \]
-  \item \textbf{Plane parallel to a direction \(\vec v\):} \(\vec n\cdot \vec v=0\) (direction lies in plane).
-  \item \textbf{Three planes intersect in a line (common line):} their normals are linearly dependent:
-  \[
-    \det\begin{pmatrix}
-      a_1 & b_1 & c_1\\
-      a_2 & b_2 & c_2\\
-      a_3 & b_3 & c_3
-    \end{pmatrix}=0.
-  \]
-  \item \textbf{Rotation about the line of intersection with \(z=0\) (common pattern):}
-  if initial plane is \(ax+by=0\) and rotated plane is \(ax+by+cz=0\), then axis direction is \((b,-a,0)\).
-  Since both normals are \(\perp\) to axis, the dihedral angle \(\alpha\) satisfies
-  \[
-    \cos\alpha=\frac{(a,b,0)\cdot(a,b,c)}{\sqrt{a^2+b^2}\sqrt{a^2+b^2+c^2}}
-    =\frac{\sqrt{a^2+b^2}}{\sqrt{a^2+b^2+c^2}}
-    \Rightarrow c=\pm \sqrt{a^2+b^2}\tan\alpha.
-  \]
+  \item \textbf{2,4-DNP (Brady's test):} aldehyde/ketone \(\Rightarrow\) yellow/orange precipitate (hydrazone formation).
+  \item \textbf{\(\ce{Br2/CCl4}\):} alkene/alkyne \(\Rightarrow\) decolourisation (addition); aromatic ring alone typically does not decolourise without catalyst.
+  \item \textbf{Neutral \(\ce{FeCl3}\):} phenols and many enols/\(\beta\)-dicarbonyl enol forms \(\Rightarrow\) coloured complex.
+  \item \textbf{Sodium metal test:} alcohols/phenols/acids \(\Rightarrow\) \(\ce{H2}\) gas (effervescence); ethers do not.
+  \item \textbf{Tollens' reagent:} \(\ce{[Ag(NH3)2]^+}\) oxidizes aldehydes \(\Rightarrow\) silver mirror; aldehyde \(\rightarrow\) carboxylate.
+  \item \textbf{Fehling's test:} aliphatic aldehydes reduce \(\ce{Cu^{2+}}\) \(\Rightarrow\) brick-red \(\ce{Cu2O}\) precipitate (many aromatic aldehydes are negative).
+  \item \textbf{Iodoform test:} yellow \(\ce{CHI3}\) precipitate for:
+    \begin{itemize}[leftmargin=*]
+      \item methyl ketones \(\ce{RCOCH3}\),
+      \item secondary alcohols of type \(\ce{R-CH(OH)-CH3}\) (oxidize to methyl ketone),
+      \item ethanol/ethanal (special case).
+    \end{itemize}
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None; only coordinate geometry.
+  \item \textbf{Fehling's reagent composition:} aqueous \(\ce{CuSO4}\) + \textbf{alkaline} sodium potassium tartrate (Rochelle salt) (with \(\ce{NaOH/KOH}\)).
+  \item \textbf{Tollens' reagent:} freshly prepared ammoniacal \(\ce{AgNO3}\) giving \(\ce{[Ag(NH3)2]^+}\).
+  \item \textbf{Iodoform conditions:} \(\ce{I2/NaOH}\) (or hypoiodite \(\ce{NaOI}\)).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item In \(ax+by+cz+d=0\), if \(x,y,z\) are lengths, then \(d\) has same unit as \(ax\).
-  \item Intercepts \(a,b,c\) have length units.
+  \item Not unit-heavy; main trap is \textbf{false negatives}: aromatic aldehydes often negative with Fehling but positive with Tollens.
+  \item Different solvents: \(\ce{Br2/CCl4}\) is for unsaturation in non-aqueous medium; aqueous bromine behaves differently.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Build the plane family (through intersection line) using \(P_1+\lambda P_2=0\).
-  \item Impose extra condition: passes through point / parallel to line / angle with another plane.
-  \item For intercept questions, convert to intercept form and compute required sums.
-  \item For common-line of three planes, use determinant \(=0\) to get parameter count.
+  \item If 2,4-DNP positive \(\Rightarrow\) carbonyl (aldehyde/ketone) present.
+  \item If \(\ce{Na}\) metal reacts \(\Rightarrow\) protic group (alcohol/phenol/acid); if no reaction \(\Rightarrow\) likely ether/carbonyl without \(-OH\).
+  \item If \(\ce{Br2/CCl4}\) decolourises \(\Rightarrow\) C=C/C\(\equiv\)C present.
+  \item If neutral \(\ce{FeCl3}\) gives colour \(\Rightarrow\) phenolic/enolic \(-OH\) (often resonance-stabilized).
+  \item For aldehyde confirmation: Tollens \(>\) Fehling for aromatic cases.
+  \item For methyl-ketone/related alcohol: iodoform test.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Using angle between planes formula without absolute value (cos must be nonnegative here).
-  \item Assuming a unique plane when actually a \textbf{family} exists (planes through a line).
+  \item Treating Fehling as a universal aldehyde test (it is not).
+  \item Assuming 2,4-DNP detects acids/esters (it primarily detects aldehydes/ketones).
+  \item Forgetting iodoform test excludes \(\ce{1^{\circ}}\) alcohols like \(\ce{CH3CH2CH2OH}\) (unless it is ethanol).
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Plane normal n
-      ^
-      |
-------|------  plane
+Iodoform "motif":
+  R-CO-CH3   or   R-CH(OH)-CH3  -->  CHI3 (yellow ppt)
+
+Fehling:
+  Cu2+ (blue)  -->  Cu2O (brick red)
 \end{verbatim}
 
 % -------------------------
 % Module D
 % -------------------------
-\section*{\textbf{Module D: Line--Plane Interaction \& Projection (Intersection lines, Projection of a line)}}
+\section*{\textbf{Module D: Acidity Trends (Carboxylic Acids, Phenols, Hydrohalic \& Oxyacids)}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Line of intersection of planes} is found via normals and a point satisfying both.
-  \item \textbf{Projection of a line onto a plane} preserves direction as the line's direction projected onto the plane.
-  \item Planes through intersection line + direction constraints solve many JEE mixed questions.
+  \item Acid strength increases when the conjugate base is stabilized (by \(-I\), resonance, high electronegativity, oxidation state effects, and solvation).
+  \item \textbf{Carboxylic acids} are generally stronger than \textbf{phenols} due to resonance-stabilized carboxylate.
+  \item \(-I\) groups (e.g., \(\ce{Cl}\), \(\ce{NO2}\)) increase acidity; effect \textbf{decreases with distance}.
+  \item In hydrohalic acids: bond strength and size dominate in water: \(\ce{HF < HCl < HBr < HI}\).
+  \item In oxyacids of same central atom: more oxygens (higher oxidation state) \(\Rightarrow\) stronger acid: \(\ce{HOCl < HClO2 < HClO3 < HClO4}\).
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Direction of intersection line} of planes with normals \(\vec n_1,\vec n_2\):
-  \[
-    \vec d = \vec n_1\times \vec n_2.
-  \]
-  \item \textbf{Projection of a vector \(\vec d\) on plane with normal \(\vec n\):}
-  \[
-    \vec d_{\parallel} = \vec d - \frac{\vec d\cdot \vec n}{|\vec n|^2}\vec n.
-  \]
-  \item \textbf{Projection of line \(L\) onto plane \(\Pi\):}
-  \begin{itemize}[leftmargin=*]
-    \item Take one point \(A\) on \(L\), drop perpendicular to \(\Pi\) to get \(A'\).
-    \item Direction of projected line is \(\vec d_{\parallel}\) (projection of line direction onto \(\Pi\)).
-  \end{itemize}
-  \item \textbf{Line given as intersection of two planes:}
-  \[
-    \Pi_1=0,\ \Pi_2=0 \Rightarrow \text{line direction } \vec d = \vec n_1\times \vec n_2.
-  \]
+  \item \textbf{Definition:} \(K_a = \dfrac{[\ce{H3O^+}][\ce{A^-}]}{[\ce{HA}]}\), \(pK_a = -\log K_a\) (lower \(pK_a\) \(\Rightarrow\) stronger acid).
+  \item \textbf{Inductive distance rule (qualitative):} \(-I\) effect \(\propto \dfrac{1}{\text{distance}}\) along \(\sigma\)-bonds (rapidly decays after a few carbons).
+  \item \textbf{Resonance stabilization:}
+    \begin{itemize}[leftmargin=*]
+      \item Carboxylate: charge delocalized over two O atoms.
+      \item Phenoxide: charge delocalized into ring but less stabilized than carboxylate.
+    \end{itemize}
+  \item \textbf{Ortho effect (often used qualitatively):} ortho-substituted benzoic acids can show higher acidity due to field/steric/solvation effects; for exam-level ordering, prioritize strong \(-I/-M\) and proximity.
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None.
+  \item Typical \(pK_a\) (aqueous, approximate): formic \(\sim 3.75\), acetic \(\sim 4.76\), chloroacetic \(\sim 2.9\), benzoic \(\sim 4.2\), phenol \(\sim 10\).
+  \item Hydrohalic trend in water: \(\ce{HF}\) weakest, \(\ce{HI}\) strongest.
+  \item Oxyacid trend (chlorine series): \(\ce{HOCl < HClO2 < HClO3 < HClO4}\).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Projection keeps vector units unchanged.
-  \item Always check \(\vec d_{\parallel}\) is not \(\vec 0\) (line not perpendicular to plane).
+  \item \(K_a\) is dimensionless in standard-state convention; \(pK_a\) has no units.
+  \item When comparing, ensure you are comparing under the same solvent conditions (implicit: aqueous).
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Convert line to direction vector \(\vec d\); convert plane to normal \(\vec n\).
-  \item For intersection line of planes: compute \(\vec n_1\times\vec n_2\) and find a point.
-  \item For projection: find projected point and projected direction, then write line equation.
+  \item Identify the acidic proton source (carboxylic acid vs phenol vs mineral oxyacid vs hydrohalic).
+  \item Stabilization check: add resonance contributors and assess \(-I\)/\(-M\) groups.
+  \item For substituted carboxylic acids: closer halogen/\(\ce{NO2}\) \(\Rightarrow\) stronger acid; branching near \(\ce{-COOH}\) can donate by \(+I\) and weaken acidity.
+  \item For hydrohalic acids: larger halide \(\Rightarrow\) stronger (bond weaker, anion stabilized).
+  \item For oxyacids: more \(=O\) groups \(\Rightarrow\) stronger (greater \(-I\) and conjugate base delocalization).
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Projecting the normal instead of the line direction.
-  \item Forgetting that the projection line must lie entirely in the target plane.
+  \item Forgetting inductive effect decays with distance (e.g., \(\beta\)- vs \(\gamma\)-chloro acids).
+  \item Treating phenols as stronger than carboxylic acids (generally false).
+  \item Reversing hydrohalic trend by electronegativity alone (aqueous acidity follows \(\ce{HF < HCl < HBr < HI}\)).
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Line L above plane Π:
-   P •
-     |⊥
-   P'•-------> projected line in Π
+Distance effect:
+  Cl-CH2-COOH (stronger)  >  Cl-CH2-CH2-COOH (weaker)  >  Cl-CH2-CH2-CH2-COOH (even weaker)
+
+Oxyacids:
+  HO-Cl(=O)n : increasing n increases acidity
 \end{verbatim}
 
 % -------------------------
 % Module E
 % -------------------------
-\section*{\textbf{Module E: Point--Plane Operations (Distance, Foot, Reflection, Images)}}
+\section*{\textbf{Module E: Aromatic Transformations (EAS, Reductions, Diazotization, Acylation, Bromination)}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item Distance/foot/image are all the same idea: move along the \textbf{plane normal}.
-  \item Reflection in plane preserves perpendicular distance and flips side.
-  \item Side test uses sign of plane expression.
+  \item Electrophilic aromatic substitution (EAS) governs nitration/sulfonation patterns via directing effects.
+  \item Nitro \(\rightarrow\) amine reduction enables downstream acylation (amide formation) and high activation for bromination.
+  \item Diazotization of aromatic amines gives diazonium salts, enabling substitution/hydrolysis to phenols.
+  \item Sulfonation can act as a temporary blocking group (introduce then remove).
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Distance from point \(P(x_1,y_1,z_1)\) to plane \(ax+by+cz+d=0\):}
-  \[
-    d=\frac{|ax_1+by_1+cz_1+d|}{\sqrt{a^2+b^2+c^2}}.
-  \]
-  \item \textbf{Side of plane:} points \(P,Q\) are on same side iff
-  \[
-    (a x_P+b y_P+c z_P+d)(a x_Q+b y_Q+c z_Q+d)>0.
-  \]
-  \item \textbf{Foot of perpendicular from \(P\) to plane \(ax+by+cz+d=0\):}
-  \[
-    F = P - \frac{a x_P+b y_P+c z_P+d}{a^2+b^2+c^2}\,(a,b,c).
-  \]
-  \item \textbf{Image (reflection) of \(P\) in the plane:}
-  \[
-    P' = P - 2\frac{a x_P+b y_P+c z_P+d}{a^2+b^2+c^2}\,(a,b,c).
-  \]
-  \item \textbf{Perpendicular distance between parallel planes}
-  \[
-    ax+by+cz+d_1=0,\quad ax+by+cz+d_2=0:
-    \quad d=\frac{|d_1-d_2|}{\sqrt{a^2+b^2+c^2}}.
-  \]
+  \item \textbf{Nitration:} \(\ce{Ar-H ->[conc.\ HNO3/conc.\ H2SO4] Ar-NO2}\) (electrophile \(\ce{NO2^+}\)).
+  \item \textbf{Sulfonation:} \(\ce{Ar-H <=>[conc.\ H2SO4,\ \Delta] Ar-SO3H}\) (reversible; can be removed with hot dilute acid/water depending on conditions).
+  \item \textbf{Nitro reduction (common):} \(\ce{Ar-NO2 ->[Sn/HCl\ or\ H2/Pd] Ar-NH2}\).
+  \item \textbf{Acylation of amine (protect/derivatize):} \(\ce{Ar-NH2 + (CH3CO)2O -> Ar-NHCOCH3 + CH3COOH}\) or \(\ce{CH3COCl}\) similarly.
+  \item \textbf{Diazotization \& hydrolysis:}
+    \[
+      \ce{Ar-NH2 ->[NaNO2/HCl,\ 0{-}5^{\circ}C] Ar-N2^+Cl^- ->[H2O,\ \Delta] Ar-OH}
+    \]
+  \item \textbf{Bromination of strongly activated rings (e.g., anilines):} often gives polybromination; controlling conditions (solvent/acidity) matters.
+  \item \textbf{Directing effects (core):}
+    \begin{itemize}[leftmargin=*]
+      \item Activating \(o/p\): \(\ce{-OH}\), \(\ce{-OR}\), \(\ce{-NH2}\), \(\ce{-NHR}\), \(\ce{-NR2}\).
+      \item Deactivating meta: \(\ce{-CHO}\), \(\ce{-COR}\), \(\ce{-COOH}\), \(\ce{-COOR}\), \(\ce{-SO3H}\), \(\ce{-NO2}\), \(\ce{-CN}\).
+    \end{itemize}
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None.
+  \item Diazotization temperature window: \(\sim 0{-}5^{\circ}\text{C}\) (stability of diazonium salts).
+  \item Nitration mixture: conc. \(\ce{HNO3/H2SO4}\) generates \(\ce{NO2^+}\).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item In foot/image formulas, the scalar factor is dimensionless; displacement is along \((a,b,c)\) scaled appropriately.
+  \item Temperature is a control parameter (especially diazotization); track in \(^\circ\text{C}\) or K consistently.
+  \item In multi-step aromatic sequences, atom count checks (C/H/N/O) help verify substitutions vs oxidations.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Compute \(S=ax_1+by_1+cz_1+d\).
-  \item Distance: \(|S|/\sqrt{a^2+b^2+c^2}\).
-  \item Foot: subtract \(\dfrac{S}{a^2+b^2+c^2}(a,b,c)\).
-  \item Image: subtract \(\dfrac{2S}{a^2+b^2+c^2}(a,b,c)\).
+  \item Mark current ring substituents and their directing effects (activate/deactivate; \(o/p\) vs meta).
+  \item For sequences, apply transformations one-by-one: reduce \(\ce{-NO2}\) to \(\ce{-NH2}\), then optionally acylate to control activation.
+  \item Use sulfonation as a reversible block if a later nitration needs positional control.
+  \item If diazonium appears: decide the fate (hydrolysis to phenol, substitution, etc.).
+  \item For bromination: anticipate multiple substitution on highly activated rings unless protected/deactivated.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Forgetting the factor \(2\) in reflection (image).
-  \item Not using absolute value in distance.
+  \item Forgetting \(\ce{-CO-}\) substituents are meta-directing (e.g., acetyl group on ring).
+  \item Attempting diazotization at warm temperatures (decomposition/side products).
+  \item Ignoring over-activation of aniline (often leads to rapid polybromination).
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-P •
-  \      n (normal)
-   \_____
-        | plane
-   _____/
-  /
-P'•   (reflection across plane)
+Meta-director example:
+  Ar-COCH3  directs incoming E+ to meta positions.
+
+Diazotization route:
+  Ar-NH2 -> Ar-N2+ -> Ar-OH (on hydrolysis)
 \end{verbatim}
 
 % -------------------------
 % Module F
 % -------------------------
-\section*{\textbf{Module F: Sphere \& Tetrahedron in 3D (Sphere form, radius, plane--sphere distance, volume)}}
+\section*{\textbf{Module F: Alkyne/Alkene Transformations (Hydration, Reduction, Dehydration, Ozonolysis)}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item Sphere problems reduce to \textbf{center} and \textbf{radius}.
-  \item Plane--sphere shortest distance is a clean \textbf{(center-to-plane distance)} minus \textbf{radius}.
-  \item Tetrahedron volume is a determinant/triple-product result.
+  \item Mercury-catalyzed hydration of alkynes gives enol \(\rightarrow\) ketone (tautomerization).
+  \item \(\ce{NaBH4}\) reduces aldehydes/ketones to alcohols (generally not acids/esters under standard conditions).
+  \item Dehydration of alcohols (acid-catalyzed) gives alkenes; ozonolysis cleaves alkenes to carbonyl fragments.
+  \item Symmetry/product identity checks: ozonolysis yielding only acetone implies a highly symmetric alkene precursor.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{General sphere:}
-  \[
-    x^2+y^2+z^2+2ux+2vy+2wz+d=0
-    \Rightarrow \text{center }(-u,-v,-w),\ r=\sqrt{u^2+v^2+w^2-d}.
-  \]
-  \item \textbf{Shortest distance from plane \(\Pi\) to sphere:}
-  \[
-    \text{let }D=\text{distance from center to plane},\quad
-    \text{shortest distance}=\max(0,\ D-r).
-  \]
-  \item \textbf{Volume of tetrahedron with vertices }A,B,C,D:
-  \[
-    V=\frac{1}{6}\left|\det\left[\overrightarrow{AB}\ \overrightarrow{AC}\ \overrightarrow{AD}\right]\right|
-    =\frac{1}{6}\left|(\overrightarrow{AB})\cdot((\overrightarrow{AC})\times(\overrightarrow{AD}))\right|.
-  \]
+  \item \textbf{Alkyne hydration (Markovnikov):} \(\ce{RC#CH ->[HgSO4,\ dil.\ H2SO4] R-CO-CH3}\) (terminal alkyne \(\rightarrow\) methyl ketone).
+  \item \textbf{Keto--enol tautomerism:} \(\ce{enol <=> ketone}\) (ketone usually favored).
+  \item \textbf{Carbonyl reduction:} \(\ce{R2C=O ->[NaBH4] R2CHOH}\).
+  \item \textbf{Alcohol dehydration:} \(\ce{R-CH2-CH(OH)-R' ->[conc.\ H2SO4,\ \Delta] R-CH=CH-R' + H2O}\).
+  \item \textbf{Ozonolysis (reductive workup):} \(\ce{RCH=CHR' ->[O3][Zn/H2O] RCHO + R'CHO}\) (or ketones depending on substitution).
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None.
+  \item Key reagents: \(\ce{HgSO4/dil.\ H2SO4}\) (hydration), \(\ce{NaBH4}\) (reduction), \(\ce{O3}\) then \(\ce{Zn/H2O}\) (reductive ozonolysis).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Sphere radius has length units.
-  \item Tetrahedron volume has \((\text{length})^3\); determinant gives \((\text{length})^3\).
+  \item Ensure correct molecular formula tracking when \(\ce{H2O}\) adds (hydration) and when \(\ce{H2O}\) leaves (dehydration).
+  \item Ozonolysis carbon balance: total carbons in products must equal carbons in alkene.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Complete squares to identify sphere center and \(r\).
-  \item Compute center-to-plane distance using Module E.
-  \item For tetrahedron, build vectors from one vertex and evaluate determinant/triple product.
+  \item For \(\ce{HgSO4/H2SO4}\) on alkynes: write Markovnikov enol then tautomerize to ketone.
+  \item Apply \(\ce{NaBH4}\): convert \(>\!C{=}O\) to \(>\!C{-}OH\).
+  \item Dehydrate alcohol: form the most substituted alkene consistent with mechanism (E1/E2-like under acid).
+  \item Ozonolysis: cut the double bond; assign each alkene carbon to a carbonyl carbon.
+  \item If only one carbonyl type appears, infer symmetry in the alkene.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Using \(D-r\) without \(\max(0,\cdot)\) when plane cuts the sphere.
-  \item Missing the factor \(1/6\) in tetrahedron volume.
+  \item Forgetting enol \(\rightarrow\) ketone tautomerization after hydration.
+  \item Treating \(\ce{NaBH4}\) as a reducer of carboxylic acids/esters under normal conditions.
+  \item Miscounting ozonolysis fragments (carbon balance error).
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Plane Π         Sphere (center C, radius r)
---------        (  C•  )
-   |D             r
-Distance(Π, sphere) = max(0, D - r)
+Ozonolysis "cut":
+  R1R2C=CR3R4  -->  R1R2C=O  +  O=CR3R4
 \end{verbatim}
 
 % -------------------------
 % Module G
 % -------------------------
-\section*{\textbf{Module G: Section/Ratio \& Point Geometry in 3D (Division points, angle bisector, triangle area)}}
+\section*{\textbf{Module G: IUPAC Naming of Polycarboxylic Acids}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item Many coordinate answers are just \textbf{section formula} in disguise.
-  \item Angle bisector point on a side uses the \textbf{Angle Bisector Theorem}.
-  \item Triangle area from vectors uses cross product.
+  \item Carboxylic acid has high priority; multiple \(\ce{-COOH}\) groups use suffixes like \textbf{dioic acid}, \textbf{tricarboxylic acid}, etc.
+  \item Choose the parent chain that includes the \textbf{maximum number of \(\ce{-COOH}\)} groups; then number to give lowest locants.
+  \item Additional \(\ce{-COOH}\) groups not in the main chain are named as \textbf{carboxy-} substituents.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Distance between points:}
-  \[
-    PQ=\sqrt{(x_2-x_1)^2+(y_2-y_1)^2+(z_2-z_1)^2}.
-  \]
-  \item \textbf{Internal division (section formula):}
-  if \(P\) divides \(A(x_1,y_1,z_1)\), \(B(x_2,y_2,z_2)\) in ratio \(m:n\) (i.e., \(AP:PB=m:n\)),
-  \[
-    P=\left(\frac{mx_2+nx_1}{m+n},\frac{my_2+ny_1}{m+n},\frac{mz_2+nz_1}{m+n}\right).
-  \]
-  \item \textbf{Directed division (sign-sensitive):} allow \(m,n\) negative for external division.
-  \item \textbf{Angle bisector theorem in \(\triangle ABC\):}
-  if bisector of \(\angle A\) meets \(BC\) at \(D\), then
-  \[
-    \frac{BD}{DC}=\frac{AB}{AC},
-  \]
-  hence apply section formula on segment \(BC\).
-  \item \textbf{Triangle area:}
-  \[
-    \text{Area}(\triangle PQR)=\frac{1}{2}\left|(\overrightarrow{PQ})\times(\overrightarrow{PR})\right|,
-    \quad \text{so } \left(\text{Area}\right)^2=\frac{1}{4}\left|(\overrightarrow{PQ})\times(\overrightarrow{PR})\right|^2.
-  \]
-  \item \textbf{Intersection of two segments \(P+t(Q-P)\) and \(R+u(S-R)\):} solve for \(t,u\) and then substitute.
+  \item \textbf{Suffix patterns:}
+    \begin{itemize}[leftmargin=*]
+      \item Two acids on chain ends: \(\text{alkane-}1,n\text{-dioic acid}\).
+      \item Three acids on same skeleton: \(\text{alkanetricarboxylic acid}\) or \(\text{carboxy-}\) substituted dioic acid (depending on chosen parent).
+    \end{itemize}
+  \item \textbf{Numbering rule:} assign numbers so that principal functional group locants are minimized first; then substituents.
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None.
+  \item Root chain names: methane, ethane, propane, butane, pentane, hexane, \dots
+  \item Multipliers: di-, tri-, tetra-.
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Ratios \(m:n\) are unitless; computed coordinates keep coordinate units.
-  \item Area has \((\text{length})^2\); squared area has \((\text{length})^4\).
+  \item Not unit-based; correctness check is structural: carbon count in parent + substituents must match drawn structure.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item For any ``point divides segment'' question: write ratio \(\to\) section formula.
-  \item For angle bisector: compute \(AB,AC\) (distances) \(\to BD:DC\) \(\to\) section on \(BC\).
-  \item For triangle area: compute two side vectors from same vertex and cross them.
+  \item Identify all \(\ce{-COOH}\) groups and decide whether they lie on a single continuous chain.
+  \item Pick the parent chain containing the maximum \(\ce{-COOH}\) groups.
+  \item Number the chain to give the lowest locants to the acid groups.
+  \item Name remaining \(\ce{-COOH}\) as \textbf{carboxy-} substituents with locants.
+  \item Assemble full name with commas and hyphens correctly.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Swapping \(m,n\) (remember: coefficient on \(x_2\) corresponds to segment portion toward \(B\)).
-  \item Forgetting external division uses signed ratios.
+  \item Choosing a longer carbon chain that contains fewer \(\ce{-COOH}\) groups (wrong priority).
+  \item Mislabeling extra \(\ce{-COOH}\) as \(\text{-oic acid}\) when it must be \textbf{carboxy-} substituent.
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-B •-----• D -----• C
-     BD      DC
-Angle bisector at A gives  BD/DC = AB/AC
+If HOOC-CH2-CH(-COOH)-CH2-CH2-COOH:
+Pick chain including two COOH as dioic acid backbone,
+the extra COOH becomes "carboxy-" substituent.
 \end{verbatim}
 
 % -------------------------
 % Module H
 % -------------------------
-\section*{\textbf{Module H: Optimization with Variable Planes Through a Line (Max--min distance setups)}}
+\section*{\textbf{Module H: Solvolysis (SN1) of Benzylic/Tertiary Halides in Aqueous Media}}
 \subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item If a plane \(\Pi\) varies but must contain a fixed line \(l_1\), then its normal \(\vec n\) must satisfy \(\vec n\cdot \vec d_1=0\) where \(\vec d_1\) is direction of \(l_1\).
-  \item Distance from a point (or a line) to \(\Pi\) often becomes an expression in \(\vec n\) that can be optimized using \textbf{projection/Cauchy--Schwarz}.
-  \item ``Maximize the minimum distance'' usually means: choose \(\Pi\) to be \textbf{perpendicular to the common perpendicular direction} between objects.
+  \item In polar protic/aqueous solvents, tertiary/benzylic halides often undergo \textbf{SN1} via carbocations.
+  \item Product mixtures arise from rearrangements, competing nucleophiles (water/acetone), and stereochemical scrambling.
+  \item Hydrolysis in aqueous acetone typically means \textbf{solvolysis}: solvent participates; rate depends on carbocation stability.
 \end{itemize}
 
 \subsection*{\textbf{2) Formula bank}}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{Plane containing a given line \(l_1:\ \vec r=\vec a+t\vec d_1\):}
-  \[
-    \Pi:\ \vec n\cdot(\vec r-\vec a)=0\quad \text{with constraint }\ \vec n\cdot \vec d_1=0.
-  \]
-  \item \textbf{Distance from point \(P\) to \(\Pi\):}
-  \[
-    d(P,\Pi)=\frac{|\vec n\cdot(\vec P-\vec a)|}{|\vec n|}.
-  \]
-  \item \textbf{Distance from a line \(l_2:\vec r=\vec b+u\vec d_2\) to \(\Pi\) (minimum over points on \(l_2\)):}
-  \[
-    \min_u \frac{|\vec n\cdot(\vec b-\vec a)+u(\vec n\cdot \vec d_2)|}{|\vec n|}.
-  \]
-  \begin{itemize}[leftmargin=*]
-    \item If \(\vec n\cdot \vec d_2\neq 0\), choose \(u\) to make numerator \(0\) \(\Rightarrow\) min distance \(=0\) (line meets plane).
-    \item If \(\vec n\cdot \vec d_2=0\), distance is constant along \(l_2\):
-    \[
-      d(l_2,\Pi)=\frac{|\vec n\cdot(\vec b-\vec a)|}{|\vec n|}.
-    \]
-  \end{itemize}
-  \item \textbf{Optimization hint (Cauchy--Schwarz):}
-  to maximize \(\dfrac{|\vec n\cdot \vec w|}{|\vec n|}\) under linear constraints on \(\vec n\),
-  choose \(\vec n\) aligned with the component of \(\vec w\) in the allowed subspace.
+  \item \textbf{SN1 rate law:} \(\text{rate} = k[\text{substrate}]\) (leaving group departure is rate-determining).
+  \item \textbf{Carbocation stability (common order):} benzylic/allylic \(\gtrsim\) \(3^\circ > 2^\circ \gg 1^\circ\).
+  \item \textbf{Outcomes:}
+    \begin{itemize}[leftmargin=*]
+      \item Substitution: \(\ce{R-X -> R-OH}\) (water capture), then deprotonation.
+      \item Rearrangement: hydride/alkyl shifts \(\Rightarrow\) more stable carbocation \(\Rightarrow\) different alcohol skeleton.
+      \item Stereochemistry: planar carbocation \(\Rightarrow\) racemization (if chiral center forms).
+    \end{itemize}
 \end{itemize}
 
 \subsection*{\textbf{3) Constants \& standard values needed}}
 \begin{itemize}[leftmargin=*]
-  \item None.
+  \item Solvent polarity: aqueous mixtures stabilize ions, accelerating SN1.
+  \item Leaving group ability (typical): \(\ce{I^- > Br^- > Cl^- \gg F^-}\).
 \end{itemize}
 
 \subsection*{\textbf{4) Units \& dimensional checks}}
 \begin{itemize}[leftmargin=*]
-  \item Distance expressions \(|\vec n\cdot(\cdot)|/|\vec n|\) return length units as expected.
+  \item Kinetics: \(k\) has units of \(\text{s}^{-1}\) for first-order reactions.
+  \item Structural accounting: rearrangements preserve molecular formula; only connectivity changes.
 \end{itemize}
 
 \subsection*{\textbf{5) Quick method}}
 \begin{enumerate}[leftmargin=*]
-  \item Parameterize \(l_1,l_2\) and write general plane through \(l_1\): \(\vec n\cdot(\vec r-\vec a)=0\), \(\vec n\cdot\vec d_1=0\).
-  \item Express \(d(H)\) (minimum distance from \(l_2\) to plane) using the cases \(\vec n\cdot\vec d_2=0\) vs \(\neq 0\).
-  \item For a nonzero minimum distance, enforce \(\vec n\cdot\vec d_2=0\) (so \(l_2\) is parallel to plane).
-  \item Reduce to maximizing \(\dfrac{|\vec n\cdot(\vec b-\vec a)|}{|\vec n|}\) with both constraints \(\vec n\cdot\vec d_1=0\) and \(\vec n\cdot\vec d_2=0\).
-  \item Choose \(\vec n\) along \(\vec d_1\times \vec d_2\) (up to scaling) and compute the resulting distance.
+  \item Identify if substrate can form a stable carbocation (tertiary/benzylic/allylic).
+  \item Write the carbocation after leaving group departure; check for adjacent rearrangement options.
+  \item Add water as nucleophile to carbocation; then deprotonate to alcohol.
+  \item If multiple cations feasible, list corresponding alcohol products; use stability to decide major/minor.
 \end{enumerate}
 
 \subsection*{\textbf{6) Common mistakes}}
 \begin{itemize}[leftmargin=*]
-  \item Allowing \(\vec n\cdot\vec d_2\neq 0\) while expecting positive minimum distance (it usually forces intersection \(\Rightarrow 0\)).
-  \item Forgetting the plane must pass through \emph{every} point on \(l_1\) (hence the normal constraint).
+  \item Forcing SN2 on sterically hindered/benzylic tertiary centers in protic solvent (SN1 dominates).
+  \item Ignoring rearrangements when a more stable carbocation is one shift away.
+  \item Assuming stereospecificity (SN1 is not stereospecific).
 \end{itemize}
 
 \subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
 \begin{verbatim}
-Family of planes through line l1:
-   \  |  /   (fan of planes)
-----\ | /----  axis = l1
-     \|/
+SN1:
+  R-X  ->  R+  + X-
+  R+ + H2O -> R-OH2+ -> R-OH
+
+Rearrangement:
+  less stable R+  --shift-->  more stable R+
 \end{verbatim}
 
 % -------------------------
-% Coverage Validation
+% Module I
 % -------------------------
-\section*{Coverage Validation}
+\section*{\textbf{Module I: Multi-Step Stoichiometry with Percent Yields}}
+\subsection*{\textbf{1) Concept snapshot}}
 \begin{itemize}[leftmargin=*]
-  \item \checkmark\ [Page 1] ``If the line through the points A(4, 1, 2), B(5,...'' $\rightarrow$ Module B, Module C
-  \item \checkmark\ [Page 2] ``Consider the three points as A(2, 0, 3), B(O, 3, 2)...'' $\rightarrow$ Module G, Module A
-  \item \checkmark\ [Page 3] ``Consider, the vertices of a tetrahedron as A(O, 0, 0), B(3,0,0)...'' $\rightarrow$ Module F, Module A
-  \item \checkmark\ [Page 4] ``The equation of the plane which has the property that the point Q(5, 4, 5)...'' $\rightarrow$ Module E
-  \item \checkmark\ [Page 5] ``The projection of line 3x - y + 2z - 1 = 0 = x+2y-2-2...'' $\rightarrow$ Module D, Module C
-  \item \checkmark\ [Page 6] ``The line (symmetric form) intersects the curve xy=\dots, z=0,...'' $\rightarrow$ Module B, Module C
-  \item \checkmark\ [Page 7] ``Let A be vector parallel to the line of intersection of planes ...'' $\rightarrow$ Module A, Module C, Module D
-  \item \checkmark\ [Page 8] ``From any point P(a, b, c) are drawn perpendiculars ... Equation of the plane OMN...'' $\rightarrow$ Module G, Module C
-  \item \checkmark\ [Page 9] ``The equation of the plane through the intersection of the planes x+y+z=1 and 2x+3y-z+4=0...'' $\rightarrow$ Module C, Module D
-  \item \checkmark\ [Page 10] ``The plane passing through the point (-2, -2, 2) and containing the line joining the points (1,1,1)...'' $\rightarrow$ Module C
-  \item \checkmark\ [Page 11] ``If P(2, 3, 1) is a point and L=x-y-z-2=0 is a plane then...'' $\rightarrow$ Module E
-  \item \checkmark\ [Page 12] ``If a line makes angles 3\(\alpha\), 3\(\beta\), 3\(\gamma\) with the coordinate axes, find the value of \(\cos6\alpha+\cos6\beta+\cos6\gamma\)...'' $\rightarrow$ Module A
-  \item \checkmark\ [Page 13] ``The plane \(ax+by=0\) is rotated through an angle \(\alpha\) about its line of intersection with \(z=0\)...'' $\rightarrow$ Module C
-  \item \checkmark\ [Page 14] ``If the planes \(kx+4y+z=0\), \(4x+ky+2z=0\) and \(2x+2y+z=0\) intersect along a straight line...'' $\rightarrow$ Module C
-  \item \checkmark\ [Page 15] ``The direction ratios of a normal to the plane through (1,0,0), (0,1,0) which makes an angle \(\pi/4\) with the plane \(x+y=3\)...'' $\rightarrow$ Module C, Module A
-  \item \checkmark\ [Page 16] ``If the equation of the plane passing through the line of intersection of the planes \(2x-y+z=3\) and \(4x-3y+5z+9=0\) and parallel to a line...'' $\rightarrow$ Module C, Module D
-  \item \checkmark\ [Page 17] ``Let the image of the point P(1,2,3) in the plane \(2x-y+z=9\) be Q... square of the area of triangle PQR...'' $\rightarrow$ Module E, Module G
-  \item \checkmark\ [Page 18] ``The shortest distance from the plane \(12x+4y+3z=327\) to the sphere \(x^2+y^2+z^2+4x-2y-6z=155\)...'' $\rightarrow$ Module F, Module E
-  \item \checkmark\ [Page 19] ``Find the points on z-axis which are at a distance \(\sqrt{21}\) from the point A(1,2,3)...'' $\rightarrow$ Module G
-  \item \checkmark\ [Page 20] ``Let \(l_1\) and \(l_2\) be the lines ... planes containing \(l_1\) ... maximize \(d(H)\) ...'' $\rightarrow$ Module H, Module B, Module C, Module E
-  \item \checkmark\ [Page 21] ``If the shortest distance between the lines (given) is \(\sqrt{a}\), then the value of \(a\) is...'' $\rightarrow$ Module B, Module A
-  \item \checkmark\ [Page 22] ``Given the points P,Q,R,S are (4,7,8), (-1,-2,1), (2,3,4), (1,2,5)... if PQ and RS intersect...'' $\rightarrow$ Module G, Module B
-  \item \checkmark\ [Page 23] ``If the position vectors of the vertices A, B and C of a triangle ABC are respectively ... then the position vector of the point where the bisector of angle A meets BC...'' $\rightarrow$ Module G, Module A
-  \item \checkmark\ [Page 24] ``If the straight lines (given) are coplanar, then the planes containing these two lines are...'' $\rightarrow$ Module B, Module C, Module D
-  \item \checkmark\ [Page 25] ``Given four points A(2,1,0), B(1,0,1), C(3,0,1), D(0,0,2)... perpendicular distance of D from plane ABC...'' $\rightarrow$ Module C, Module E
-  \item \checkmark\ [Page 26] ``If the position vector of the point of intersection of the line \(\vec r=\dots\) and the plane \(\vec r\cdot(2\hat i-6\hat j+3\hat k)+5=0\) is \(a\hat i+b\hat j+c\hat k\)...'' $\rightarrow$ Module B, Module C
-  \item \checkmark\ [Page 27] ``If the foot of the perpendicular drawn from the point (1,0,3) on a line passing through (a,7,1) is (given)...'' $\rightarrow$ Module B, Module E
-  \item \checkmark\ [Page 28] ``If the foot of perpendicular from the point P(4,6,2) to the line (intersection of planes) is (a,b,c)...'' $\rightarrow$ Module B, Module E
-  \item \checkmark\ [Page 29] ``If the shortest distance between the lines \(\vec r=\dots\) and \(\vec r=\dots\) is 9, then \(a\) is equal to...'' $\rightarrow$ Module B, Module A
-  \item \checkmark\ [Page 30] ``The ratio in which the line segment joining (2,4,5) and (3,5,-4) is divided by the yz-plane...'' $\rightarrow$ Module G, Module B
+  \item Many synthetic chains ask for final mass given starting moles and stepwise yields.
+  \item Treat each step as a conversion factor: moles propagate multiplicatively with yield fractions.
+  \item Keep stoichiometric coefficients explicit (often \(1{:}1\), but haloform-type steps create side products).
 \end{itemize}
+
+\subsection*{\textbf{2) Formula bank}}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Yield propagation:}
+  \[
+    n_{\text{final}} = n_0 \times \prod_i \left(\frac{Y_i}{100}\right)\times \left(\text{stoichiometric ratio}\right)
+  \]
+  \item \textbf{Mass from moles:} \(m = n \times M\), where \(M\) is molar mass in \(\si{g\,mol^{-1}}\).
+  \item \textbf{Molar mass from atomic weights:} \(M = \sum (\text{atoms})\times(\text{atomic weight})\).
+\end{itemize}
+
+\subsection*{\textbf{3) Constants \& standard values needed}}
+\begin{itemize}[leftmargin=*]
+  \item Common atomic weights used in problems (if specified): \(\ce{H}=1\), \(\ce{C}=12\), \(\ce{N}=14\), \(\ce{O}=16\), \(\ce{Br}=80\) (all in \(\si{g\,mol^{-1}}\)).
+  \item Percent to fraction: \(60\% = 0.60\), etc.
+\end{itemize}
+
+\subsection*{\textbf{4) Units \& dimensional checks}}
+\begin{itemize}[leftmargin=*]
+  \item Yields are unitless fractions; moles remain moles stepwise.
+  \item Final mass in grams requires \(M\) in \(\si{g\,mol^{-1}}\).
+\end{itemize}
+
+\subsection*{\textbf{5) Quick method}}
+\begin{enumerate}[leftmargin=*]
+  \item Write starting moles \(n_0\).
+  \item For each step, multiply by yield fraction \(\left(\frac{Y}{100}\right)\).
+  \item Apply any stoichiometric factor if products are not formed \(1{:}1\).
+  \item Compute molar mass \(M\) using the given atomic weights.
+  \item Convert to mass \(m=nM\).
+\end{enumerate}
+
+\subsection*{\textbf{6) Common mistakes}}
+\begin{itemize}[leftmargin=*]
+  \item Applying yields to mass instead of moles mid-chain without consistency.
+  \item Forgetting that yields apply sequentially (you do not average them).
+  \item Molar mass errors from missing halogens (e.g., bromine contribution is huge).
+\end{itemize}
+
+\subsection*{\textbf{7) Mini-visuals (ASCII) if helpful}}
+\begin{verbatim}
+n0 --(Y1)--> n1 --(Y2)--> n2 --(Y3)--> n3
+n3 * M = final grams
+\end{verbatim}
+
+% -------------------------
+% Appendix: Question–Module Mapping
+% -------------------------
+\section*{\textbf{Appendix: Question–Module Mapping}}
+\begin{center}
+\begin{tabular}{|c|c|}
+\hline
+\textbf{Question No.} & \textbf{Covered Module(s)} \\
+\hline
+1 & Module A \\
+2 & Module C \\
+3 & Module E \\
+4 & Module D \\
+5 & Module A, Module B \\
+6 & Module B \\
+7 & Module G \\
+8 & Module C \\
+9 & Module F \\
+10 & Module D \\
+11 & Module B, Module C, Module E \\
+12 & Module B, Module E \\
+13 & Module A \\
+14 & Module C \\
+15 & Module B \\
+16 & Module D \\
+17 & Module B, Module C, Module E, Module I \\
+18 & Module A \\
+19 & Module A \\
+20 & Module H \\
+21 & Module B \\
+22 & Module A \\
+23 & Module C \\
+24 & Module A \\
+25 & Module A, Module B, Module C, Module E \\
+\hline
+\end{tabular}
+\end{center}
 
 \end{document}
